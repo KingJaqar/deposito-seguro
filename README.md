@@ -42,6 +42,8 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
 - If device was lost, then stored files will also be lost
 
 **Source Code File Structure**
+
+
 deposito-seguro/
 ├── app.json                                 # OS manifest permissions (FaceID strings & sandboxing)
 ├── package.json                             # Structural frozen dependency engine tree
@@ -93,3 +95,5 @@ deposito-seguro/
     │   └── vaultStore.ts                    # Physical core engine managing files, directories, & trash state
     └── types/
         └── index.ts                         # System data model definitions (Folder, File, Settings definitions)
+
+
