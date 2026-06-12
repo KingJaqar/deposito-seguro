@@ -45,11 +45,17 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
 
 
 deposito-seguro/
+
 ├── app.json                                 # OS manifest permissions (FaceID strings & sandboxing)
+
 ├── package.json                             # Structural frozen dependency engine tree
+
 ├── tsconfig.json                            # Strict compiler mapping & absolute path rules
+
 └── src/
+
     ├── app/
+    
     │   ├── _layout.tsx                      # Core zero-knowledge application boot gatekeeper
     │   ├── (auth)/
     │   │   ├── lock.tsx                     # Non-destructive session lock screen matrix
