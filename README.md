@@ -15,3 +15,29 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
 4. Downloadable Content Zip Backup
 5. App Disguise and Stealth
 6. Customization
+
+**Scope, Delimitations and Limitations**
+
+**Scope**
+
+- A personal vault storage mobile application
+- Password authentication
+- Optional encryption for specific chosen files
+- App camouflaged / mask option
+- Friendly and customizable UI for personal preference
+- Backup availability
+- Internet connection is not required
+
+**Delimitations**  
+
+- No usage of cloud storage or no moving files to cloud storage option
+- Stored files can only accessed in the local storage of the device the vault app were installed
+- No usage of cloud database (e.g firebase, supabase, mongoDB atlas & realm)
+- Manual backup instead of automatic backup since no cloud storage were utilized
+- If device was lost, then stored files will also be lost
+
+**Limitations**
+
+- Local storage as the database might eat up high memory usage
+- Large files could be too big to be stored
+
