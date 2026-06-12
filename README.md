@@ -41,3 +41,55 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
 - Large files could be too big to be stored
 - If device was lost, then stored files will also be lost
 
+**Source Code File Structure**
+deposito-seguro/
+├── app.json                                 # OS manifest permissions (FaceID strings & sandboxing)
+├── package.json                             # Structural frozen dependency engine tree
+├── tsconfig.json                            # Strict compiler mapping & absolute path rules
+└── src/
+    ├── app/
+    │   ├── _layout.tsx                      # Core zero-knowledge application boot gatekeeper
+    │   ├── (auth)/
+    │   │   ├── lock.tsx                     # Non-destructive session lock screen matrix
+    │   │   ├── login.tsx                    # Dual-purpose portal (Standard / Calculator Skin)
+    │   │   ├── onboarding.tsx               # First-time local installation setup intro
+    │   │   └── register.tsx                 # Zero-knowledge master payload provisioning
+    │   └── (main)/
+    │       ├── _layout.tsx                  # Automated background listener & hardware lock hook
+    │       ├── dashboard.tsx                # Space capacity metrics & allocation controller
+    │       ├── favorites.tsx                # Fast-access pointer file shortcut directory
+    │       ├── search.tsx                   # Multi-mime global sandbox indexing search engine
+    │       ├── trash.tsx                    # Multi-stage secure shredded retention queue
+    │       ├── folder/
+    │       │   └── [id].tsx                 # Sandbox asset importer & partition view
+    │       ├── settings/
+    │       │   ├── customization.tsx        # UI Skin swapping configuration layout (AMOLED/Light)
+    │       │   ├── index.tsx                # Global settings controller root file
+    │       │   └── storage.tsx              # Hardware block storage telemetry data metrics
+    │       └── viewer/
+    │           ├── document.tsx             # Sandboxed plain text/doc secure memory preview canvas
+    │           ├── image.tsx                # Memory-sweeping decrypted local image rendering canvas
+    │           └── video.tsx                # Local loop stream asset execution matrix
+    ├── components/
+    │   ├── AnimatedCard.tsx                 # Dynamic layout motion framework
+    │   ├── GridListToggle.tsx               # Workspace display visual switcher
+    │   ├── StyledButton.tsx                 # Master design system interactive click button
+    │   └── VaultHeader.tsx                  # Cryptographic navigation top bar
+    ├── constants/
+    │   └── Colors.ts                        # Camouflage theme multi-skin palette hex variables
+    ├── contexts/
+    │   └── ThemeContext.tsx                 # Real-time skin swapping state rendering context
+    ├── hooks/
+    │   └── useFileSystemQuery.ts            # Local hierarchy path metadata collection query hook
+    ├── security/
+    │   ├── biometrics.ts                    # Native iOS FaceID / Android Biometric hardware platform bridge
+    │   └── crypto.ts                        # 5,000-cycle local iteration security hashing engine
+    ├── services/
+    │   ├── backup.ts                        # Non-cloud local manifest backup file stream matrix
+    │   └── storage.ts                       # Physical sandbox sector directory read/write manager
+    ├── store/
+    │   ├── authStore.ts                     # State machine managing zero-knowledge app lock variables
+    │   ├── settingsStore.ts                 # Local state tracker for layout schemes and disguise states
+    │   └── vaultStore.ts                    # Physical core engine managing files, directories, & trash state
+    └── types/
+        └── index.ts                         # System data model definitions (Folder, File, Settings definitions)
