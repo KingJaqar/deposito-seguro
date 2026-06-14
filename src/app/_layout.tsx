@@ -1,15 +1,21 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { Slot } from 'expo-router';
+import { useEffect } from 'react';
+import { CustomThemeProvider } from '../contexts/ThemeContext';
+import { useSettingsStore } from '../store/settingsStore';
+import { useVaultStore } from '../store/vaultStore';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+export default function RootLayout() {
+   const { hydrateSettings } = useSettingsStore();
+   const { hydrateVault } = useVaultStore();
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
-  );
-}
+   useEffect(() => {
+     hydrateSettings();
+     hydrateVault();
+   }, [hydrateSettings, hydrateVault]);
+
+   return (
+     <CustomThemeProvider>
+       <Slot />
+     </CustomThemeProvider>
+   );
+ }

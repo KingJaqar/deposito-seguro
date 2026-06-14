@@ -1,44 +1,63 @@
 {
   "expo": {
-    "name": "deposito-seguro",
+    "name": "Deposito Seguro",
     "slug": "deposito-seguro",
     "version": "1.0.0",
+    "scheme": "depositoseguro",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "depositoseguro",
     "userInterfaceStyle": "automatic",
+    "web": {
+      "build": {
+        "dist": "web-build"
+      }
+    },
     "ios": {
-      "icon": "./assets/expo.icon"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.anonymous.depositoseguro",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Deposito Seguro requires Face ID to open your protected files vault locally.",
+        "NSCameraUsageDescription": "Allow Deposito Seguro to access the camera to capture secure photos directly into the isolated sandbox.",
+        "NSPhotoLibraryUsageDescription": "Allow Deposito Seguro to import photos into your encrypted local partition.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#121212"
       },
-      "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "package": "com.anonymous.depositoseguro",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "USE_BIOMETRIC",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "plugins": [
-      "expo-router",
       [
-        "expo-splash-screen",
+        "expo-router",
         {
-          "backgroundColor": "#208AEF",
-          "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
-          }
+          "origin": "https://deposito-seguro.local,http://localhost:8081"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Deposito Seguro to use Face ID for securing your local information vaults."
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+    "extra": {
+      "router": {
+        "origin": "https://deposito-seguro.local,http://localhost:8081"
+      },
+      "eas": {
+        "projectId": "70c0d05e-eaac-4be3-8c76-b08ce480d6d2"
+      }
     }
   }
 }
