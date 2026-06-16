@@ -1,56 +1,133 @@
-# Welcome to your Expo app 👋
+# deposito-seguro
+A vault storage mobile app for storing photos, videos and other files with encryption developed using React Native Expo
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-## Get started
+**Project Description:**
 
-1. Install dependencies
+Deposito Seguro is created to store personal/sensitive photos, videos, and other files for privacy and as a personal storage app, the app is locked with a password requiring the user to create their own password for protection purposes, encryption for folders and specific files is optional for the user. Local storage is used instead of cloud for the database since this is a personal project, stored files can only be recovered in the device the app was installed on, downloadable backup contents in zip will be available for backups. React Native Expo framework will be used to develop this project since it is a modern framework, flexible and much easier to deal with in terms of development, AI autonomous coding (Kilo Code, Cline, Google Gemini, ChatGPT, and Claude) will be part of the project too. 
 
-   ```bash
-   npm install
-   ```
 
-2. Start the app
+**Features:**
 
-   ```bash
-   npx expo start
-   ```
+1. App Password
+2. Create Folders for Storing Files
+3. Specific File Encryption
+4. Downloadable Content Zip Backup
+5. App Disguise and Stealth
+6. Customization
 
-In the output, you'll find options to open the app in a
+**Scope, Delimitations and Limitations**
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+**Scope**
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- A personal vault storage mobile application
+- Password authentication
+- Optional encryption for specific chosen files
+- App camouflaged / mask option
+- Friendly and customizable UI for personal preference
+- Backup availability
+- Internet connection is not required
 
-## Get a fresh project
+**Delimitations**  
 
-When you're ready, run:
+- No usage of cloud storage or no moving files to cloud storage option
+- Stored files can only accessed in the local storage of the device the vault app were installed
+- No usage of cloud database (e.g firebase, supabase, mongoDB atlas & realm)
+- Manual backup instead of automatic backup since no cloud storage were utilized
 
-```bash
-npm run reset-project
-```
+**Limitations**
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- Local storage as the database might eat up high memory usage
+- Large files could be too big to be stored
+- If device was lost, then stored files will also be lost
 
-### Other setup steps
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
 
-## Learn more
 
-To learn more about developing your project with Expo, look at the following resources:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
-## Join the community
+**Source Code File Structure**
 
-Join our community of developers creating universal apps.
+    deposito-seguro/ 
+    ├── app.json                                 # OS manifest permissions (FaceID strings & sandboxing)
+    ├── package.json                             # Structural frozen dependency engine tree
+    ├── tsconfig.json 
+    └── src/
+    ├── app/
+    │   ├── _layout.tsx                      # Core zero-knowledge application boot gatekeeper
+    │   ├── (auth)/
+    │   │   ├── lock.tsx                     # Non-destructive session lock screen matrix
+    │   │   ├── login.tsx                    # Dual-purpose portal (Standard / Calculator Skin)
+    │   │   ├── onboarding.tsx               # First-time local installation setup intro
+    │   │   └── register.tsx                 # Zero-knowledge master payload provisioning
+    │   └── (main)/
+    │       ├── _layout.tsx                  # Automated background listener & hardware lock hook
+    │       ├── dashboard.tsx                # Space capacity metrics & allocation controller
+    │       ├── favorites.tsx                # Fast-access pointer file shortcut directory
+    │       ├── search.tsx                   # Multi-mime global sandbox indexing search engine
+    │       ├── trash.tsx                    # Multi-stage secure shredded retention queue
+    │       ├── folder/
+    │       │   └── [id].tsx                 # Sandbox asset importer & partition view
+    │       ├── settings/
+    │       │   ├── customization.tsx        # UI Skin swapping configuration layout (AMOLED/Light)
+    │       │   ├── index.tsx                # Global settings controller root file
+    │       │   └── storage.tsx              # Hardware block storage telemetry data metrics
+    │       └── viewer/
+    │           ├── document.tsx             # Sandboxed plain text/doc secure memory preview canvas
+    │           ├── image.tsx                # Memory-sweeping decrypted local image rendering canvas
+    │           └── video.tsx                # Local loop stream asset execution matrix
+    ├── components/
+    │   ├── AnimatedCard.tsx                 # Dynamic layout motion framework
+    │   ├── GridListToggle.tsx               # Workspace display visual switcher
+    │   ├── StyledButton.tsx                 # Master design system interactive click button
+    │   └── VaultHeader.tsx                  # Cryptographic navigation top bar
+    ├── constants/
+    │   └── Colors.ts                        # Camouflage theme multi-skin palette hex variables
+    ├── contexts/
+    │   └── ThemeContext.tsx                 # Real-time skin swapping state rendering context
+    ├── hooks/
+    │   └── useFileSystemQuery.ts            # Local hierarchy path metadata collection query hook
+    ├── security/
+    │   ├── biometrics.ts                    # Native iOS FaceID / Android Biometric hardware platform bridge
+    │   └── crypto.ts                        # 5,000-cycle local iteration security hashing engine
+    ├── services/
+    │   ├── backup.ts                        # Non-cloud local manifest backup file stream matrix
+    │   └── storage.ts                       # Physical sandbox sector directory read/write manager
+    ├── store/
+    │   ├── authStore.ts                     # State machine managing zero-knowledge app lock variables
+    │   ├── settingsStore.ts                 # Local state tracker for layout schemes and disguise states
+    │   └── vaultStore.ts                    # Physical core engine managing files, directories, & trash state
+    └── types/
+        └── index.ts                         # System data model definitions (Folder, File, Settings definitions)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
