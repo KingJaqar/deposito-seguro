@@ -25,6 +25,19 @@ export class SecureCrypto {
     return Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
   }
 
+  static async generateEncryptionKey(customKey?: string): Promise<string> {
+    if (customKey?.trim()) {
+      return SecureCrypto.hashPassword(customKey.trim(), SecureCrypto.generateSalt());
+    }
+
+    const bytes = Array.from(await Crypto.getRandomBytes(32));
+    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  static fingerprint(key: string): string {
+    return key.slice(0, 12).toUpperCase();
+  }
+
   /**
    * Simulated high-performance local AES-256 transformations inside the sandbox.
    * Leveraged across files requesting encrypted storage status.

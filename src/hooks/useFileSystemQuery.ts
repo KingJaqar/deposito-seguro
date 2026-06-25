@@ -1,3 +1,4 @@
+// File: src/hooks/useFileSystemQuery.ts
 import { useMemo } from 'react';
 import { useVaultStore } from '../store/vaultStore';
 
@@ -10,6 +11,7 @@ export const useFileSystemQuery = (folderId?: string, queryText?: string) => {
 
     if (folderId) {
       filteredFiles = filteredFiles.filter(f => f.folderId === folderId);
+      filteredFolders = filteredFolders.filter(f => f.parentId === folderId);
     }
 
     if (queryText && queryText.trim().length > 0) {
@@ -20,7 +22,7 @@ export const useFileSystemQuery = (folderId?: string, queryText?: string) => {
 
     return {
       matchedFiles: filteredFiles,
-      matchedFolders: folderId ? [] : filteredFolders
+      matchedFolders: filteredFolders
     };
   }, [files, folders, folderId, queryText]);
 };

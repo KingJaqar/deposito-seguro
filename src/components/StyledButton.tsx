@@ -1,3 +1,4 @@
+// File: src/components/StyledButton.tsx
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useThemeColors } from '../contexts/ThemeContext';
 
@@ -15,7 +16,7 @@ export const StyledButton = ({ title, onPress, variant = 'primary' }: StyledButt
     <TouchableOpacity 
       style={[styles.btn, { backgroundColor: bg }]} 
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={0.8}
     >
       <Text style={styles.txt}>{title}</Text>
     </TouchableOpacity>
@@ -23,6 +24,6 @@ export const StyledButton = ({ title, onPress, variant = 'primary' }: StyledButt
 };
 
 const styles = StyleSheet.create({
-  btn: { padding: 14, borderRadius: 8, alignItems: 'center', marginVertical: 8, cursor: 'pointer' },
-  txt: { color: '#FFF', fontWeight: '700', fontSize: 16 }
+  btn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 16, alignItems: 'center', marginHorizontal: 4 },
+  txt: { color: '#FFF', fontWeight: '600', fontSize: 14 }
 });

@@ -7,7 +7,7 @@ export default function LockScreen() {
   
   useEffect(() => {
     checkSetup();
-  }, []);
+  }, [checkSetup]);
   
   return <LoginScreen />;
 }

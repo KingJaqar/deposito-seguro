@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
@@ -7,10 +7,9 @@ import { useSettingsStore } from '../../store/settingsStore';
 
 export default function LoginScreen() {
   const colors = useThemeColors();
-  const { authenticate, securityHint, isAuthenticated } = useAuthStore();
-  const { biometricsEnabled, disguiseMode } = useSettingsStore();
+  const { authenticate, securityHint } = useAuthStore();
+  const { disguiseMode } = useSettingsStore();
   const [inputBuffer, setInputBuffer] = useState('');
-  const lastResultRef = useRef<string | null>(null);
 
   const handleStandardAuth = async () => {
     const success = await authenticate(inputBuffer);
@@ -22,47 +21,48 @@ export default function LoginScreen() {
     }
   };
 
-  const evaluateExpression = (expr: string): string => {
+  const evaluateExpression = (expr: string): string | null => {
+    if (!/^[\d+\-*/.()%\s]+$/.test(expr)) {
+      return null;
+    }
     try {
       const sanitized = expr.replace(/[^0-9+\-*/.()%\s]/g, '');
       const result = Function(`'use strict'; return (${sanitized})`)();
       return String(result);
     } catch {
-      return '';
+      return null;
     }
   };
 
   const handleCalculatorPress = (token: string) => {
     if (token === 'C') {
       setInputBuffer('');
-      lastResultRef.current = null;
     } else if (token === '=') {
-      if (inputBuffer && !/^[\d+\-*/.()%\s]+$/.test(inputBuffer)) {
-        handleStandardAuth();
-      } else {
+      if (inputBuffer) {
         const result = evaluateExpression(inputBuffer);
-        if (result) {
+        if (result === null) {
+          handleStandardAuth();
+        } else {
           setInputBuffer(result);
-          lastResultRef.current = result;
         }
       }
+    } else if (token === '+/-') {
+      if (inputBuffer && inputBuffer[0] !== '-') {
+        setInputBuffer('-' + inputBuffer);
+      } else if (inputBuffer && inputBuffer[0] === '-') {
+        setInputBuffer(inputBuffer.substring(1));
+      }
+    } else if (token === '%') {
+      const num = parseFloat(inputBuffer);
+      if (!isNaN(num)) {
+        setInputBuffer((num / 100).toString());
+      }
     } else if (token === '+' || token === '-' || token === '*' || token === '/') {
-      if (inputBuffer && !inputBuffer.endsWith('+') && !inputBuffer.endsWith('-') && 
-          !inputBuffer.endsWith('*') && !inputBuffer.endsWith('/')) {
-        setInputBuffer(prev => prev + ` ${token} `);
+      if (inputBuffer && !inputBuffer.endsWith(' ') && !/[+\-*/]$/.test(inputBuffer.trim())) {
+        setInputBuffer(prev => prev + ' ' + token + ' ');
       }
     } else {
       setInputBuffer(prev => prev + token);
-    }
-  };
-
-  const handlePercentage = () => {
-    if (inputBuffer) {
-      const parts = inputBuffer.split(/[\+\-\*\/]/);
-      const lastNum = parts[parts.length - 1];
-      if (lastNum && !isNaN(Number(lastNum))) {
-        setInputBuffer(prev => prev.replace(lastNum, (Number(lastNum) / 100).toString()));
-      }
     }
   };
 
@@ -80,9 +80,6 @@ export default function LoginScreen() {
     return (
       <View style={[styles.calcContainer, { backgroundColor: '#17171C' }]}>
         <View style={styles.calcScreen}>
-          <Text style={styles.calcHistoryText} numberOfLines={1}>
-            {lastResultRef.current ? 'Ans' : ''}
-          </Text>
           <Text style={styles.calcInputText} numberOfLines={1}>
             {inputBuffer || '0'}
           </Text>
@@ -96,10 +93,7 @@ export default function LoginScreen() {
                 
                 if (token === '=') {
                   btnBg = '#FF9F0A';
-                } else if (token === 'C') {
-                  btnBg = '#A5A5A5';
-                  txtColor = '#000';
-                } else if (token === '(' || token === ')' || token === '%') {
+                } else if (token === 'C' || token === '(' || token === ')' || token === '%') {
                   btnBg = '#A5A5A5';
                   txtColor = '#000';
                 }
@@ -108,16 +102,10 @@ export default function LoginScreen() {
                   <TouchableOpacity
                     key={token}
                     style={[styles.calcButton, { backgroundColor: btnBg }]}
-                    onPress={() => {
-                      if (token === '%') {
-                        handlePercentage();
-                      } else {
-                        handleCalculatorPress(token);
-                      }
-                    }}
+                    onPress={() => handleCalculatorPress(token)}
                   >
                     <Text style={[styles.calcButtonText, { color: txtColor }]}>
-                      {token === '=' ? '=' : token}
+                      {token}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -150,12 +138,6 @@ export default function LoginScreen() {
       {securityHint ? (
         <Text style={[styles.hintText, { color: colors.textMuted }]}>Hint: {securityHint}</Text>
       ) : null}
-
-      {biometricsEnabled && false && (
-        <TouchableOpacity style={styles.bioTrigger} onPress={() => {}}>
-          <Text style={{ color: colors.primary, fontWeight: '600' }}>Retry Biometric Challenge</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
@@ -163,7 +145,6 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   calcContainer: { flex: 1, justifyContent: 'flex-end', paddingBottom: 20 },
   calcScreen: { paddingHorizontal: 24, paddingVertical: 32, alignItems: 'flex-end' },
-  calcHistoryText: { color: '#8E8E93', fontSize: 20, fontWeight: '300', marginBottom: 8 },
   calcInputText: { color: '#FFF', fontSize: 64, fontWeight: '300' },
   calcGrid: { paddingHorizontal: 12 },
   calcRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
@@ -174,6 +155,5 @@ const styles = StyleSheet.create({
   stdInput: { height: 52, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, fontSize: 16, marginBottom: 16 },
   stdSubmit: { height: 52, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   stdSubmitText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  hintText: { textAlign: 'center', marginTop: 20, fontStyle: 'italic' },
-  bioTrigger: { textAlign: 'center', marginTop: 32, alignItems: 'center' }
+  hintText: { textAlign: 'center', marginTop: 20, fontStyle: 'italic' }
 });

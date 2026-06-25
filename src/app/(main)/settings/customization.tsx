@@ -1,56 +1,160 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { AnimatedCard } from '../../../components/AnimatedCard';
+// File: src/app/(main)/settings/customization.tsx
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+} from 'react-native-reanimated';
+import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
 import { useSettingsStore } from '../../../store/settingsStore';
+
+function OptionRow({
+  label,
+  sublabel,
+  active,
+  onPress,
+  colors,
+}: {
+  label: string;
+  sublabel?: string;
+  active: boolean;
+  onPress: () => void;
+  colors: any;
+}) {
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: active ? 1.02 : 1 }] }));
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={onPress}
+    >
+      <Animated.View
+        style={[
+          optStyles.row,
+          animStyle,
+          {
+            backgroundColor: active
+              ? `${colors.primary}22`
+              : 'transparent',
+            borderColor: active
+              ? colors.primary
+              : 'rgba(255,255,255,0.07)',
+          },
+        ]}
+      >
+        <View style={optStyles.texts}>
+          <Text style={[optStyles.label, { color: colors.text }]}>{label}</Text>
+          {sublabel ? (
+            <Text style={[optStyles.sublabel, { color: 'rgba(255,255,255,0.35)' }]}>{sublabel}</Text>
+          ) : null}
+        </View>
+        <View
+          style={[
+            optStyles.radio,
+            {
+              borderColor: active ? colors.primary : 'rgba(255,255,255,0.2)',
+              backgroundColor: active ? colors.primary : 'transparent',
+            },
+          ]}
+        >
+          {active && <View style={optStyles.radioDot} />}
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
+const optStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    marginBottom: 10,
+  },
+  texts: { flex: 1 },
+  label: { fontSize: 15, fontWeight: '600' },
+  sublabel: { fontSize: 12, marginTop: 3 },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
+});
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <Text style={sTitle.t}>{title}</Text>
+  );
+}
+const sTitle = StyleSheet.create({
+  t: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+    color: 'rgba(255,255,255,0.38)',
+    textTransform: 'uppercase',
+    marginBottom: 12,
+    marginTop: 24,
+    paddingHorizontal: 4,
+  },
+});
 
 export default function CustomizationSettingsScreen() {
   const colors = useThemeColors();
   const { themeMode, viewMode, updateSetting } = useSettingsStore();
 
-  const themeOptions: { id: typeof themeMode; label: string }[] = [
-    { id: 'light', label: 'Classic Light' },
-    { id: 'dark', label: 'Deep Dark' },
-    { id: 'amoled', label: 'AMOLED High Contrast' }
+  const themeOptions: { id: typeof themeMode; label: string; sub: string }[] = [
+    { id: 'light', label: '☀️ Classic Light', sub: 'Bright backgrounds, dark text' },
+    { id: 'dark', label: '🌙 Deep Dark', sub: 'Low-light comfortable theme' },
+    { id: 'amoled', label: '⚫ AMOLED Contrast', sub: 'True black for OLED displays' },
   ];
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Appearance Layouts" showBack />
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
-        
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Core Visual Mode Engine</Text>
-        {themeOptions.map(opt => {
-          const active = themeMode === opt.id;
-          return (
-            <AnimatedCard key={opt.id} onPress={() => updateSetting('themeMode', opt.id)}>
-              <View style={styles.selectionRow}>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: active ? '700' : '400' }}>
-                  {opt.label}
-                </Text>
-                {active && <Text style={{ color: colors.primary, fontWeight: 'bold' }}>✓ Active</Text>}
-              </View>
-            </AnimatedCard>
-          );
-        })}
+      <VaultHeader title="Appearance" showBack />
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Dashboard View Configuration</Text>
-        <AnimatedCard onPress={() => updateSetting('viewMode', viewMode === 'grid' ? 'list' : 'grid')}>
-          <View style={styles.selectionRow}>
-            <Text style={{ color: colors.text, fontSize: 16 }}>
-              Current Directory Layout: <Text style={{ fontWeight: 'bold', textTransform: 'uppercase' }}>{viewMode}</Text>
-            </Text>
-            <Text style={{ color: colors.primary, fontWeight: '600' }}>Toggle State</Text>
-          </View>
-        </AnimatedCard>
+        <SectionTitle title="Color Theme" />
+        {themeOptions.map(opt => (
+          <OptionRow
+            key={opt.id}
+            label={opt.label}
+            sublabel={opt.sub}
+            active={themeMode === opt.id}
+            onPress={() => updateSetting('themeMode', opt.id)}
+            colors={colors}
+          />
+        ))}
+
+        <SectionTitle title="Directory Layout" />
+        <OptionRow
+          label="⊞ Grid View"
+          sublabel="Files displayed in a grid"
+          active={viewMode === 'grid'}
+          onPress={() => updateSetting('viewMode', 'grid')}
+          colors={colors}
+        />
+        <OptionRow
+          label="☰ List View"
+          sublabel="Files displayed as rows"
+          active={viewMode === 'list'}
+          onPress={() => updateSetting('viewMode', 'list')}
+          colors={colors}
+        />
 
       </ScrollView>
+      <AnimatedTabBar />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  sectionTitle: { fontSize: 13, fontWeight: 'bold', marginTop: 24, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  selectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }
+  scroll: { paddingHorizontal: 16, paddingBottom: 110, paddingTop: 8 },
 });

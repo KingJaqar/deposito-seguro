@@ -1,3 +1,4 @@
+// File: src/contexts/ThemeContext.tsx
 import { Palette } from '../constants/Colors';
 import { useSettingsStore } from '../store/settingsStore';
 import { createContext, ReactNode, useContext, useMemo } from 'react';

@@ -38,18 +38,15 @@
       ]
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://deposito-seguro.local,http://localhost:8081"
-        }
-      ],
+      "expo-router",
       [
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow Deposito Seguro to use Face ID for securing your local information vaults."
         }
-      ]
+      ],
+      "expo-sharing",
+      "expo-video"
     ],
     "extra": {
       "router": {

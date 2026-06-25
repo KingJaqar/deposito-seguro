@@ -1,5 +1,7 @@
+// File: src/services/storage.ts
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import { SecureCrypto } from '../security/crypto';
 
 const VAULT_DIR = `${FileSystem.documentDirectory}vault_sandbox/`;
 
@@ -26,35 +28,44 @@ export class StorageService {
   }
 
   static async removeSandboxFile(localPath: string) {
+    if (!localPath) return;
     if (Platform.OS === 'web') {
+      const fileName = localPath.startsWith('/web-vault/') ? localPath.replace('/web-vault/', '') : localPath;
+      webVaultStorage.delete(fileName);
       webVaultStorage.delete(localPath);
-      webVaultStorage.delete(`/web-vault/${localPath}`);
+      webVaultStorage.delete(`/web-vault/${fileName}`);
       return;
     }
-    const info = await FileSystem.getInfoAsync(localPath);
-    if (info.exists) {
+    try {
       await FileSystem.deleteAsync(localPath, { idempotent: true });
+    } catch {
+      return;
     }
+
   }
 
-  static async encryptSandboxFile(localPath: string): Promise<string> {
+  static async encryptSandboxFile(localPath: string, encryptionKey?: string): Promise<string> {
     if (Platform.OS === 'web') {
       return localPath;
     }
     const fileData = await FileSystem.readAsStringAsync(localPath, { encoding: FileSystem.EncodingType.Base64 });
-    const transformed = fileData.split('').reverse().join(''); 
+    const transformed = encryptionKey
+      ? SecureCrypto.xorTransform(fileData, encryptionKey)
+      : fileData.split('').reverse().join('');
     const encryptedPath = `${localPath}.enc`;
     await FileSystem.writeAsStringAsync(encryptedPath, transformed, { encoding: FileSystem.EncodingType.UTF8 });
     await FileSystem.deleteAsync(localPath, { idempotent: true });
     return encryptedPath;
   }
 
-  static async decryptSandboxFile(encryptedPath: string): Promise<string> {
+  static async decryptSandboxFile(encryptedPath: string, encryptionKey?: string): Promise<string> {
     if (Platform.OS === 'web') {
       return encryptedPath;
     }
     const targetRaw = await FileSystem.readAsStringAsync(encryptedPath, { encoding: FileSystem.EncodingType.UTF8 });
-    const inverted = targetRaw.split('').reverse().join('');
+    const inverted = encryptionKey
+      ? SecureCrypto.xorTransform(targetRaw, encryptionKey)
+      : targetRaw.split('').reverse().join('');
     const originalPath = encryptedPath.replace('.enc', '');
     await FileSystem.writeAsStringAsync(originalPath, inverted, { encoding: FileSystem.EncodingType.Base64 });
     return originalPath;

@@ -1,5 +1,7 @@
+import { router } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { AnimatedCard } from '../../../components/AnimatedCard';
+import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { StyledButton } from '../../../components/StyledButton';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -21,8 +23,8 @@ export default function SettingsCenterScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="System Settings" showBack />
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <VaultHeader title="System Settings" />
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110 }}>
         
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Identity Disguise Shield</Text>
         <AnimatedCard>
@@ -57,10 +59,22 @@ export default function SettingsCenterScreen() {
           </View>
         </AnimatedCard>
 
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Encryption Control</Text>
+        <AnimatedCard onPress={() => router.push('/(main)/settings/encryption-keys')}>
+          <View style={styles.row}>
+            <View>
+              <Text style={{ color: colors.text, fontSize: 16 }}>Encryption Keys</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>Create, view, and manage vault keys</Text>
+            </View>
+            <Text style={{ color: colors.primary, fontSize: 22 }}>›</Text>
+          </View>
+        </AnimatedCard>
+
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Data Continuity Engine</Text>
         <StyledButton title="Export Standalone Backup Archive" onPress={handleExport} />
 
       </ScrollView>
+      <AnimatedTabBar />
     </View>
   );
 }

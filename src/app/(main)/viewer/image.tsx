@@ -1,33 +1,46 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { EncryptionKeyUnlockModal } from '../../../components/EncryptionKeyUnlockModal';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
+import { useUnlockState } from '../../../contexts/UnlockContext';
 import { StorageService } from '../../../services/storage';
+import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
+import { EncryptionKeyMetadata } from '../../../types';
 
 export default function ImageViewerScreen() {
   const { fileId } = useLocalSearchParams<{ fileId: string }>();
   const colors = useThemeColors();
   const { files } = useVaultStore();
+  const encryptionKeys = useSettingsStore((state: { encryptionKeys: EncryptionKeyMetadata[] }) => state.encryptionKeys);
+  const { isUnlocked, markUnlocked } = useUnlockState();
   
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const decryptedPathRef = useRef<string | null>(null);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
 
   const fileMeta = files.find(f => f.id === fileId);
+  const isEncrypted = fileMeta?.isEncrypted && fileMeta?.encryptionKeyId;
+  const needsUnlock = isEncrypted && fileId && !isUnlocked(fileId);
 
   useEffect(() => {
     let mounted = true;
-    decryptedPathRef.current = null;
+    
+    // If file is encrypted and not unlocked, show unlock modal
+    if (needsUnlock) {
+      setShowUnlockModal(true);
+      return;
+    }
     
     const loadFile = async () => {
       if (!fileMeta) return;
       try {
         let path = fileMeta.localPath;
-        if (fileMeta.isEncrypted) {
-          path = await StorageService.decryptSandboxFile(fileMeta.localPath);
-          decryptedPathRef.current = path;
+        if (fileMeta.isEncrypted && fileMeta.encryptionKeyId) {
+          const encryptionKey = encryptionKeys.find(k => k.id === fileMeta.encryptionKeyId)?.key;
+          path = await StorageService.decryptSandboxFile(fileMeta.localPath, encryptionKey);
         }
         if (mounted) {
           setImageUri(path);
@@ -41,19 +54,42 @@ export default function ImageViewerScreen() {
     };
     
     loadFile();
+  }, [fileId, fileMeta, needsUnlock]);
 
-    return () => {
-      // Cleanup will happen on next view
-    };
-  }, [fileId]);
-
-  // Get file content as base64 for web/native compatibility
-  useEffect(() => {
-    if (!loading && imageUri && decryptedPathRef.current) {
-      // File is ready
-      console.log('Image ready:', imageUri);
+  const handleUnlock = () => {
+    if (fileId) {
+      markUnlocked(fileId);
+      setShowUnlockModal(false);
+      // Reload the file after unlocking
+      setLoading(true);
+      setImageUri(null);
     }
-  }, [loading, imageUri]);
+  };
+
+  const handleCancelUnlock = () => {
+    setShowUnlockModal(false);
+  };
+
+  // Show unlock modal if needed
+  if (needsUnlock && fileMeta) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <VaultHeader title={fileMeta.name} showBack />
+        <View style={styles.viewport}>
+          <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
+            🔒 This image is encrypted. Unlock required.
+          </Text>
+        </View>
+        <EncryptionKeyUnlockModal
+          visible={showUnlockModal}
+          itemName={fileMeta.name}
+          requiredKeyId={fileMeta.encryptionKeyId!}
+          onUnlock={handleUnlock}
+          onCancel={handleCancelUnlock}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>

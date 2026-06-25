@@ -11,7 +11,7 @@ export default function OnboardingScreen() {
 
   useEffect(() => {
     checkSetup();
-  }, []);
+  }, [checkSetup]);
 
   useEffect(() => {
     if (isConfigured && isAuthenticated) {

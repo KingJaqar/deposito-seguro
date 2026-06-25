@@ -1,3 +1,4 @@
+// File: src/app/(main)/_layout.tsx
 import { Slot, useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
@@ -16,7 +17,7 @@ export default function MainAppContainerLayout() {
 
   useEffect(() => {
     hydrateVault();
-  }, []);
+  }, [hydrateVault]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
