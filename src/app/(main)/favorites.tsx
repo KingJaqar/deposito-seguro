@@ -1,39 +1,56 @@
 // File: src/app/(main)/favorites.tsx
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { AnimatedCard } from '../../components/AnimatedCard';
+import { Moon, Plus, Search, Star, Sun } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Dimensions, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
-import { VaultHeader } from '../../components/VaultHeader';
-import { useThemeColors } from '../../contexts/ThemeContext';
+import { CategoryTint } from '../../constants/Colors';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { promptCreateEncryptionKey } from '../../utils/encryptionKeyPrompt';
 
-const FILTERS = [
-  { label: 'All', color: '#A78BFA' },
-  { label: 'Root Folders', color: '#60A5FA' },
-  { label: 'Subfolders', color: '#34D399' },
-  { label: 'Images', color: '#F472B6' },
-  { label: 'Videos', color: '#FF6B6B' },
-  { label: 'Documents', color: '#60A5FA' },
-  { label: 'Audio', color: '#FBBF24' },
-  { label: 'Apps', color: '#F59E0B' },
-  { label: 'Other', color: '#94A3B8' },
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SCREEN_PADDING = 24;
+const VAULT_GAP = 16;
+const FAVORITE_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
+
+const CATEGORY_FILTERS = [
+  { label: 'All', tint: '#A78BFA' },
+  { label: 'Root Folders', tint: '#60A5FA' },
+  { label: 'Subfolders', tint: '#34D399' },
+  { label: 'Images', tint: CategoryTint.images },
+  { label: 'Videos', tint: CategoryTint.videos },
+  { label: 'Documents', tint: CategoryTint.docs },
+  { label: 'Audio', tint: CategoryTint.audio },
+  { label: 'Apps', tint: CategoryTint.apps },
+  { label: 'Other', tint: CategoryTint.other },
 ];
 
 export default function FavoritesScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark, toggleTheme } = useTheme();
   const {
     files, folders,
-    toggleFavorite, softDeleteFile,
-    createPersonalFavoritesFolder,
-    shredFile, assignFileEncryptionKey,
+    toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile,
+    assignFileEncryptionKey,
   } = useVaultStore();
   const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
 
+  const dash = {
+    bg: colors.dashboardBg ?? colors.background,
+    surface: colors.dashboardSurface ?? colors.surface,
+    surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
+    accent: colors.dashboardAccent ?? colors.accent,
+    text: colors.dashboardText ?? colors.text,
+    textMuted: colors.dashboardTextMuted ?? colors.textMuted,
+    border: colors.dashboardBorder ?? colors.border,
+    fabBg: colors.fabBg ?? colors.primary,
+    fabText: colors.fabText ?? '#FFFFFF',
+  };
+
   const [activeFilter, setActiveFilter] = useState('All');
+  const [query, setQuery] = useState('');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showFileMenu, setShowFileMenu] = useState(false);
@@ -49,6 +66,8 @@ export default function FavoritesScreen() {
   const favoriteFolders = folders.filter(f => f.isFavorite);
   const personalFavFolders = folders.filter(f => f.isPersonalFavoritesFolder);
 
+  useEffect(() => {}, []);
+
   const getFileType = (mimeType: string, name?: string) => {
     if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: '🖼' };
     if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: '▶' };
@@ -58,34 +77,37 @@ export default function FavoritesScreen() {
   };
 
   const filteredFiles = favoriteFiles.filter(f => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Images') return f.mimeType?.startsWith('image/');
-    if (activeFilter === 'Videos') return f.mimeType?.startsWith('video/');
-    if (activeFilter === 'Audio') return f.mimeType?.startsWith('audio/');
-    if (activeFilter === 'Documents') return (
-      !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/') && !f.mimeType?.startsWith('audio/') &&
-      (f.mimeType?.includes('pdf') || f.mimeType?.includes('document') || f.mimeType?.includes('text'))
-    );
-    if (activeFilter === 'Apps') return f.name?.endsWith('.apk') || f.name?.endsWith('.exe');
-    if (activeFilter === 'Other') return (
-      !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/') && !f.mimeType?.startsWith('audio/') &&
-      !f.mimeType?.includes('pdf') && !f.mimeType?.includes('document') && !f.mimeType?.includes('text') &&
-      !f.name?.endsWith('.apk') && !f.name?.endsWith('.exe')
-    );
-    if (activeFilter === 'Root Folders' || activeFilter === 'Subfolders') return false;
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      if (!f.name.toLowerCase().includes(q)) return false;
+    }
+    if (activeFilter === 'Root Folders') return false;
+    if (activeFilter === 'Subfolders') return false;
+    if (activeFilter !== 'All') {
+      if (activeFilter === 'Images') return f.mimeType?.startsWith('image/');
+      if (activeFilter === 'Videos') return f.mimeType?.startsWith('video/');
+      if (activeFilter === 'Audio') return f.mimeType?.startsWith('audio/');
+      if (activeFilter === 'Documents') return !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/') && !f.mimeType?.startsWith('audio/') && (f.mimeType?.includes('pdf') || f.mimeType?.includes('document') || f.mimeType?.includes('text'));
+      if (activeFilter === 'Apps') return f.name?.endsWith('.apk') || f.name?.endsWith('.exe');
+      if (activeFilter === 'Other') return !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/') && !f.mimeType?.startsWith('audio/') && !f.mimeType?.includes('pdf') && !f.mimeType?.includes('document') && !f.mimeType?.includes('text') && !f.name?.endsWith('.apk') && !f.name?.endsWith('.exe');
+    }
     return true;
   });
 
   const filteredFolders = favoriteFolders.filter(f => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Root Folders') return !f.parentId;
-    if (activeFilter === 'Subfolders') return !!f.parentId;
-    return false;
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      if (!f.name.toLowerCase().includes(q)) return false;
+    }
+    if (activeFilter !== 'All') {
+      if (activeFilter === 'Root Folders') return !f.parentId;
+      if (activeFilter === 'Subfolders') return !!f.parentId;
+    }
+    return true;
   });
 
   const rootFavFolders = filteredFolders.filter(f => !f.parentId);
   const subFavFolders = filteredFolders.filter(f => !!f.parentId);
-
   const totalCount = filteredFiles.length + filteredFolders.length;
 
   const toggleSelection = (id: string) => {
@@ -113,37 +135,31 @@ export default function FavoritesScreen() {
         Alert.alert('Confirm Shred', 'Permanently delete this file?',
           [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(file.id) }]
         ); break;
-      case 'register-key':
-        handleRegisterEncryptionKey(file.id, file.name); break;
-      case 'assign-key':
-        setKeyPickerTarget({ id: file.id, name: file.name }); break;
+      case 'register-key': handleRegisterEncryptionKey(file.id, file.name); break;
+      case 'assign-key': setKeyPickerTarget({ id: file.id, name: file.name }); break;
     }
   };
 
-  const handleRegisterEncryptionKey = (fileId: string, fileNameValue: string) => {
+  const handleRegisterEncryptionKey = (targetId: string, targetName: string) => {
     if (encryptionKeys.length >= 20) {
       Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
       return;
     }
-
-    promptCreateEncryptionKey(fileNameValue, async (options) => {
+    promptCreateEncryptionKey(targetName, async (options) => {
       if (encryptionKeys.length >= 20) {
         Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
         return;
       }
-
       if (encryptionKeyExists(options.name)) {
         Alert.alert('Key Name Already Used', 'Encryption key names must be unique.');
         return;
       }
-
       const key = await createEncryptionKey(options.name, options.customKey, options.description);
       if (!key) {
         Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
         return;
       }
-
-      await assignFileEncryptionKey(fileId, key.id);
+      await assignFileEncryptionKey(targetId, key.id);
       Alert.alert('Encryption Registered', 'A new encryption key was generated and assigned.');
     });
   };
@@ -152,9 +168,13 @@ export default function FavoritesScreen() {
     setShowFolderMenu(false);
     switch (action) {
       case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
-      case 'unfavorite': toggleFavorite && toggleFavorite(folder.id); break;
+      case 'unfavorite': toggleFavorite(folder.id); break;
       case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
-      case 'delete': break;
+      case 'delete': softDeleteFile(folder.id); break;
+      case 'shred':
+        Alert.alert('Confirm Shred', 'Permanently delete this folder?',
+          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(folder.id) }]
+        ); break;
     }
   };
 
@@ -168,289 +188,281 @@ export default function FavoritesScreen() {
 
   const isEmpty = totalCount === 0 && personalFavFolders.length === 0;
 
-  return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Favorites" showBack />
+  const FavoriteTile = ({ item, index, type }: { item: any; index: number; type: 'folder' | 'file' }) => {
+    const isSelected = selectedIds.includes(item.id);
+    const ft = type === 'file' ? getFileType(item.mimeType, item.name) : null;
+    const accentColor = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'][index % 6];
 
-      {/* Filter Scrollable Header */}
-      <View style={styles.filterSection}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-          {FILTERS.map(f => {
-            const isActive = activeFilter === f.label;
-            return (
-              <TouchableOpacity
-                key={f.label}
-                onPress={() => setActiveFilter(f.label)}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: isActive ? f.color : `${f.color}10`,
-                    borderColor: isActive ? f.color : `${f.color}22`,
-                  }
-                ]}
-                activeOpacity={0.75}
-              >
-                <Text style={[
-                  styles.filterLabel,
-                  { color: isActive ? '#FFF' : f.color, fontWeight: isActive ? '700' : '500' }
-                ]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-
-        {/* Action Row */}
-        <View style={styles.topActions}>
-          <Text style={[styles.countText, { color: colors.textMuted }]}>
-            <Text style={{ color: colors.text, fontWeight: '600' }}>{totalCount}</Text> items
-          </Text>
-          <View style={styles.topActionsRight}>
-            {selectionMode ? (
-              <>
-                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                  <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600' }}>Cancel</Text>
-                </TouchableOpacity>
-              </>
+    return (
+      <TouchableOpacity
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onPress={() => {
+          if (selectionMode) toggleSelection(item.id);
+          else if (type === 'folder') router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+          else handleFileNavigate(item);
+        }}
+        style={[
+          styles.vaultTile,
+          {
+            backgroundColor: dash.surface,
+            width: FAVORITE_TILE_WIDTH,
+            borderColor: isSelected ? dash.accent : 'transparent',
+            borderWidth: 2,
+          },
+        ]}
+      >
+        <View style={styles.vaultTopRow}>
+          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
+            {type === 'folder' ? (
+              <Star size={20} color={accentColor} strokeWidth={2.2} />
             ) : (
-              <TouchableOpacity
-                onPress={() => setShowCreateFavFolder(true)}
-                style={[styles.createFolderBtn, { backgroundColor: `${colors.primary}18`, borderColor: `${colors.primary}30` }]}
-              >
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>+ Favorites Folder</Text>
-              </TouchableOpacity>
+              <Text style={{ fontSize: 20 }}>{ft?.icon || '📄'}</Text>
+            )}
+          </View>
+          {selectionMode ? (
+            <View style={styles.checkBox}>
+              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onPress={() => { setTargetItem(item); setShowFolderMenu(type === 'folder' ? true : false); setShowFileMenu(type === 'file' ? true : false); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: dash.textMuted, fontSize: 22, fontWeight: '600' }}>•••</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.vaultBottomBlock}>
+          <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
+            {item.name}
+            {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+          </Text>
+          <View style={styles.vaultMetaRow}>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>
+              {type === 'folder' ? `${item.isFavorite ? '⭐ Favorite' : 'Folder'}` : `${(item.size / 1024).toFixed(1)} KB`}
+            </Text>
+            {type === 'file' && ft && (
+              <Text style={[styles.vaultMeta, { color: ft.color }]}>{ft.label}</Text>
             )}
           </View>
         </View>
+      </TouchableOpacity>
+    );
+  };
 
-        {/* Personal Favorites Folders */}
-        {personalFavFolders.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.groupLabel}>
-              <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-              <Text style={[styles.groupText, { color: colors.textMuted }]}>MY FAVORITES FOLDERS</Text>
-              <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-            </View>
-            {personalFavFolders.map(folder => (
-              <AnimatedCard
-                key={folder.id}
-                style={[styles.itemCard, { backgroundColor: colors.surface, borderColor: `${colors.primary}30`, borderWidth: 1 }]}
-                onPress={() => router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } })}
-                onLongPress={() => { setSelectionMode(true); setSelectedIds([folder.id]); }}
-              >
-                <View style={styles.itemRow}>
-                  <View style={[styles.itemIcon, { backgroundColor: `${colors.primary}18` }]}>
-                    <Text style={{ fontSize: 20 }}>📂</Text>
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[styles.itemName, { color: colors.text }]}>{folder.name}</Text>
-                    <Text style={{ color: colors.primary, fontSize: 11, marginTop: 3 }}>Personal Favorites</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => { setTargetItem(folder); setShowFolderMenu(true); }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Text style={{ color: colors.textMuted, fontSize: 18 }}>···</Text>
-                  </TouchableOpacity>
-                </View>
-              </AnimatedCard>
-            ))}
+  return (
+    <View style={[styles.root, { backgroundColor: dash.bg }]}>
+      <SafeAreaView>
+        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+          <View style={styles.headerTextBlock}>
+            <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Favorites</Text>
+            <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your starred items</Text>
           </View>
-        )}
+          <Pressable
+            onPress={toggleTheme}
+            style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+            accessibilityRole="button"
+            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+          </Pressable>
+        </View>
+      </SafeAreaView>
 
-        {isEmpty ? (
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyIconBox, { backgroundColor: 'rgba(251,191,36,0.1)' }]}>
-              <Text style={{ fontSize: 44 }}>⭐</Text>
-            </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Favorites Yet</Text>
-            <Text style={[styles.emptyCaption, { color: colors.textMuted }]}>
-              Long-press files or folders to add them to your favorites.
-            </Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollBody}
+        showsVerticalScrollIndicator={false}
+      >
+        <Pressable onPress={() => router.push('/(main)/search')}>
+          <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
+            <Search size={18} color={dash.textMuted} />
+            <Text style={[styles.searchPlaceholder, { color: dash.textMuted }]}>Search favorites...</Text>
           </View>
-        ) : (
-          <>
-            {/* Root Favorite Folders */}
-            {rootFavFolders.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.groupLabel}>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                  <Text style={[styles.groupText, { color: colors.textMuted }]}>ROOT FOLDERS</Text>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                </View>
-                {rootFavFolders.map(folder => (
-                  <AnimatedCard
-                    key={folder.id}
-                    style={[styles.itemCard, { backgroundColor: colors.surface, borderColor: `${colors.border}35`, borderWidth: 1 }]}
-                    onLongPress={() => { setSelectionMode(true); setSelectedIds([folder.id]); }}
-                    onPress={() => {
-                      if (selectionMode) toggleSelection(folder.id);
-                      else router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+        </Pressable>
+
+        <View style={styles.categorySection}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+            {CATEGORY_FILTERS.map(f => {
+              const isActive = activeFilter === f.label;
+              return (
+                <TouchableOpacity
+                  key={f.label}
+                  onPress={() => setActiveFilter(f.label)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[
+                    styles.categoryPill,
+                    {
+                      backgroundColor: isActive ? dash.surface : `${f.tint}12`,
+                      borderColor: isActive ? dash.textMuted : `${f.tint}35`,
+                      borderWidth: isActive ? 1.5 : 1,
+                    },
+                  ]}>
+                    <View style={[styles.categoryDot, { backgroundColor: f.tint }]} />
+                    <Text style={[
+                      styles.categoryPillLabel,
+                      { color: isActive ? dash.text : f.tint, fontWeight: isActive ? '700' : '500' }
+                    ]}>
+                      {f.label}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: dash.text }]}>Favorite Folders</Text>
+            {selectionMode ? (
+              <View style={styles.sectionActions}>
+                <TouchableOpacity onPress={() => {
+                  const folderIds = filteredFolders.map(f => f.id);
+                  const allSelected = folderIds.every(id => selectedIds.includes(id));
+                  if (allSelected) {
+                    setSelectedIds(prev => prev.filter(id => !folderIds.includes(id)));
+                  } else {
+                    setSelectedIds(prev => [...prev, ...folderIds.filter(id => !prev.includes(id))]);
+                  }
+                }} style={styles.textBtn}>
+                  <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                    {filteredFolders.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                  <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+
+          {filteredFolders.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
+              <Text style={{ fontSize: 36, marginBottom: 10 }}>⭐</Text>
+              <Text style={[styles.emptyTitle, { color: dash.text }]}>No Favorite Folders</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Long-press any folder and tap the star to favorite it.</Text>
+            </View>
+          ) : (
+            <View style={styles.vaultGrid}>
+              {filteredFolders.map((item, index) => (
+                <FavoriteTile key={item.id} item={item} index={index} type="folder" />
+              ))}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: dash.text }]}>Favorite Files</Text>
+            {selectionMode ? (
+              <View style={styles.sectionActions}>
+                <TouchableOpacity onPress={() => {
+                  const fileIds = filteredFiles.map(f => f.id);
+                  const allSelected = fileIds.every(id => selectedIds.includes(id));
+                  if (allSelected) {
+                    setSelectedIds(prev => prev.filter(id => !fileIds.includes(id)));
+                  } else {
+                    setSelectedIds(prev => [...prev, ...fileIds.filter(id => !prev.includes(id))]);
+                  }
+                }} style={styles.textBtn}>
+                  <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                    {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => {
+                  if (selectedIds.length === 0) return;
+                  Alert.alert('Delete Selected', `Move ${selectedIds.length} items to trash?`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => {
+                      selectedIds.forEach(id => softDeleteFile(id));
+                      exitSelectionMode();
                     }}
-                  >
-                    <View style={styles.itemRow}>
-                      {selectionMode && (
-                        <View style={[styles.checkInner, { marginRight: 10, backgroundColor: selectedIds.includes(folder.id) ? colors.primary : 'transparent', borderColor: colors.primary }]}>
-                          {selectedIds.includes(folder.id) && <Text style={{ color: '#FFF', fontSize: 10 }}>✓</Text>}
-                        </View>
-                      )}
-                      <View style={[styles.itemIcon, { backgroundColor: `${colors.primary}18` }]}>
-                        <Text style={{ fontSize: 20 }}>📁</Text>
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={[styles.itemName, { color: colors.text }]}>{folder.name}</Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>
-                          Root Folder{folder.isEncrypted && folder.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
-                        </Text>
-                      </View>
-                      {!selectionMode && (
-                        <TouchableOpacity
-                          onPress={() => { setTargetItem(folder); setShowFolderMenu(true); }}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                          <Text style={{ color: colors.textMuted, fontSize: 18 }}>···</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </AnimatedCard>
-                ))}
+                  ]);
+                }} style={styles.textBtnDanger}>
+                  <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                  <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
               </View>
+            ) : (
+              <Text style={[styles.seeAll, { color: dash.textMuted }]}>{filteredFiles.length} files</Text>
             )}
+          </View>
 
-            {/* Sub Favorite Folders */}
-            {subFavFolders.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.groupLabel}>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                  <Text style={[styles.groupText, { color: colors.textMuted }]}>SUBFOLDERS</Text>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                </View>
-                {subFavFolders.map(folder => (
-                  <AnimatedCard
-                    key={folder.id}
-                    style={[styles.itemCard, { backgroundColor: colors.surface, borderColor: `${colors.border}35`, borderWidth: 1 }]}
-                    onLongPress={() => { setSelectionMode(true); setSelectedIds([folder.id]); }}
-                    onPress={() => {
-                      if (selectionMode) toggleSelection(folder.id);
-                      else router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
-                    }}
-                  >
-                    <View style={styles.itemRow}>
-                      {selectionMode && (
-                        <View style={[styles.checkInner, { marginRight: 10, backgroundColor: selectedIds.includes(folder.id) ? colors.primary : 'transparent', borderColor: colors.primary }]}>
-                          {selectedIds.includes(folder.id) && <Text style={{ color: '#FFF', fontSize: 10 }}>✓</Text>}
-                        </View>
-                      )}
-                      <View style={[styles.itemIcon, { backgroundColor: '#34D39918' }]}>
-                        <Text style={{ fontSize: 20 }}>📁</Text>
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={[styles.itemName, { color: colors.text }]}>{folder.name}</Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>
-                          Subfolder{folder.isEncrypted && folder.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
-                        </Text>
-                      </View>
-                      {!selectionMode && (
-                        <TouchableOpacity
-                          onPress={() => { setTargetItem(folder); setShowFolderMenu(true); }}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                          <Text style={{ color: colors.textMuted, fontSize: 18 }}>···</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </AnimatedCard>
-                ))}
-              </View>
-            )}
+          {filteredFiles.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
+              <Text style={{ fontSize: 36, marginBottom: 10 }}>📁</Text>
+              <Text style={[styles.emptyTitle, { color: dash.text }]}>No Favorite Files</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Long-press any file and tap the star to favorite it.</Text>
+            </View>
+          ) : (
+            <View style={styles.vaultGrid}>
+              {filteredFiles.map((item, index) => (
+                <FavoriteTile key={item.id} item={item} index={index} type="file" />
+              ))}
+            </View>
+          )}
+        </View>
 
-            {/* Favorite Files */}
-            {filteredFiles.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.groupLabel}>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                  <Text style={[styles.groupText, { color: colors.textMuted }]}>FILES</Text>
-                  <View style={[styles.groupLine, { backgroundColor: `${colors.border}60` }]} />
-                </View>
-                {filteredFiles.map(file => {
-                  const ft = getFileType(file.mimeType, file.name);
-                  const isSelected = selectedIds.includes(file.id);
-                  return (
-                    <AnimatedCard
-                      key={file.id}
-                      style={[styles.itemCard, {
-                        backgroundColor: colors.surface,
-                        borderColor: isSelected ? colors.primary : `${colors.border}35`,
-                        borderWidth: 1,
-                      }]}
-                      onLongPress={() => { setSelectionMode(true); setSelectedIds([file.id]); }}
-                      onPress={() => {
-                        if (selectionMode) toggleSelection(file.id);
-                        else handleFileNavigate(file);
-                      }}
-                    >
-                      <View style={styles.itemRow}>
-                        {selectionMode && (
-                          <View style={[styles.checkInner, { marginRight: 10, backgroundColor: isSelected ? colors.primary : 'transparent', borderColor: colors.primary }]}>
-                            {isSelected && <Text style={{ color: '#FFF', fontSize: 10 }}>✓</Text>}
-                          </View>
-                        )}
-                        <View style={[styles.itemIcon, { backgroundColor: `${ft.color}15` }]}>
-                          <Text style={{ fontSize: 20 }}>{ft.icon}</Text>
-                          {file.isEncrypted && (
-                            <View style={styles.encBadge}><Text style={{ fontSize: 8 }}>🔒</Text></View>
-                          )}
-                        </View>
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <Text style={[styles.itemName, { color: colors.text }]} numberOfLines={1}>{file.name}</Text>
-                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 3 }}>
-                            <Text style={{ color: colors.textMuted, fontSize: 12 }}>{(file.size / 1024).toFixed(1)} KB{file.isEncrypted && file.encryptionKeyId ? ' · 🔒 Encrypted' : ''}</Text>
-                            <Text style={{ color: ft.color, fontSize: 12, fontWeight: '500' }}>{ft.label}</Text>
-                          </View>
-                        </View>
-                        {!selectionMode && (
-                          <TouchableOpacity
-                            onPress={() => { setTargetItem(file); setShowFileMenu(true); }}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          >
-                            <Text style={{ color: colors.textMuted, fontSize: 18 }}>···</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </AnimatedCard>
-                  );
-                })}
-              </View>
-            )}
-          </>
-        )}
-
-        <View style={{ height: 100 }} />
+        <View style={{ height: 140 }} />
       </ScrollView>
 
-      {/* Animated Tab Bar */}
+      <Pressable
+        onPress={() => setShowCreateFavFolder(true)}
+        style={[styles.fab, { backgroundColor: dash.fabBg }]}
+        accessibilityRole="button"
+        accessibilityLabel="Create new favorites folder"
+      >
+        <Plus size={26} color={dash.fabText} strokeWidth={2.4} />
+      </Pressable>
+
       <AnimatedTabBar />
 
-      {/* File Menu Modal */}
+      <Modal visible={showCreateFavFolder} transparent animationType="fade" onRequestClose={() => setShowCreateFavFolder(false)}>
+        <View style={modalS.centeredOverlay}>
+          <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
+            <Text style={[modalS.centeredTitle, { color: dash.text }]}>New Favorites Folder</Text>
+            <TextInput
+              style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+              placeholder="Folder name"
+              placeholderTextColor={dash.textMuted}
+              value={newFavFolderName}
+              onChangeText={setNewFavFolderName}
+              autoFocus
+            />
+            <View style={modalS.centeredBtnRow}>
+              <TouchableOpacity onPress={() => setShowCreateFavFolder(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
+                <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={createPersonalFolder} style={[modalS.btn, { backgroundColor: dash.fabBg }]}>
+                <Text style={{ color: dash.fabText, fontWeight: '700' }}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {showFileMenu && targetItem && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
           <TouchableOpacity style={modalS.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
-            <View style={[styles.actionSheet, { backgroundColor: colors.surface }]}>
-              <View style={modalS.handle} />
-              <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={1}>{targetItem.name}</Text>
+            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
               {[
                 { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
-                { action: 'register-key', label: 'Create & Assign Encryption Key', color: colors.primary },
-                { action: 'assign-key', label: 'Assign Existing Encryption Key', color: colors.primary },
+                { action: 'register-key', label: 'Create & Assign Encryption Key', color: dash.accent },
+                { action: 'assign-key', label: 'Assign Existing Encryption Key', color: dash.accent },
               ].map(item => (
-                <TouchableOpacity key={item.action} style={styles.sheetItem} onPress={() => handleFileAction(targetItem, item.action)}>
-                  <Text style={[styles.sheetLabel, { color: item.color }]}>{item.label}</Text>
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFileAction(targetItem, item.action)}>
+                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -469,78 +481,27 @@ export default function FavoritesScreen() {
         }}
       />
 
-      {/* Folder Menu Modal */}
-      {showFolderMenu && targetItem && (
-        <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
-          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <View style={[styles.actionSheet, { backgroundColor: colors.surface }]}>
-              <View style={modalS.handle} />
-              <Text style={[styles.sheetTitle, { color: colors.text }]}>{targetItem.name}</Text>
-              {[
-                { action: 'open', label: 'Open Folder', color: colors.text },
-                { action: 'rename', label: 'Rename', color: colors.text },
-                { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
-                { action: 'delete', label: 'Move to Trash', color: colors.error },
-              ].map(item => (
-                <TouchableOpacity key={item.action} style={styles.sheetItem} onPress={() => handleFolderAction(targetItem, item.action)}>
-                  <Text style={[styles.sheetLabel, { color: item.color }]}>{item.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-
-      {/* Create Personal Favorites Folder */}
-      {showCreateFavFolder && (
-        <Modal transparent animationType="fade">
-          <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: colors.surface }]}>
-              <View style={modalS.handle} />
-              <Text style={[modalS.title, { color: colors.text }]}>New Favorites Folder</Text>
-              <TextInput
-                style={[modalS.input, { borderColor: `${colors.border}60`, color: colors.text, backgroundColor: `${colors.border}25` }]}
-                placeholder="Folder name"
-                placeholderTextColor={colors.textMuted}
-                value={newFavFolderName}
-                onChangeText={setNewFavFolderName}
-                autoFocus
-              />
-              <View style={modalS.btnRow}>
-                <TouchableOpacity onPress={() => setShowCreateFavFolder(false)} style={[modalS.btn, { borderColor: `${colors.border}60`, borderWidth: 1 }]}>
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={createPersonalFolder} style={[modalS.btn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontWeight: '600' }}>Create</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {/* Rename Modal */}
       {showRenameModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: colors.surface }]}>
-              <View style={modalS.handle} />
-              <Text style={[modalS.title, { color: colors.text }]}>Rename</Text>
+            <View style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[modalS.title, { color: dash.text }]}>Rename</Text>
               <TextInput
-                style={[modalS.input, { borderColor: `${colors.border}60`, color: colors.text, backgroundColor: `${colors.border}25` }]}
+                style={[modalS.input, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
                 value={renameText}
                 onChangeText={setRenameText}
                 autoFocus
               />
               <View style={modalS.btnRow}>
-                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[modalS.btn, { borderColor: `${colors.border}60`, borderWidth: 1 }]}>
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>Cancel</Text>
+                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
+                  <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setShowRenameModal(false); }}
-                  style={[modalS.btn, { backgroundColor: colors.primary }]}
+                  style={[modalS.btn, { backgroundColor: dash.fabBg }]}
                 >
-                  <Text style={{ color: '#FFF', fontWeight: '600' }}>Save</Text>
+                  <Text style={{ color: dash.fabText, fontWeight: '700' }}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -553,51 +514,109 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  body: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 },
 
-  filterSection: { paddingVertical: 8 },
-  filterScroll: { paddingHorizontal: 16, gap: 7 },
-  filterPill: {
-    paddingHorizontal: 13, paddingVertical: 7,
-    borderRadius: 9, borderWidth: 1,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  filterLabel: { fontSize: 12 },
+  headerTextBlock: { flex: 1, marginRight: 12 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  topActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  topActionsRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  countText: { fontSize: 13 },
-  createFolderBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
-  cancelBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8, paddingBottom: 140 },
 
-  section: { marginBottom: 6 },
-  groupLabel: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8, marginTop: 4 },
-  groupLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  groupText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  searchPlaceholder: { fontSize: 14, fontWeight: '500' },
 
-  itemCard: { marginBottom: 7, borderRadius: 12, overflow: 'hidden' },
-  itemRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 },
-  checkInner: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  itemIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  itemName: { fontSize: 14, fontWeight: '600' },
-  encBadge: { position: 'absolute', bottom: -3, right: -3, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: 1 },
+  categorySection: { paddingVertical: 8, marginBottom: 8 },
+  categoryScroll: { paddingHorizontal: 4, gap: 8 },
+  categoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 10,
+    gap: 6,
+  },
+  categoryDot: { width: 8, height: 8, borderRadius: 4 },
+  categoryPillLabel: { fontSize: 13 },
 
-  emptyState: { alignItems: 'center', paddingTop: 80 },
-  emptyIconBox: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
-  emptyTitle: { fontSize: 19, fontWeight: '700', marginBottom: 7 },
-  emptyCaption: { textAlign: 'center', lineHeight: 20, fontSize: 13, paddingHorizontal: 32 },
+  section: { marginBottom: 32 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  seeAll: { fontSize: 13, fontWeight: '600' },
+  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
 
-  actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8, paddingBottom: 36 },
-  sheetTitle: { fontSize: 15, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12 },
-  sheetItem: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-  sheetLabel: { fontSize: 14, fontWeight: '500' },
+  vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
+  vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
+  vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  vaultIconChip: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  vaultBottomBlock: { marginTop: 14 },
+  vaultName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 6 },
+  vaultMetaRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  vaultMeta: { fontSize: 12, fontWeight: '600' },
+  checkBox: { marginLeft: 4 },
+  checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+
+  emptyCard: { borderRadius: 24, alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  emptyText: { fontSize: 14, textAlign: 'center', marginBottom: 12 },
+
+  fab: {
+    position: 'absolute',
+    right: SCREEN_PADDING,
+    bottom: 100,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+
+  actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
+  actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
+  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
+  actionSheetLabel: { fontSize: 15, fontWeight: '500' },
 });
 
 const modalS = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', alignSelf: 'center', marginBottom: 16 },
-  sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 32 },
-  title: { fontSize: 19, fontWeight: '700', marginBottom: 14 },
-  input: { borderWidth: 1, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 14, fontSize: 15 },
-  btnRow: { flexDirection: 'row', gap: 10 },
-  btn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  centeredOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+  centeredCard: { width: '85%', maxWidth: 360, borderRadius: 24, padding: 24, alignItems: 'center' },
+  centeredTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20, letterSpacing: -0.3 },
+  centeredInput: { width: '100%', borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, fontSize: 15 },
+  centeredBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 32 },
+  title: { fontSize: 20, fontWeight: '700', marginBottom: 16, letterSpacing: -0.3 },
+  input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16, fontSize: 15 },
+  btnRow: { flexDirection: 'row', gap: 12 },
+  btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
 });

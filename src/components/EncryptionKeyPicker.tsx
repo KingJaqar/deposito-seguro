@@ -1,6 +1,4 @@
-// File: src/components/EncryptionKeyPicker.tsx
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useThemeColors } from '../contexts/ThemeContext';
 import { useSettingsStore } from '../store/settingsStore';
 import { EncryptionKeyMetadata } from '../types';
@@ -19,8 +17,15 @@ export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: Encryptio
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.overlay} onPress={onClose} activeOpacity={1}>
-        <View style={[styles.sheet, { backgroundColor: colors.surface }]} onStartShouldSetResponder={() => true}>
+      <TouchableOpacity
+        style={styles.overlay}
+        onPress={onClose}
+        activeOpacity={0.8}
+      >
+        <View
+          style={[styles.sheet, { backgroundColor: colors.surface }]}
+          onStartShouldSetResponder={() => true}
+        >
           <View style={styles.handle} />
           <Text style={[styles.title, { color: colors.text }]}>Assign Encryption Key</Text>
 
@@ -33,18 +38,12 @@ export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: Encryptio
           ) : (
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
               {encryptionKeys.map((key: EncryptionKeyMetadata) => (
-                <Animated.View key={key.id} entering={FadeInDown.duration(180)}>
-                  <TouchableOpacity
-                    style={[styles.keyRow, { borderColor: colors.border }]}
-                    onPress={() => onSelectKey(key.id)}
-                  >
-                    <View>
-                      <Text style={[styles.keyName, { color: colors.text }]} numberOfLines={1}>{key.name}</Text>
-                      <Text style={[styles.keyMeta, { color: colors.textMuted }]}>Fingerprint {key.fingerprint}</Text>
-                    </View>
-                    <Text style={{ color: colors.primary, fontSize: 22 }}>›</Text>
-                  </TouchableOpacity>
-                </Animated.View>
+                <KeyItem
+                  key={key.id}
+                  keyItem={key}
+                  colors={colors}
+                  onPress={() => onSelectKey(key.id)}
+                />
               ))}
             </ScrollView>
           )}
@@ -54,16 +53,101 @@ export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: Encryptio
   );
 }
 
+function KeyItem({
+  keyItem,
+  colors,
+  onPress,
+}: {
+  keyItem: EncryptionKeyMetadata;
+  colors: any;
+  onPress: () => void;
+}) {
+  return (
+    <View>
+      <TouchableOpacity
+        style={[styles.keyRow, { borderColor: colors.border }]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <View style={styles.keyContent}>
+          <View>
+            <Text style={[styles.keyName, { color: colors.text }]} numberOfLines={1}>
+              {keyItem.name}
+            </Text>
+            <Text style={[styles.keyMeta, { color: colors.textMuted }]}>
+              Fingerprint {keyItem.fingerprint}
+            </Text>
+          </View>
+          <Text style={{ color: colors.primary, fontSize: 22 }}>›</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' },
-  sheet: { maxHeight: '78%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18 },
-  handle: { width: 42, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', alignSelf: 'center', marginBottom: 10 },
-  title: { fontSize: 18, fontWeight: '800', marginBottom: 14 },
-  scroll: { maxHeight: 360 },
-  keyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1 },
-  keyName: { fontSize: 15, fontWeight: '700' },
-  keyMeta: { fontSize: 12, marginTop: 3 },
-  empty: { alignItems: 'center', paddingVertical: 28 },
-  emptyText: { fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  emptySubtext: { fontSize: 13, textAlign: 'center', paddingHorizontal: 24 },
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  sheet: {
+    maxHeight: '78%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 18,
+  },
+  handle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 14,
+  },
+  scroll: {
+    maxHeight: 360,
+  },
+  keyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    marginHorizontal: -18,
+    paddingHorizontal: 18,
+  },
+  keyContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  keyName: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  keyMeta: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingVertical: 28,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
 });

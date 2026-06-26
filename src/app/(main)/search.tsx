@@ -1,32 +1,75 @@
 // File: src/app/(main)/search.tsx
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { AnimatedCard } from '../../components/AnimatedCard';
+import { Moon, Search, Sun } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Dimensions, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
-import { VaultHeader } from '../../components/VaultHeader';
-import { useThemeColors } from '../../contexts/ThemeContext';
-import { useFileSystemQuery } from '../../hooks/useFileSystemQuery';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useVaultStore } from '../../store/vaultStore';
 
-const FILTERS = [
-  { label: 'All', color: '#A78BFA' },
-  { label: 'Images', color: '#34D399' },
-  { label: 'Videos', color: '#FF6B6B' },
-  { label: 'Documents', color: '#60A5FA' },
-  { label: 'Audio', color: '#FBBF24' },
-  { label: 'Apps', color: '#F472B6' },
-  { label: 'Other', color: '#94A3B8' },
-  { label: 'Favorites', color: '#FBBF24' },
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SCREEN_PADDING = 24;
+const VAULT_GAP = 16;
+const SEARCH_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
+
+const CATEGORY_FILTERS = [
+  { label: 'All', tint: '#A78BFA' },
+  { label: 'Root Folders', tint: '#60A5FA' },
+  { label: 'Subfolders', tint: '#34D399' },
+  { label: 'Images', tint: '#34D399' },
+  { label: 'Videos', tint: '#FF6B6B' },
+  { label: 'Documents', tint: '#60A5FA' },
+  { label: 'Audio', tint: '#FBBF24' },
+  { label: 'Apps', tint: '#F472B6' },
+  { label: 'Other', tint: '#94A3B8' },
+  { label: 'Favorites', tint: '#FBBF24' },
 ];
 
 export default function SearchScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark, toggleTheme } = useTheme();
+  const { files, folders, toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault } = useVaultStore();
+
+  const dash = {
+    bg: colors.dashboardBg ?? colors.background,
+    surface: colors.dashboardSurface ?? colors.surface,
+    surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
+    accent: colors.dashboardAccent ?? colors.accent,
+    text: colors.dashboardText ?? colors.text,
+    textMuted: colors.dashboardTextMuted ?? colors.textMuted,
+    border: colors.dashboardBorder ?? colors.border,
+    fabBg: colors.fabBg ?? colors.primary,
+    fabText: colors.fabText ?? '#FFFFFF',
+  };
+
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
-  const { matchedFiles, matchedFolders } = useFileSystemQuery(undefined, query);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showFileMenu, setShowFileMenu] = useState(false);
+  const [showFolderMenu, setShowFolderMenu] = useState(false);
+  const [targetItem, setTargetItem] = useState<any>(null);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameText, setRenameText] = useState('');
 
-  const filteredFiles = matchedFiles.filter(f => {
+  useEffect(() => { hydrateVault(); }, [hydrateVault]);
+
+  const allFiles = files.filter(f => !f.isTrash);
+  const allFolders = folders.filter((f: any) => !f.isTrash);
+
+  const searchedFiles = allFiles.filter(f => {
+    if (!query.trim()) return true;
+    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+  });
+
+  const searchedFolders = allFolders.filter(f => {
+    if (!query.trim()) return true;
+    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+  });
+
+  const filteredFiles = searchedFiles.filter(f => {
     if (activeFilter === 'All') return true;
+    if (activeFilter === 'Root Folders') return false;
+    if (activeFilter === 'Subfolders') return false;
     if (activeFilter === 'Images') return f.mimeType?.startsWith('image/');
     if (activeFilter === 'Videos') return f.mimeType?.startsWith('video/');
     if (activeFilter === 'Audio') return f.mimeType?.startsWith('audio/');
@@ -47,7 +90,15 @@ export default function SearchScreen() {
     return true;
   });
 
-  const getFileType = (mimeType: string, name: string) => {
+  const filteredFolders = searchedFolders.filter(f => {
+    if (activeFilter === 'All') return true;
+    if (activeFilter === 'Root Folders') return !f.parentId;
+    if (activeFilter === 'Subfolders') return !!f.parentId;
+    if (activeFilter === 'Favorites') return f.isFavorite;
+    return true;
+  });
+
+  const getFileType = (mimeType: string, name?: string) => {
     if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: '🖼' };
     if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: '▶' };
     if (mimeType?.startsWith('audio/')) return { label: 'Audio', color: '#FBBF24', icon: '♪' };
@@ -55,21 +106,144 @@ export default function SearchScreen() {
     return { label: 'File', color: '#60A5FA', icon: '📄' };
   };
 
-  const totalResults = matchedFolders.length + filteredFiles.length;
-  const showResults = query.trim().length > 0;
+  const totalResults = filteredFolders.length + filteredFiles.length;
+  const showResults = query.trim().length > 0 || filteredFolders.length > 0 || filteredFiles.length > 0;
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
+
+  const handleFileNavigate = (file: any) => {
+    if (file.mimeType?.startsWith('image/')) {
+      router.push({ pathname: '/(main)/viewer/image', params: { fileId: file.id } });
+    } else if (file.mimeType?.startsWith('video/')) {
+      router.push({ pathname: '/(main)/viewer/video', params: { fileId: file.id } });
+    } else {
+      router.push({ pathname: '/(main)/viewer/document', params: { fileId: file.id } });
+    }
+  };
+
+  const handleFileAction = (file: any, action: string) => {
+    setShowFileMenu(false);
+    switch (action) {
+      case 'favorite': toggleFavorite(file.id); break;
+      case 'delete': softDeleteFile(file.id); break;
+      case 'shred':
+        Alert.alert('Confirm Shred', 'Permanently delete this file?',
+          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(file.id) }]
+        ); break;
+    }
+  };
+
+  const handleFolderAction = (folder: any, action: string) => {
+    setShowFolderMenu(false);
+    switch (action) {
+      case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
+      case 'delete': softDeleteFile(folder.id); break;
+      case 'shred':
+        Alert.alert('Confirm Shred', 'Permanently delete this folder?',
+          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(folder.id) }]
+        ); break;
+    }
+  };
+
+  const SearchTile = ({ item, index, type }: { item: any; index: number; type: 'folder' | 'file' }) => {
+    const isSelected = selectedIds.includes(item.id);
+    const ft = type === 'file' ? getFileType(item.mimeType, item.name) : null;
+    const accentColor = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'][index % 6];
+
+    return (
+      <Pressable
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onPress={() => {
+          if (selectionMode) toggleSelection(item.id);
+          else if (type === 'folder') router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+          else handleFileNavigate(item);
+        }}
+        style={({ pressed }) => [
+          styles.vaultTile,
+          {
+            backgroundColor: dash.surface,
+            borderColor: isSelected ? dash.accent : 'transparent',
+            borderWidth: 2,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <View style={styles.vaultTopRow}>
+          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
+            {type === 'folder' ? (
+              <Text style={{ fontSize: 20 }}>📁</Text>
+            ) : (
+              <Text style={{ fontSize: 20 }}>{ft?.icon || '📄'}</Text>
+            )}
+          </View>
+          {selectionMode ? (
+            <View style={styles.checkBox}>
+              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onPress={() => { setTargetItem(item); setShowFolderMenu(type === 'folder' ? true : false); setShowFileMenu(type === 'file' ? true : false); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: dash.textMuted, fontSize: 22, fontWeight: '600' }}>•••</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.vaultBottomBlock}>
+          <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
+            {item.name}
+            {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+          </Text>
+          <View style={styles.vaultMetaRow}>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>
+              {type === 'folder' ? 'Folder' : `${(item.size / 1024).toFixed(1)} KB`}
+            </Text>
+            {type === 'file' && ft && (
+              <Text style={[styles.vaultMeta, { color: ft.color }]}>{ft.label}</Text>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Search" showBack />
+    <View style={[styles.root, { backgroundColor: dash.bg }]}>
+      <SafeAreaView>
+        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+          <View style={styles.headerTextBlock}>
+            <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Search</Text>
+            <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Find files & folders</Text>
+          </View>
+          <Pressable
+            onPress={toggleTheme}
+            style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+            accessibilityRole="button"
+            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+          </Pressable>
+        </View>
+      </SafeAreaView>
 
-      {/* Search Bar */}
-      <View style={styles.searchWrapper}>
-        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: `${colors.border}45` }]}>
-          <Text style={styles.searchIcon}>🔍</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollBody}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
+          <Search size={18} color={dash.textMuted} />
           <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
+            style={[styles.searchInput, { color: dash.text }]}
             placeholder="Search files & folders..."
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={dash.textMuted}
             value={query}
             onChangeText={setQuery}
             autoFocus
@@ -77,147 +251,192 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={{ color: colors.textMuted, fontSize: 15 }}>✕</Text>
+              <Text style={{ color: dash.textMuted, fontSize: 16 }}>✕</Text>
             </TouchableOpacity>
           )}
         </View>
-      </View>
 
-      {/* Filter Pills — same style as dashboard type grid */}
-      <View style={styles.filterSection}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-          {FILTERS.map(f => {
-            const isActive = activeFilter === f.label;
-            return (
-              <TouchableOpacity
-                key={f.label}
-                onPress={() => setActiveFilter(f.label)}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: isActive ? f.color : `${f.color}10`,
-                    borderColor: isActive ? f.color : `${f.color}25`,
-                  }
-                ]}
-                activeOpacity={0.75}
-              >
-                <Text style={[
-                  styles.filterLabel,
-                  { color: isActive ? '#FFF' : f.color, fontWeight: isActive ? '700' : '500' }
-                ]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+        <View style={styles.categorySection}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+            {CATEGORY_FILTERS.map(f => {
+              const isActive = activeFilter === f.label;
+              return (
+                <TouchableOpacity
+                  key={f.label}
+                  onPress={() => setActiveFilter(f.label)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[
+                    styles.categoryPill,
+                    {
+                      backgroundColor: isActive ? dash.surface : `${f.tint}12`,
+                      borderColor: isActive ? dash.textMuted : `${f.tint}35`,
+                      borderWidth: isActive ? 1.5 : 1,
+                    },
+                  ]}>
+                    <View style={[styles.categoryDot, { backgroundColor: f.tint }]} />
+                    <Text style={[
+                      styles.categoryPillLabel,
+                      { color: isActive ? dash.text : f.tint, fontWeight: isActive ? '700' : '500' }
+                    ]}>
+                      {f.label}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.results} showsVerticalScrollIndicator={false}>
-        {!showResults ? (
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyIconBox, { backgroundColor: `${colors.primary}12` }]}>
-              <Text style={{ fontSize: 44 }}>🔍</Text>
-            </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>Search Your Vault</Text>
-            <Text style={[styles.emptyCaption, { color: colors.textMuted }]}>
-              Type a file name or keyword to find files and folders.
+        {showResults && (
+          <View style={styles.resultsHeader}>
+            <Text style={[{ color: dash.textMuted, fontSize: 13 }]}>
+              <Text style={{ fontWeight: '600', color: dash.text }}>{totalResults}</Text>{' '}
+              {totalResults === 1 ? 'result' : 'results'} found
             </Text>
           </View>
-        ) : (
-          <>
-            {totalResults > 0 && (
-              <View style={styles.resultSummary}>
-                <Text style={[{ color: colors.textMuted, fontSize: 13 }]}>
-                  <Text style={{ fontWeight: '600', color: colors.text }}>{totalResults}</Text>{' '}
-                  {totalResults === 1 ? 'result' : 'results'}
-                </Text>
-              </View>
-            )}
-
-            {matchedFolders.length > 0 && (
-              <>
-                <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Folders</Text>
-                {matchedFolders.map(folder => (
-                  <AnimatedCard
-                    key={folder.id}
-                    onPress={() => router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } })}
-                    style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: `${colors.border}35` }]}
-                  >
-                    <View style={styles.resultContent}>
-                      <View style={[styles.resultIcon, { backgroundColor: `${colors.primary}15` }]}>
-                        <Text style={{ fontSize: 20 }}>📁</Text>
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={[styles.resultName, { color: colors.text }]}>{folder.name}</Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>
-                          {new Date(folder.createdAt).toLocaleDateString()}
-                          {folder.isEncrypted && folder.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
-                        </Text>
-                      </View>
-                    </View>
-                  </AnimatedCard>
-                ))}
-              </>
-            )}
-
-            {filteredFiles.length > 0 && (
-              <>
-                {matchedFolders.length > 0 && <View style={{ height: 14 }} />}
-                <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Files</Text>
-                {filteredFiles.map(file => {
-                  const ft = getFileType(file.mimeType, file.name);
-                  return (
-                    <AnimatedCard
-                      key={file.id}
-                      onPress={() => {
-                        if (file.mimeType?.startsWith('image/')) {
-                          router.push({ pathname: '/(main)/viewer/image', params: { fileId: file.id } });
-                        }
-                      }}
-                      style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: `${colors.border}35` }]}
-                    >
-                      <View style={styles.resultContent}>
-                        <View style={[styles.resultIcon, { backgroundColor: `${ft.color}15` }]}>
-                          <Text style={{ fontSize: 20 }}>{ft.icon}</Text>
-                          {file.isEncrypted && (
-                            <View style={styles.encBadge}><Text style={{ fontSize: 8 }}>🔒</Text></View>
-                          )}
-                        </View>
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <Text style={[styles.resultName, { color: colors.text }]} numberOfLines={1}>
-                            {file.name}
-                          </Text>
-                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                            <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                              {(file.size / 1024).toFixed(1)} KB{file.isEncrypted && file.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
-                            </Text>
-                            <Text style={{ color: ft.color, fontSize: 12, fontWeight: '500' }}>{ft.label}</Text>
-                            {file.isFavorite && <Text style={{ color: '#FBBF24', fontSize: 12 }}>⭐</Text>}
-                          </View>
-                        </View>
-                      </View>
-                    </AnimatedCard>
-                  );
-                })}
-              </>
-            )}
-
-            {totalResults === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={{ fontSize: 38, marginBottom: 10, opacity: 0.3 }}>🔍</Text>
-                <Text style={[{ fontSize: 16, fontWeight: '700', color: colors.text }]}>No results found</Text>
-                <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 6, fontSize: 13 }}>
-                  Try a different search term
-                </Text>
-              </View>
-            )}
-          </>
         )}
-        <View style={{ height: 100 }} />
+
+        {!showResults && (
+          <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
+            <Text style={{ fontSize: 36, marginBottom: 10 }}>🔍</Text>
+            <Text style={[styles.emptyTitle, { color: dash.text }]}>Search Your Vault</Text>
+            <Text style={[styles.emptyText, { color: dash.textMuted }]}>Type a file name or keyword to find files and folders.</Text>
+          </View>
+        )}
+
+        {showResults && filteredFolders.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: dash.text }]}>Folders</Text>
+              {selectionMode ? (
+                <View style={styles.sectionActions}>
+                  <TouchableOpacity onPress={() => {
+                    const folderIds = filteredFolders.map(f => f.id);
+                    const allSelected = folderIds.every(id => selectedIds.includes(id));
+                    if (allSelected) {
+                      setSelectedIds(prev => prev.filter(id => !folderIds.includes(id)));
+                    } else {
+                      setSelectedIds(prev => [...prev, ...folderIds.filter(id => !prev.includes(id))]);
+                    }
+                  }} style={styles.textBtn}>
+                    <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                      {filteredFolders.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                    <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.vaultGrid}>
+              {filteredFolders.map((item, index) => (
+                <SearchTile key={item.id} item={item} index={index} type="folder" />
+              ))}
+            </View>
+          </View>
+        )}
+
+        {showResults && filteredFiles.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: dash.text }]}>Files</Text>
+              {selectionMode ? (
+                <View style={styles.sectionActions}>
+                  <TouchableOpacity onPress={() => {
+                    const fileIds = filteredFiles.map(f => f.id);
+                    const allSelected = fileIds.every(id => selectedIds.includes(id));
+                    if (allSelected) {
+                      setSelectedIds(prev => prev.filter(id => !fileIds.includes(id)));
+                    } else {
+                      setSelectedIds(prev => [...prev, ...fileIds.filter(id => !prev.includes(id))]);
+                    }
+                  }} style={styles.textBtn}>
+                    <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                      {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => {
+                    if (selectedIds.length === 0) return;
+                    Alert.alert('Delete Selected', `Move ${selectedIds.length} items to trash?`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => {
+                        selectedIds.forEach(id => softDeleteFile(id));
+                        exitSelectionMode();
+                      }}
+                    ]);
+                  }} style={styles.textBtnDanger}>
+                    <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                    <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={[styles.seeAll, { color: dash.textMuted }]}>{filteredFiles.length} files</Text>
+              )}
+            </View>
+            <View style={styles.vaultGrid}>
+              {filteredFiles.map((item, index) => (
+                <SearchTile key={item.id} item={item} index={index} type="file" />
+              ))}
+            </View>
+          </View>
+        )}
+
+        {showResults && totalResults === 0 && (
+          <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
+            <Text style={{ fontSize: 38, marginBottom: 10, opacity: 0.3 }}>🔍</Text>
+            <Text style={[styles.emptyTitle, { color: dash.text }]}>No results found</Text>
+            <Text style={[styles.emptyText, { color: dash.textMuted }]}>Try a different search term</Text>
+          </View>
+        )}
+
+        <View style={{ height: 140 }} />
       </ScrollView>
 
       <AnimatedTabBar />
+
+      {showFileMenu && targetItem && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
+          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
+            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
+              {[
+                { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+                { action: 'delete', label: 'Move to Trash', color: colors.error },
+                { action: 'shred', label: 'Shred Permanently', color: colors.error },
+              ].map(item => (
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFileAction(targetItem, item.action)}>
+                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {showFolderMenu && targetItem && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
+          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
+            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
+              {[
+                { action: 'open', label: 'Open Folder', color: dash.accent },
+                { action: 'delete', label: 'Move to Trash', color: colors.error },
+                { action: 'shred', label: 'Shred Permanently', color: colors.error },
+              ].map(item => (
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetItem, item.action)}>
+                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -225,35 +444,84 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  searchWrapper: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  headerTextBlock: { flex: 1, marginRight: 12 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8, paddingBottom: 140 },
+
   searchBar: {
-    flexDirection: 'row', alignItems: 'center',
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
   },
-  searchIcon: { fontSize: 15, marginRight: 10 },
-  searchInput: { flex: 1, fontSize: 15, fontWeight: '500', padding: 0 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
 
-  filterSection: { paddingBottom: 8 },
-  filterScroll: { paddingHorizontal: 16, gap: 7 },
-  filterPill: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10, borderWidth: 1,
+  categorySection: { paddingVertical: 8, marginBottom: 8 },
+  categoryScroll: { paddingHorizontal: 4, gap: 8 },
+  categoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 10,
+    gap: 6,
   },
-  filterLabel: { fontSize: 12 },
+  categoryDot: { width: 8, height: 8, borderRadius: 4 },
+  categoryPillLabel: { fontSize: 13 },
 
-  results: { paddingHorizontal: 16 },
-  resultSummary: { paddingVertical: 8 },
-  sectionLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.7, textTransform: 'uppercase', marginBottom: 8, marginTop: 2 },
+  resultsHeader: { paddingVertical: 8, marginBottom: 8 },
 
-  resultCard: { marginBottom: 7, borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
-  resultContent: { flexDirection: 'row', alignItems: 'center', padding: 12 },
-  resultIcon: { width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  resultName: { fontSize: 14, fontWeight: '600' },
-  encBadge: { position: 'absolute', bottom: -3, right: -3, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: 1 },
+  section: { marginBottom: 32 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  seeAll: { fontSize: 13, fontWeight: '600' },
+  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
 
-  emptyState: { alignItems: 'center', paddingTop: 72 },
-  emptyIconBox: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
-  emptyTitle: { fontSize: 19, fontWeight: '700', marginBottom: 7 },
-  emptyCaption: { textAlign: 'center', lineHeight: 20, fontSize: 13, paddingHorizontal: 32 },
+  vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
+  vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
+  vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  vaultIconChip: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  vaultBottomBlock: { marginTop: 14 },
+  vaultName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 6 },
+  vaultMetaRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  vaultMeta: { fontSize: 12, fontWeight: '600' },
+  checkBox: { marginLeft: 4 },
+  checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+
+  emptyCard: { borderRadius: 24, alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  emptyText: { fontSize: 14, textAlign: 'center', marginBottom: 12 },
+
+  actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
+  actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
+  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
+  actionSheetLabel: { fontSize: 15, fontWeight: '500' },
+});
+
+const modalS = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
 });

@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { StyledButton } from '../../components/StyledButton';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 
@@ -77,7 +76,13 @@ export default function RegisterScreen() {
           />
 
           <View style={{ marginTop: 20 }}>
-            <StyledButton title="Lock & Build Vault Container" onPress={handleInitialization} />
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.primary }]}
+              onPress={handleInitialization}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.buttonText}>Lock & Build Vault Container</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -91,5 +96,7 @@ const styles = StyleSheet.create({
   desc: { fontSize: 14, marginBottom: 32, lineHeight: 20 },
   form: { width: '100%' },
   label: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6, letterSpacing: 0.5 },
-  input: { height: 50, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, marginBottom: 20, fontSize: 16 }
+  input: { height: 50, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, marginBottom: 20, fontSize: 16 },
+  button: { height: 52, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 });

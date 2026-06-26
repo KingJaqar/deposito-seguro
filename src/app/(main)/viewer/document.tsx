@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { EncryptionKeyUnlockModal } from '../../../components/EncryptionKeyUnlockModal';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -22,25 +23,22 @@ export default function DocumentViewerScreen() {
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fileContent, setFileContent] = useState<string | null>(null);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [dismissedFileId, setDismissedFileId] = useState<string | null>(null);
   const decryptedUriRef = useRef<string | null>(null);
 
   const fileMeta = files.find(f => f.id === fileId);
   const isEncrypted = fileMeta?.isEncrypted && fileMeta?.encryptionKeyId;
   const needsUnlock = isEncrypted && fileId && !isUnlocked(fileId);
+  const showUnlockModal = !!needsUnlock && dismissedFileId !== fileId;
 
   useEffect(() => {
     let mounted = true;
     decryptedUriRef.current = null;
     
-    // If file is encrypted and not unlocked, show unlock modal
-    if (needsUnlock) {
-      setShowUnlockModal(true);
-      return;
-    }
-    
     const loadFile = async () => {
       if (!fileMeta) return;
+      if (needsUnlock) return;
+      
       try {
         let outPath = fileMeta.localPath;
         if (fileMeta.isEncrypted && fileMeta.encryptionKeyId) {
@@ -94,8 +92,7 @@ export default function DocumentViewerScreen() {
   const handleUnlock = () => {
     if (fileId) {
       markUnlocked(fileId);
-      setShowUnlockModal(false);
-      // Reload the file after unlocking
+      setDismissedFileId(null);
       setLoading(true);
       setDecryptedUri(null);
       setFileContent(null);
@@ -103,11 +100,7 @@ export default function DocumentViewerScreen() {
   };
 
   const handleCancelUnlock = () => {
-    setShowUnlockModal(false);
-    // Navigate back since user cancelled
-    setTimeout(() => {
-      // Could navigate back or show blocked state
-    }, 100);
+    setDismissedFileId(fileId);
   };
 
   const isText = fileMeta?.mimeType.startsWith('text/');
@@ -115,12 +108,13 @@ export default function DocumentViewerScreen() {
   if (isText && fileContent) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <VaultHeader title={fileMeta?.name || 'Document Canvas'} showBack />
+        <SafeAreaView><VaultHeader title={fileMeta?.name || 'Document Canvas'} showBack />
         <ScrollView style={styles.textContainer}>
           <Text style={[styles.textContent, { color: colors.text }]}>
             {fileContent}
           </Text>
         </ScrollView>
+      </SafeAreaView>
       </View>
     );
   }
@@ -129,7 +123,7 @@ export default function DocumentViewerScreen() {
   if (needsUnlock && fileMeta) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <VaultHeader title={fileMeta.name} showBack />
+        <SafeAreaView><VaultHeader title={fileMeta.name} showBack />
         <View style={styles.viewport}>
           <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
             🔒 This document is encrypted. Unlock required.
@@ -142,13 +136,14 @@ export default function DocumentViewerScreen() {
           onUnlock={handleUnlock}
           onCancel={handleCancelUnlock}
         />
+      </SafeAreaView>
       </View>
     );
   }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title={fileMeta ? fileMeta.name : 'Document Canvas'} showBack />
+      <SafeAreaView><VaultHeader title={fileMeta ? fileMeta.name : 'Document Canvas'} showBack />
       <View style={styles.viewport}>
         {loading ? (
           <ActivityIndicator size="large" color={colors.primary} />
@@ -182,6 +177,7 @@ export default function DocumentViewerScreen() {
           <Text style={{ color: colors.error }}>Failed structural conversion of specified document signature resource.</Text>
         )}
       </View>
+    </SafeAreaView>
     </View>
   );
 }

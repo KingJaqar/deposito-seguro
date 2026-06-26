@@ -103,7 +103,7 @@ export function EncryptionKeyUnlockModal({
           
           <Text style={[styles.title, { color: colors.text }]}>🔒 Encrypted Item</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            "{itemName}" is protected with an encryption key.
+            &ldquo;{itemName}&rdquo; is protected with an encryption key.
           </Text>
 
           {requiredKey ? (

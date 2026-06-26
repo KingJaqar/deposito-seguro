@@ -1,33 +1,45 @@
-// File: src/app/(main)/folder/[id].tsx
+// src/app/(main)/folder/[id].tsx
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { AnimatedCard } from '../../../components/AnimatedCard';
+import { useMemo, useState } from 'react';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../../components/EncryptionKeyPicker';
 import { VaultHeader } from '../../../components/VaultHeader';
-import { useThemeColors } from '../../../contexts/ThemeContext';
+import { Moon, Sun } from 'lucide-react-native';
+import { useTheme, useThemeColors } from '../../../contexts/ThemeContext';
 import { useFileSystemQuery } from '../../../hooks/useFileSystemQuery';
 import { SecureCrypto } from '../../../security/crypto';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
-import { folderStyles, sheetStyles } from '../../../styles/folderStyles';
 import { promptCreateEncryptionKey } from '../../../utils/encryptionKeyPrompt';
 
 export default function FolderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const colors = useThemeColors();
-  const { folders, importFile, deleteFolder, softDeleteFile, createFolder, renameFolder, shredFolder, shredMultipleFiles, shredAllFilesInFolder, renameFile, moveFileToFolder, exportFileToDevice, toggleFolderEncryption, moveFolder, shredFile, assignFolderEncryptionKey, assignFileEncryptionKey, removeFolderEncryptionKey, removeFileEncryptionKey } = useVaultStore();
+  const { colors, isDark, toggleTheme } = useTheme();
+  
+  // Bind authentic existing global context operations
+  const {
+    folders, importFile, deleteFolder, softDeleteFile, createFolder, renameFolder,
+    shredFolder, shredMultipleFiles, shredAllFilesInFolder, renameFile, moveFileToFolder,
+    exportFileToDevice, exportFolderFiles, toggleFolderEncryption, moveFolder, shredFile,
+    assignFolderEncryptionKey, assignFileEncryptionKey, removeFolderEncryptionKey, removeFileEncryptionKey,
+    toggleFolderFavorite, toggleFavorite,
+  } = useVaultStore();
+  
   const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
   const { matchedFiles, matchedFolders } = useFileSystemQuery(id);
 
+  // Maintain authentic cross-platform layout selectors
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [targetFile, setTargetFile] = useState<any>(null);
+  const [targetFolder, setTargetFolder] = useState<any>(null);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameText, setRenameText] = useState('');
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -37,11 +49,22 @@ export default function FolderDetailsScreen() {
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string } | null>(null);
 
   const folderRecord = folders.find(f => f.id === id);
+  const folderName = folderRecord ? folderRecord.name : 'Vault Root';
+
+  // Calculate real-time metric counters
+  const totalSizeKB = useMemo(() => {
+    return matchedFiles.reduce((acc, f) => acc + (f.size || 0), 0) / 1024;
+  }, [matchedFiles]);
+
+  const encryptedCount = useMemo(() => {
+    return matchedFiles.filter(f => f.isEncrypted).length;
+  }, [matchedFiles]);
 
   const sanitizeFilename = (name: string): string => {
     return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, '_');
   };
 
+  // Authentic Document Picker payload importer
   const executeImportPayload = async () => {
     if (!id) return;
     try {
@@ -63,7 +86,10 @@ export default function FolderDetailsScreen() {
     }
   };
 
-  const exitSelectionMode = () => { setSelectionMode(false); setSelectedFileIds([]); };
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedFileIds([]);
+  };
 
   const toggleFileSelection = (fileId: string) => {
     setSelectedFileIds(prev => prev.includes(fileId) ? prev.filter(i => i !== fileId) : [...prev, fileId]);
@@ -71,9 +97,12 @@ export default function FolderDetailsScreen() {
 
   const handleCreateNestedFolder = () => {
     if (!id) return;
-    const name = Platform.OS === 'web' ? window.prompt('New folder name:') : null;
-    if (name && name.trim()) createFolder(name.trim(), colors.primary, 'folder', false, id);
-    if (Platform.OS !== 'web') setShowCreateFolderModal(true);
+    if (Platform.OS === 'web') {
+      const name = window.prompt('New folder name:');
+      if (name && name.trim()) createFolder(name.trim(), colors.primary, 'folder', false, id);
+    } else {
+      setShowCreateFolderModal(true);
+    }
   };
 
   const confirmCreateFolder = () => {
@@ -83,516 +112,415 @@ export default function FolderDetailsScreen() {
     setNewFolderName('');
   };
 
-  const handleSelectAll = () => {
-    const allIds = matchedFiles.map(f => f.id);
-    setSelectedFileIds(selectedFileIds.length === allIds.length ? [] : allIds);
-  };
-
-  const handleBulkShred = () => {
-    if (selectedFileIds.length === 0) return;
-    Alert.alert('Confirm Permanent Deletion', `Are you sure you want to permanently shred ${selectedFileIds.length} items? This cannot be undone.`,
-      [{ text: 'Cancel', style: 'cancel' }, {
-        text: 'Shred Selected', style: 'destructive',
-        onPress: () => shredMultipleFiles(selectedFileIds, (current, total) => { setShredProgress({ current, total }); })
-      }]
-    );
-  };
-
-  const handleShredAll = () => {
-    if (!id) return;
-    Alert.prompt('CRITICAL WARNING', 'This will permanently destroy ALL files in this folder. Type "SHRED" to confirm.',
-      [{ text: 'Cancel', style: 'cancel' }, {
-        text: 'Confirm',
-        onPress: (text?: any) => {
-          if (text === 'SHRED') shredAllFilesInFolder(id, (current, total) => { setShredProgress({ current, total }); });
+  const handleBulkSoftDelete = () => {
+    if (selectedFileIds.length === 0) {
+      Alert.alert('Selection Empty', 'Select elements first before executing wipe commands.');
+      return;
+    }
+    Alert.alert('Confirm Move', `Move ${selectedFileIds.length} elements into retention trash?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Move to Trash',
+        style: 'destructive',
+        onPress: async () => {
+          for (const fileId of selectedFileIds) {
+            await softDeleteFile(fileId);
+          }
+          exitSelectionMode();
         }
-      }], 'plain-text'
-    );
+      }
+    ]);
   };
 
-  const handleFolderShred = () => {
-    if (!id) return;
-    Alert.alert('Confirm Folder Deletion', 'Permanently shred this folder and all its contents? This cannot be undone.',
-      [{ text: 'Cancel', style: 'cancel' }, {
-        text: 'Shred Folder', style: 'destructive',
-        onPress: () => shredFolder(id, (current, total) => { setShredProgress({ current, total }); }).then(() => router.back())
-      }]
-    );
+  const handleFileItemPress = (file: any) => {
+    if (selectionMode) {
+      toggleFileSelection(file.id);
+    } else {
+      if (file.mimeType?.startsWith('image/')) {
+        router.push({ pathname: '/(main)/viewer/image', params: { fileId: file.id } });
+      } else if (file.mimeType?.startsWith('video/')) {
+        router.push({ pathname: '/(main)/viewer/video', params: { fileId: file.id } });
+      } else {
+        router.push({ pathname: '/(main)/viewer/document', params: { fileId: file.id } });
+      }
+    }
   };
 
-  const handleRegisterEncryptionKey = (type: 'file' | 'folder', targetId: string, targetName: string) => {
+  const handleFileAction = (action: string) => {
+    setShowFileMenu(false);
+    if (!targetFile) return;
+
+    switch (action) {
+      case 'rename':
+        setRenameText(targetFile.name);
+        setShowRenameModal(true);
+        break;
+      case 'move':
+        setShowMoveModal(true);
+        break;
+      case 'export':
+        exportFileToDevice(targetFile.id).then(path => {
+          if (path) Sharing.shareAsync(path);
+        });
+        break;
+      case 'delete':
+        softDeleteFile(targetFile.id);
+        break;
+      case 'shred':
+        Alert.alert('Confirm Shred', 'Permanently delete this file?',
+          [{ text: 'Cancel', style: 'cancel' },
+           { text: 'Shred', style: 'destructive', onPress: () => shredFile(targetFile.id) }]
+        );
+        break;
+      case 'favorite':
+        toggleFavorite(targetFile.id);
+        break;
+      case 'register-key':
+        handleRegisterEncryptionKey(targetFile.id, targetFile.name);
+        break;
+      case 'assign-key':
+        if (encryptionKeys.length === 0) {
+          Alert.alert('No Encryption Keys', 'Create an encryption key in Settings first.');
+        } else {
+          setKeyPickerTarget({ type: 'file', id: targetFile.id, name: targetFile.name });
+        }
+        break;
+    }
+  };
+
+  const handleRegisterEncryptionKey = (targetId: string, targetName: string) => {
     if (encryptionKeys.length >= 20) {
       Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
       return;
     }
-
     promptCreateEncryptionKey(targetName, async (options) => {
       if (encryptionKeys.length >= 20) {
         Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
         return;
       }
-
       if (encryptionKeyExists(options.name)) {
         Alert.alert('Key Name Already Used', 'Encryption key names must be unique.');
         return;
       }
-
       const key = await createEncryptionKey(options.name, options.customKey, options.description);
       if (!key) {
         Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
         return;
       }
-
-      if (type === 'file') {
-        await assignFileEncryptionKey(targetId, key.id);
-      } else {
-        await assignFolderEncryptionKey(targetId, key.id);
-      }
+      await assignFileEncryptionKey(targetId, key.id);
       Alert.alert('Encryption Registered', 'A new encryption key was generated and assigned.');
     });
   };
 
-  const handleFileAction = (file: any, action: string) => {
-    setShowFileMenu(false);
-    switch (action) {
-      case 'view-info':
-        Alert.alert('File Details', `Name: ${file.name}\nSize: ${(file.size / 1024).toFixed(1)} KB\nType: ${file.mimeType}\nEncrypted: ${file.isEncrypted ? 'Yes' : 'No'}${file.encryptionKeyId ? `\nKey: ${file.encryptionKeyId}` : ''}`); break;
-      case 'rename':
-        setTargetFile(file); setRenameText(file.name); setShowRenameModal(true); break;
-      case 'move':
-        setTargetFile(file); setShowMoveModal(true); break;
-      case 'export':
-        exportFileToDevice(file.id).then(path => { if (path) Sharing.shareAsync(path); }); break;
-      case 'delete':
-        softDeleteFile(file.id); break;
-      case 'shred':
-        Alert.alert('Confirm Shred', 'Permanently delete this file?',
-          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => { shredFile(file.id); exitSelectionMode(); } }]
-        ); break;
-      case 'register-key':
-        handleRegisterEncryptionKey('file', file.id, file.name); break;
-      case 'assign-key':
-        setKeyPickerTarget({ type: 'file', id: file.id, name: file.name }); break;
-      case 'remove-key':
-        Alert.alert('Remove Encryption Key', `Remove encryption from "${file.name}"? The file will be decrypted and remain in the vault.`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Remove', style: 'destructive', onPress: () => removeFileEncryptionKey(file.id) }
-        ]);
-        break;
-      case 'share':
-        exportFileToDevice(file.id).then(path => { if (path) Sharing.shareAsync(path); }); break;
-    }
-  };
-
   const confirmRename = () => {
-    if (targetFile) { renameFile(targetFile.id, renameText.trim()); }
-    else if (folderRecord) { renameFolder(id!, renameText.trim()); }
+    if (targetFile) {
+      renameFile(targetFile.id, renameText.trim());
+      setTargetFile(null);
+    } else if (targetFolder) {
+      renameFolder(targetFolder.id, renameText.trim());
+      setTargetFolder(null);
+    }
     setShowRenameModal(false);
   };
 
-  const confirmMoveFolder = (targetParentId: string) => {
-    if (folderRecord) moveFolder(folderRecord.id, targetParentId || '');
-    setShowMoveModal(false);
-  };
-
-  const confirmMoveFile = (targetFolderId: string) => {
-    if (targetFile) moveFileToFolder(targetFile.id, targetFolderId);
+  const confirmMove = (targetParentId: string) => {
+    if (targetFolder) moveFolder(targetFolder.id, targetParentId);
+    else if (targetFile) moveFileToFolder(targetFile.id, targetParentId);
     setShowMoveModal(false);
   };
 
   const handleFolderAction = (action: string) => {
     setShowFolderMenu(false);
+    if (!folderRecord) return;
     switch (action) {
-      case 'rename': setRenameText(folderRecord?.name || ''); setShowRenameModal(true); break;
-      case 'move': setTargetFile(null); setShowMoveModal(true); break;
-      case 'export': break;
-      case 'delete': deleteFolder(id!); router.back(); break;
-      case 'shred': handleFolderShred(); break;
-      case 'encrypt': toggleFolderEncryption(id!); break;
+      case 'rename':
+        setTargetFolder(folderRecord); setRenameText(folderRecord.name); setShowRenameModal(true); break;
+      case 'move':
+        setTargetFolder(folderRecord); setShowMoveModal(true); break;
+      case 'export':
+        exportFolderFiles(folderRecord.id).then((paths: string[]) => {
+          if (paths.length > 0) Alert.alert('Export Complete', `Exported ${paths.length} files`);
+          else Alert.alert('Nothing to Export', 'This vault has no files to export.');
+        }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
+        break;
       case 'register-key':
-        if (folderRecord) handleRegisterEncryptionKey('folder', folderRecord.id, folderRecord.name);
-        break;
+        handleRegisterEncryptionKey(folderRecord.id, folderRecord.name); break;
       case 'assign-key':
-        if (folderRecord) setKeyPickerTarget({ type: 'folder', id: folderRecord.id, name: folderRecord.name });
+        if (encryptionKeys.length === 0) {
+          Alert.alert('No Encryption Keys', 'Create an encryption key in Settings first.');
+        } else {
+          setKeyPickerTarget({ type: 'folder', id: folderRecord.id, name: folderRecord.name });
+        }
         break;
-      case 'remove-key':
-        if (!folderRecord) return;
-        Alert.alert('Remove Encryption Key', `Remove encryption from folder "${folderRecord.name}"? The folder will remain but files will be decrypted.`, [
+      case 'favorite':
+        toggleFolderFavorite(folderRecord.id);
+        break;
+      case 'delete':
+        deleteFolder(folderRecord.id); router.back(); break;
+      case 'shred':
+        Alert.alert('Confirm Folder Shred', 'Permanently shred this folder and all contents?', [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Remove', style: 'destructive', onPress: () => removeFolderEncryptionKey(folderRecord.id) }
+          { text: 'Shred', style: 'destructive', onPress: () => shredFolder(folderRecord.id) }
         ]);
         break;
     }
   };
 
-  if (!folderRecord) {
-    return (
-      <View style={[folderStyles.root, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ color: colors.text, fontSize: 40, marginBottom: 12 }}>📁</Text>
-        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, marginBottom: 6 }}>Folder Not Found</Text>
-        <Text style={{ color: colors.textMuted }}>Directory node missing or destroyed.</Text>
-      </View>
-    );
-  }
-
-  const totalFolderSize = matchedFiles.reduce((s, f) => s + f.size, 0);
-  const encryptedCount = matchedFiles.filter(f => f.isEncrypted).length;
+  const st = useStyles(colors, isDark);
 
   return (
-    <View style={[folderStyles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader
-        title={folderRecord.name}
-        showBack
-        rightButton={
-          selectionMode ? (
-            <TouchableOpacity onPress={handleSelectAll} style={folderStyles.headerBtn}>
-              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 14 }}>
-                {selectedFileIds.length === matchedFiles.length ? 'None' : 'All'}
-              </Text>
+    <View style={st.root}>
+      <SafeAreaView>
+        {/* Immersive Dark Mode Top Header */}
+        <View style={st.topHeader}>
+          <TouchableOpacity onPress={() => router.back()} style={st.backButton}>
+            <Text style={st.headerIconText}>←</Text>
+          </TouchableOpacity>
+          <Text style={st.headerTitle} numberOfLines={1}>{folderName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity onPress={toggleTheme} style={st.themeToggle} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              {isDark ? <Sun size={20} color={colors.text} /> : <Moon size={20} color={colors.text} />}
             </TouchableOpacity>
-          ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity onPress={handleCreateNestedFolder} style={folderStyles.headerIconBtn}>
-                <Text style={{ fontSize: 17 }}>📁</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={folderStyles.headerIconBtn}>
-                <Text style={{ color: colors.textMuted, fontSize: 20, letterSpacing: 1 }}>···</Text>
-              </TouchableOpacity>
-            </View>
-          )
-        }
-      />
+            <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={st.menuButton}>
+              <Text style={st.headerIconText}>•••</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
 
-      {/* ── Folder Stats Banner ── */}
-      <View style={[folderStyles.statsBanner, { backgroundColor: colors.surface, borderColor: 'rgba(255,255,255,0.06)' }]}>
-        <View style={folderStyles.statItem}>
-          <Text style={[folderStyles.statNum, { color: colors.text }]}>{matchedFiles.length}</Text>
-          <Text style={[folderStyles.statLabel, { color: colors.textMuted }]}>Files</Text>
+      <ScrollView contentContainerStyle={st.scrollContainer} showsVerticalScrollIndicator={false}>
+        
+        {/* Metric Summary Panel Deck */}
+        <View style={st.metricsDeck}>
+          <View style={st.metricItem}>
+            <Text style={st.metricValue}>{matchedFiles.length}</Text>
+            <Text style={st.metricLabel}>Files</Text>
+          </View>
+          <View style={st.metricDivider} />
+          <View style={st.metricItem}>
+            <Text style={st.metricValue}>{totalSizeKB.toFixed(0)}</Text>
+            <Text style={st.metricLabel}>KB Size</Text>
+          </View>
+          <View style={st.metricDivider} />
+          <View style={st.metricItem}>
+            <Text style={st.metricValue}>{encryptedCount}</Text>
+            <Text style={st.metricLabel}>Encrypted</Text>
+          </View>
+          <View style={st.metricDivider} />
+          <View style={st.metricItem}>
+            <Text style={st.metricValue}>{matchedFolders.length}</Text>
+            <Text style={st.metricLabel}>Subfolders</Text>
+          </View>
         </View>
-        <View style={[folderStyles.statDivider, { backgroundColor: colors.border }]} />
-        <View style={folderStyles.statItem}>
-          <Text style={[folderStyles.statNum, { color: colors.text }]}>{(totalFolderSize / 1024).toFixed(0)} KB</Text>
-          <Text style={[folderStyles.statLabel, { color: colors.textMuted }]}>Size</Text>
-        </View>
-        <View style={[folderStyles.statDivider, { backgroundColor: colors.border }]} />
-        <View style={folderStyles.statItem}>
-          <Text style={[folderStyles.statNum, { color: encryptedCount > 0 ? '#34D399' : colors.textMuted }]}>{encryptedCount}</Text>
-          <Text style={[folderStyles.statLabel, { color: colors.textMuted }]}>Encrypted</Text>
-        </View>
-        <View style={[folderStyles.statDivider, { backgroundColor: colors.border }]} />
-        <View style={folderStyles.statItem}>
-          <Text style={[folderStyles.statNum, { color: colors.text }]}>{matchedFolders.length}</Text>
-          <Text style={[folderStyles.statLabel, { color: colors.textMuted }]}>Subfolders</Text>
-        </View>
-      </View>
 
-      {/* ── Action Strip ── */}
-      <View style={folderStyles.actionStripLocal}>
-        {selectionMode ? (
-          <>
-            <View style={[folderStyles.selCountBadge, { backgroundColor: `${colors.primary}22` }]}>
-              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{selectedFileIds.length} selected</Text>
-            </View>
-            <TouchableOpacity onPress={handleSelectAll} style={[folderStyles.actionChip, { backgroundColor: colors.surface }]}>
-              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>
-                {selectedFileIds.length === matchedFiles.length ? 'None' : 'All'}
-              </Text>
-            </TouchableOpacity>
-            {selectedFileIds.length > 0 && (
-              <TouchableOpacity onPress={handleBulkShred} style={[folderStyles.actionChip, { backgroundColor: 'rgba(255,59,48,0.18)' }]}>
-                <Text style={{ color: '#FF3B30', fontWeight: '700', fontSize: 13 }}>Shred</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={handleShredAll} style={[folderStyles.actionChip, { backgroundColor: 'rgba(255,59,48,0.1)' }]}>
-              <Text style={{ color: colors.error, fontWeight: '600', fontSize: 13 }}>💥 All</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={exitSelectionMode} style={[folderStyles.actionChip, { backgroundColor: colors.surface }]}>
-              <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 13 }}>✕</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity onPress={executeImportPayload} style={[folderStyles.primaryChip, { backgroundColor: colors.primary }]}>
-              <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 13 }}>+ Add File</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSelectionMode(true)} style={[folderStyles.actionChip, { backgroundColor: `${colors.primary}18` }]}>
-              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>☑ Select</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleFolderShred} style={[folderStyles.actionChip, { backgroundColor: 'rgba(255,59,48,0.15)' }]}>
-              <Text style={{ color: colors.error, fontWeight: '600', fontSize: 13 }}>Purge</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+        {/* Action Capsule Row Layout */}
+        <View style={st.actionRow}>
+          <TouchableOpacity style={st.addFileButton} onPress={executeImportPayload}>
+            <Text style={st.addFileText}>+ Add File</Text>
+          </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={folderStyles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Subfolders */}
+          <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
+            <Text style={st.pillIconText}>📁</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[st.outlinedSelectButton, selectionMode && st.activeSelectButton]} 
+            onPress={() => {
+              if (selectionMode) {
+                exitSelectionMode();
+              } else {
+                setSelectionMode(true);
+              }
+            }}
+          >
+            <Text style={[st.selectButtonText, selectionMode && st.activeSelectButtonText]}>
+              {selectionMode ? '✓ Selected' : '☑ Select'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={st.purgeButton} onPress={handleBulkSoftDelete}>
+            <Text style={st.purgeButtonText}>Purge</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Subfolders Grid Section */}
         {matchedFolders.length > 0 && (
           <>
-            <Text style={[folderStyles.sectionLabelLocal, { color: colors.textMuted }]}>Subfolders</Text>
-            {matchedFolders.map(item => (
-              <AnimatedCard
-                key={`folder-${item.id}`}
-                style={[folderStyles.folderCardLocal, { backgroundColor: colors.surface }]}
-                onPress={() => router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } })}
-                onLongPress={() => setSelectionMode(true)}
+            <Text style={st.sectionHeader}>SUBFOLDERS</Text>
+            {matchedFolders.map((folder) => (
+              <TouchableOpacity 
+                key={folder.id} 
+                style={st.folderCard}
+                onPress={() => router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } })}
               >
-                <View style={folderStyles.folderCardRow}>
-                  <View style={[folderStyles.folderIconBox, { backgroundColor: `${colors.primary}18` }]}>
-                    <Text style={{ fontSize: 22 }}>📁</Text>
+                <View style={st.folderCardLeft}>
+                  <View style={st.folderIconContainer}>
+                    <Text style={st.cardIconText}>📁</Text>
                   </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[folderStyles.fileNameLocal, { color: colors.text }]}>{item.name}</Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                      Created {new Date(item.createdAt).toLocaleDateString()}
-                      {item.isEncrypted && item.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
-                    </Text>
+                  <View>
+                    <Text style={st.folderTitleText}>{folder.name}</Text>
+                    <Text style={st.folderMetaText}>Directory Folder</Text>
                   </View>
-                  <Text style={{ color: colors.textMuted, fontSize: 18 }}>›</Text>
                 </View>
-              </AnimatedCard>
+                <Text style={st.chevronIcon}>›</Text>
+              </TouchableOpacity>
             ))}
           </>
         )}
 
-        {/* Files */}
-        {matchedFiles.length > 0 && (
-          <Text style={[folderStyles.sectionLabelLocal, { color: colors.textMuted, marginTop: matchedFolders.length > 0 ? 16 : 0 }]}>
-            Files
-          </Text>
-        )}
-
-        <FlatList
-          data={matchedFiles}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-          renderItem={({ item }) => {
-            const isSelected = selectedFileIds.includes(item.id);
-            const isImage = item.mimeType?.startsWith('image/');
-            const isVideo = item.mimeType?.startsWith('video/');
-            const fileIcon = isImage ? '🖼' : isVideo ? '▶' : '📄';
-            const fileColor = isImage ? '#A78BFA' : isVideo ? '#FF6B6B' : '#60A5FA';
-
+        {/* Files Grid Section */}
+        <Text style={st.sectionHeader}>FILES</Text>
+        {matchedFiles.length === 0 ? (
+          <Text style={st.emptyText}>This directory workspace is empty</Text>
+        ) : (
+          matchedFiles.map((file) => {
+            const isSelected = selectedFileIds.includes(file.id);
             return (
-              <AnimatedCard
-                style={[folderStyles.fileCardLocal, {
-                  backgroundColor: colors.surface,
-                  borderColor: isSelected ? colors.primary : 'transparent',
-                  borderWidth: isSelected ? 2 : 0,
-                }]}
-                onLongPress={() => { setSelectionMode(true); setSelectedFileIds([item.id]); }}
-                onPress={() => {
-                  if (selectionMode) {
-                    toggleFileSelection(item.id);
-                  } else {
-                    if (item.mimeType?.startsWith('image/')) {
-                      router.push({ pathname: '/(main)/viewer/image', params: { fileId: item.id } });
-                    } else if (item.mimeType?.startsWith('video/')) {
-                      router.push({ pathname: '/(main)/viewer/video', params: { fileId: item.id } });
-                    } else {
-                      router.push({ pathname: '/(main)/viewer/document', params: { fileId: item.id } });
-                    }
-                  }
-                }}
+              <View 
+                key={file.id} 
+                style={[st.fileCard, isSelected && st.fileCardSelected]}
               >
-                <View style={folderStyles.fileCardRow}>
-                  {selectionMode && (
-                    <TouchableOpacity onPress={() => toggleFileSelection(item.id)} style={{ marginRight: 12 }}>
-                      <View style={[folderStyles.checkCircle, { backgroundColor: isSelected ? colors.primary : 'transparent', borderColor: isSelected ? colors.primary : colors.textMuted }]}>
-                        {isSelected && <Text style={{ color: '#FFF', fontSize: 10, fontWeight: '700' }}>✓</Text>}
-                      </View>
-                    </TouchableOpacity>
-                  )}
-                  <View style={[folderStyles.fileIconBox, { backgroundColor: `${fileColor}18` }]}>
-                    <Text style={{ fontSize: 20 }}>{fileIcon}</Text>
-                    {item.isEncrypted && (
-                      <View style={folderStyles.encryptedBadge}>
-                        <Text style={{ fontSize: 8 }}>🔒</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[folderStyles.fileNameLocal, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                      {(item.size / 1024).toFixed(1)} KB
-                      {item.isEncrypted && item.encryptionKeyId ? ' · 🔒 Encrypted' : ''}
+                <TouchableOpacity 
+                  style={st.fileCardLeft}
+                  onPress={() => handleFileItemPress(file)}
+                  activeOpacity={0.7}
+                >
+                  <View style={st.fileIconContainer}>
+                    <Text style={st.cardIconText}>
+                      {file.mimeType?.startsWith('image/') ? '🖼️' : '📄'}
                     </Text>
                   </View>
-                  {!selectionMode && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <TouchableOpacity
-                        onPress={() => softDeleteFile(item.id)}
-                        style={[folderStyles.fileActionBtn, { backgroundColor: 'rgba(255,59,48,0.12)' }]}
-                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                      >
-                        <Text style={{ fontSize: 14 }}>🗑️</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => { setTargetFile(item); setShowFileMenu(true); }}
-                        style={[folderStyles.fileActionBtn, { backgroundColor: colors.surface }]}
-                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                      >
-                        <Text style={{ color: colors.textMuted, fontWeight: '700' }}>···</Text>
-                      </TouchableOpacity>
-                    </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
+                    <Text style={st.fileMetaText}>{(file.size / 1024).toFixed(1)} KB</Text>
+                  </View>
+                </TouchableOpacity>
+                <View style={st.fileActionsRight}>
+                  {selectionMode && (
+                    <View style={[st.checkboxIndicator, isSelected && st.checkboxIndicatorActive]} />
                   )}
+                  <TouchableOpacity 
+                    style={st.cardMenuIcon} 
+                    onPressIn={() => {
+                      setTargetFile(file);
+                      setShowFileMenu(true);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={st.menuDotsText}>•••</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={st.cardMenuIcon}
+                    onPressIn={() => softDeleteFile(file.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={[st.menuDotsText, { color: '#FF453A' }]}>🗑️</Text>
+                  </TouchableOpacity>
                 </View>
-              </AnimatedCard>
+              </View>
             );
-          }}
-          ListEmptyComponent={
-            <View style={folderStyles.emptyBlock}>
-              <Text style={{ fontSize: 48, marginBottom: 12, opacity: 0.4 }}>📂</Text>
-              <Text style={{ color: colors.textMuted, textAlign: 'center', lineHeight: 20 }}>
-                {'No files in this folder yet.\nTap "+ Add File" to import.'}
-              </Text>
-            </View>
-          }
-        />
-        <View style={{ height: 100 }} />
+          })
+        )}
       </ScrollView>
 
-      {/* ── Bottom Tabs ── */}
-      <View style={folderStyles.bottomTabsLocal}>
-        <TouchableOpacity style={folderStyles.tabButtonLocal} onPress={() => router.push('/(main)/dashboard')}>
-          <Text style={{ fontSize: 22 }}>🏠</Text>
-          <Text style={[folderStyles.tabLabel, { color: colors.textMuted }]}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={folderStyles.tabButtonLocal} onPress={() => router.push('/(main)/favorites')}>
-          <Text style={{ fontSize: 22 }}>⭐</Text>
-          <Text style={[folderStyles.tabLabel, { color: colors.textMuted }]}>Favorites</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={folderStyles.tabButtonLocal} onPress={() => router.push('/(main)/search')}>
-          <Text style={{ fontSize: 22 }}>🔍</Text>
-          <Text style={[folderStyles.tabLabel, { color: colors.textMuted }]}>Search</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={folderStyles.tabButtonLocal} onPress={() => router.push('/(main)/trash')}>
-          <Text style={{ fontSize: 22 }}>🗑️</Text>
-          <Text style={[folderStyles.tabLabel, { color: colors.textMuted }]}>Trash</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={folderStyles.tabButtonLocal} onPress={() => router.push('/(main)/settings')}>
-          <Text style={{ fontSize: 22 }}>⚙️</Text>
-          <Text style={[folderStyles.tabLabel, { color: colors.textMuted }]}>Settings</Text>
-        </TouchableOpacity>
-      </View>
+      <AnimatedTabBar />
 
-      {/* ── Modals ── */}
-      {showFileMenu && targetFile && (
-        <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
-          <TouchableOpacity style={sheetStyles.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
-            <View style={[sheetStyles.sheet, { backgroundColor: colors.surface }]}>
-              <View style={sheetStyles.handle} />
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text }]} numberOfLines={1}>{targetFile.name}</Text>
-              {[
-                { action: 'view-info', label: 'View Details', icon: 'ℹ️', color: colors.text },
-                { action: 'rename', label: 'Rename File', icon: '✏️', color: colors.text },
-                { action: 'move', label: 'Move to...', icon: '↗️', color: colors.text },
-                { action: 'export', label: 'Export / Save to Device', icon: '📤', color: colors.text },
-                { action: 'share', label: 'Open with other apps', icon: '🔗', color: colors.text },
-                { action: 'delete', label: 'Delete to Trash', icon: '🗑️', color: colors.error },
-              { action: 'register-key', label: 'Create & Assign Encryption Key', icon: '🔑', color: colors.primary },
-              { action: 'assign-key', label: 'Assign Existing Encryption Key', icon: '🔐', color: colors.primary },
-              ...(targetFile.isEncrypted && targetFile.encryptionKeyId ? [{ action: 'remove-key', label: 'Remove Encryption Key', icon: '🔓', color: colors.error }] : []),
-              { action: 'shred', label: 'Shred File', icon: '💥', color: colors.error },
-              ].map(item => (
-                <TouchableOpacity key={item.action} style={sheetStyles.item} onPress={() => handleFileAction(targetFile, item.action)}>
-                  <Text style={sheetStyles.itemIcon}>{item.icon}</Text>
-                  <Text style={[sheetStyles.itemLabel, { color: item.color }]}>{item.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-
-      {showRenameModal && (
-        <Modal transparent animationType="fade">
-          <View style={sheetStyles.overlay}>
-            <View style={[sheetStyles.sheet, { backgroundColor: colors.surface }]}>
-              <View style={sheetStyles.handle} />
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text }]}>Rename</Text>
-              <TextInput
-                style={[sheetStyles.input, { borderColor: colors.border, color: colors.text, backgroundColor: `${colors.border}40` }]}
-                value={renameText}
-                onChangeText={setRenameText}
-                autoFocus
-              />
-              <View style={sheetStyles.btnRow}>
-                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[sheetStyles.cancelBtn, { borderColor: colors.border }]}>
-                  <Text style={{ color: colors.textMuted, fontWeight: '600' }}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmRename} style={[sheetStyles.confirmBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontWeight: '700' }}>Save</Text>
-                </TouchableOpacity>
-              </View>
+      {/* Create Subfolder Modal */}
+      <Modal visible={showCreateFolderModal} transparent animationType="fade" onRequestClose={() => setShowCreateFolderModal(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <View style={[{
+            width: '85%',
+            maxWidth: 360,
+            borderRadius: 24,
+            padding: 24,
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+          }]}>
+            <Text style={[{
+              fontSize: 20,
+              fontWeight: '700',
+              marginBottom: 20,
+              letterSpacing: -0.3,
+              color: colors.text,
+            }]}>Create Subfolder</Text>
+            <TextInput
+              style={[{
+                width: '100%',
+                borderWidth: 1,
+                borderRadius: 14,
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                marginBottom: 20,
+                fontSize: 15,
+                borderColor: colors.border,
+                color: colors.text,
+                backgroundColor: `${colors.border}40`,
+              }]}
+              placeholder="Folder name"
+              placeholderTextColor={colors.textMuted}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+            />
+            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+              <TouchableOpacity onPress={() => { setShowCreateFolderModal(false); setNewFolderName(''); }} style={[st.modalCancelBtn, { borderColor: colors.border, borderWidth: 1 }]}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmCreateFolder} style={[st.modalConfirmBtn, { backgroundColor: colors.fabBg }]}>
+                <Text style={{ color: colors.fabText, fontWeight: '700' }}>Create</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-      )}
+        </View>
+      </Modal>
 
-      {showMoveModal && (
-        <Modal transparent animationType="fade">
-          <View style={sheetStyles.overlay}>
-            <View style={[sheetStyles.sheet, { backgroundColor: colors.surface }]}>
-              <View style={sheetStyles.handle} />
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text }]}>Move to Folder</Text>
-              {targetFile && folders.filter(f => f.id !== targetFile.folderId).map(f => (
-                <TouchableOpacity key={f.id} style={sheetStyles.item} onPress={() => confirmMoveFile(f.id)}>
-                  <Text style={sheetStyles.itemIcon}>📁</Text>
-                  <Text style={[sheetStyles.itemLabel, { color: colors.text }]}>{f.name}</Text>
-                </TouchableOpacity>
-              ))}
-              {!targetFile && folders.filter(f => f.id !== id).map(f => (
-                <TouchableOpacity key={f.id} style={sheetStyles.item} onPress={() => confirmMoveFolder(f.id)}>
-                  <Text style={sheetStyles.itemIcon}>📁</Text>
-                  <Text style={[sheetStyles.itemLabel, { color: colors.text }]}>{f.name}</Text>
-                </TouchableOpacity>
-              ))}
-              {!targetFile && (
-                <TouchableOpacity style={sheetStyles.item} onPress={() => confirmMoveFolder('')}>
-                  <Text style={sheetStyles.itemIcon}>🏠</Text>
-                  <Text style={[sheetStyles.itemLabel, { color: colors.text }]}>Root Directory</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+      {/* File Actions Modal */}
+      <Modal visible={showFileMenu} transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
+        <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
+          <View style={[{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
+            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 16 }} />
+            <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{targetFile?.name || 'File Actions'}</Text>
+            {[
+              { action: 'rename', label: 'Rename', color: colors.text },
+              { action: 'move', label: 'Move to...', color: colors.text },
+              { action: 'export', label: 'Export / Save to Device', color: colors.text },
+              { action: 'register-key', label: 'Create & Assign Key', color: colors.primary },
+              { action: 'assign-key', label: 'Assign Existing Key', color: colors.primary },
+              { action: 'favorite', label: targetFile?.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+              { action: 'delete', label: 'Move to Trash', color: colors.error },
+              { action: 'shred', label: 'Shred Permanently', color: colors.error },
+            ].map((item) => (
+              <TouchableOpacity
+                key={item.action}
+                style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                onPress={() => handleFileAction(item.action)}
+              >
+                <Text style={[{ fontSize: 15, fontWeight: '500', color: item.color }]}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
-        </Modal>
-      )}
+        </TouchableOpacity>
+      </Modal>
 
-      <EncryptionKeyPicker
-        visible={!!keyPickerTarget}
-        onClose={() => setKeyPickerTarget(null)}
-        onSelectKey={async (keyId) => {
-          if (!keyPickerTarget) return;
-          if (keyPickerTarget.type === 'file') {
-            await assignFileEncryptionKey(keyPickerTarget.id, keyId);
-          } else {
-            await assignFolderEncryptionKey(keyPickerTarget.id, keyId);
-          }
-          setKeyPickerTarget(null);
-          Alert.alert('Encryption Assigned', 'The selected encryption key is now registered.');
-        }}
-      />
-
+      {/* Folder Menu Modal */}
       {showFolderMenu && folderRecord && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
-          <TouchableOpacity style={sheetStyles.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <View style={[sheetStyles.sheet, { backgroundColor: colors.surface }]}>
-              <View style={sheetStyles.handle} />
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text }]}>{folderRecord.name}</Text>
+          <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
+            <View style={[{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
+              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 16 }} />
+              <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{folderRecord.name}</Text>
               {[
-                { action: 'rename', label: 'Rename', icon: '✏️', color: colors.text },
-                { action: 'move', label: 'Move Folder', icon: '↗️', color: colors.text },
-                { action: 'export', label: 'Export Folder', icon: '📤', color: colors.text },
-              { action: 'register-key', label: 'Create & Assign Encryption Key', icon: '🔑', color: colors.primary },
-              { action: 'assign-key', label: 'Assign Existing Encryption Key', icon: '🔐', color: colors.primary },
-              ...(folderRecord && folderRecord.isEncrypted && folderRecord.encryptionKeyId ? [{ action: 'remove-key', label: 'Remove Encryption Key', icon: '🔓', color: colors.error }] : []),
-              { action: 'delete', label: 'Delete to Trash', icon: '🗑️', color: colors.error },
-                { action: 'shred', label: 'Shred Folder', icon: '💥', color: colors.error },
+                { action: 'rename', label: 'Rename', color: colors.text },
+                { action: 'move', label: 'Move', color: colors.text },
+                { action: 'export', label: 'Export', color: colors.text },
+                { action: 'register-key', label: 'Create & Assign Key', color: colors.primary },
+                { action: 'assign-key', label: 'Assign Existing Key', color: colors.primary },
+                { action: 'favorite', label: folderRecord.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+                { action: 'delete', label: 'Move to Trash', color: colors.error },
+                { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ].map(item => (
-                <TouchableOpacity key={item.action} style={sheetStyles.item} onPress={() => handleFolderAction(item.action)}>
-                  <Text style={sheetStyles.itemIcon}>{item.icon}</Text>
-                  <Text style={[sheetStyles.itemLabel, { color: item.color }]}>{item.label}</Text>
+                <TouchableOpacity key={item.action} style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]} onPress={() => handleFolderAction(item.action)}>
+                  <Text style={[{ fontSize: 15, fontWeight: '500', color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -600,47 +528,28 @@ export default function FolderDetailsScreen() {
         </Modal>
       )}
 
-      {shredProgress && (
+      {/* Move Modal */}
+      {showMoveModal && (
         <Modal transparent animationType="fade">
-          <View style={sheetStyles.overlay}>
-            <View style={[folderStyles.progressCard, { backgroundColor: colors.surface }]}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={[folderStyles.progressText, { color: colors.text }]}>
-                Shredding... ({shredProgress.current}/{shredProgress.total})
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
+            <View style={[{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
+              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 16 }} />
+              <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>
+                {targetFolder ? 'Move Folder' : 'Move File'}
               </Text>
-              <View style={folderStyles.progressBar}>
-                <View style={[folderStyles.progressFill, {
-                  backgroundColor: colors.primary,
-                  width: `${(shredProgress.current / shredProgress.total) * 100}%` as any,
-                }]} />
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {showCreateFolderModal && (
-        <Modal transparent animationType="fade">
-          <View style={sheetStyles.overlay}>
-            <View style={[sheetStyles.sheet, { backgroundColor: colors.surface }]}>
-              <View style={sheetStyles.handle} />
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text }]}>Create Subfolder</Text>
-              <TextInput
-                style={[sheetStyles.input, { borderColor: colors.border, color: colors.text, backgroundColor: `${colors.border}40` }]}
-                placeholder="Folder name"
-                placeholderTextColor={colors.textMuted}
-                value={newFolderName}
-                onChangeText={setNewFolderName}
-                autoFocus
-              />
-              <View style={sheetStyles.btnRow}>
-                <TouchableOpacity onPress={() => setShowCreateFolderModal(false)} style={[sheetStyles.cancelBtn, { borderColor: colors.border }]}>
-                  <Text style={{ color: colors.textMuted, fontWeight: '600' }}>Cancel</Text>
+              {folders.filter(f => f.id !== (targetFolder?.id || targetFile?.folderId)).map(f => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                  onPress={() => {
+                    if (targetFolder) moveFolder(targetFolder.id, f.id);
+                    else if (targetFile) moveFileToFolder(targetFile.id, f.id);
+                    setShowMoveModal(false);
+                  }}
+                >
+                  <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>📁 {f.name}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={confirmCreateFolder} style={[sheetStyles.confirmBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontWeight: '700' }}>Create</Text>
-                </TouchableOpacity>
-              </View>
+              ))}
             </View>
           </View>
         </Modal>
@@ -648,3 +557,86 @@ export default function FolderDetailsScreen() {
     </View>
   );
 }
+
+const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) => {
+  const bg = colors.background;
+  const surface = colors.vaultSurface || colors.surface;
+  const iconBg = colors.vaultIconBg || colors.surface;
+  const text = colors.text;
+  const muted = colors.vaultTextMuted || colors.textMuted;
+  const sectionText = colors.vaultSectionText || colors.textSecondary;
+  const primary = colors.primary;
+  const error = colors.error;
+  const border = colors.borderLight || colors.border;
+  const overlay = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
+
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: bg },
+    topHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 },
+    backButton: { padding: 6 },
+    menuButton: { padding: 6 },
+    themeToggle: { padding: 6 },
+    headerIconText: { color: text, fontSize: 22, fontWeight: '600' },
+    headerTitle: { color: text, fontSize: 22, fontWeight: '700', textAlign: 'center', flex: 1, paddingHorizontal: 12 },
+    scrollContainer: { paddingHorizontal: 16, paddingBottom: 130 },
+    metricsDeck: { flexDirection: 'row', backgroundColor: surface, borderRadius: 20, paddingVertical: 20, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'space-around', marginTop: 10, marginBottom: 24 },
+    metricItem: { alignItems: 'center', flex: 1 },
+    metricValue: { color: text, fontSize: 18, fontWeight: '800' },
+    metricLabel: { color: muted, fontSize: 11, fontWeight: '500', marginTop: 4 },
+    metricDivider: { width: 1, height: 32, backgroundColor: border, opacity: 0.6 },
+    actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 28, justifyContent: 'space-between' },
+    addFileButton: { backgroundColor: colors.vaultAddFileBg || primary, borderRadius: 100, paddingVertical: 14, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+    addFileText: { color: '#FFF', fontWeight: '700', fontSize: 15 },
+    iconActionPill: { backgroundColor: iconBg, width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+    pillIconText: { fontSize: 18 },
+    outlinedSelectButton: { borderWidth: 1, borderColor: border, borderRadius: 100, paddingVertical: 12, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
+    activeSelectButton: { backgroundColor: colors.vaultSelectBg || surface, borderColor: colors.vaultSelectBorder || primary },
+    selectButtonText: { color: primary, fontWeight: '600', fontSize: 14 },
+    activeSelectButtonText: { color: primary },
+    purgeButton: { backgroundColor: colors.vaultPurgeBg || `${error}18`, borderRadius: 100, paddingVertical: 12, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
+    purgeButtonText: { color: colors.vaultPurgeText || error, fontWeight: '700', fontSize: 14 },
+    sectionHeader: { color: sectionText, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, marginBottom: 12, marginTop: 8, paddingLeft: 4 },
+    folderCard: { backgroundColor: surface, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    folderCardLeft: { flexDirection: 'row', alignItems: 'center' },
+    folderIconContainer: { width: 44, height: 44, backgroundColor: iconBg, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+    cardIconText: { fontSize: 20 },
+    folderTitleText: { color: text, fontSize: 16, fontWeight: '600' },
+    folderMetaText: { color: muted, fontSize: 12, marginTop: 2 },
+    chevronIcon: { color: muted, fontSize: 22, fontWeight: '600' },
+    fileCard: { backgroundColor: surface, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    fileCardSelected: { borderColor: primary, borderWidth: 1 },
+    fileCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    fileIconContainer: { width: 44, height: 44, backgroundColor: iconBg, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+    fileTitleText: { color: text, fontSize: 15, fontWeight: '600', paddingRight: 8 },
+    fileMetaText: { color: muted, fontSize: 12, marginTop: 2 },
+    fileActionsRight: { flexDirection: 'row', alignItems: 'center' },
+    checkboxIndicator: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: muted, marginRight: 12 },
+    checkboxIndicatorActive: { backgroundColor: primary, borderColor: primary },
+    cardMenuIcon: { padding: 6 },
+    menuDotsText: { color: muted, fontSize: 14, fontWeight: '700' },
+    emptyText: { color: muted, fontSize: 14, textAlign: 'center', marginVertical: 20, fontStyle: 'italic' },
+    bottomTabBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 92, backgroundColor: surface, borderTopWidth: 1, borderTopColor: border, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingBottom: 24, paddingHorizontal: 8 },
+    tabItem: { alignItems: 'center', justifyContent: 'center', flex: 1 },
+    tabIconActive: { fontSize: 22, color: text },
+    tabLabelActive: { color: text, fontSize: 11, fontWeight: '600', marginTop: 4 },
+    tabIconMuted: { fontSize: 22, color: muted, opacity: 0.6 },
+    tabLabelMuted: { color: muted, fontSize: 11, fontWeight: '500', marginTop: 4 },
+    orbWrapper: { width: 72, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+    floatingSearchOrb: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#5162FF', alignItems: 'center', justifyContent: 'center', shadowColor: '#5162FF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 6, transform: [{ translateY: -14 }] },
+    orbIconText: { fontSize: 22, color: '#FFFFFF' },
+    modalOverlay: { flex: 1, backgroundColor: overlay, justifyContent: 'center', paddingHorizontal: 24 },
+    modalContent: { backgroundColor: surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: border },
+    modalTitle: { color: text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
+    modalInput: { backgroundColor: iconBg, borderRadius: 10, padding: 14, color: text, fontSize: 15, marginBottom: 20, borderWidth: 1, borderColor: border },
+    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end' },
+    modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 16, marginRight: 12 },
+    modalCancelText: { color: muted, fontSize: 15, fontWeight: '600' },
+    modalConfirmBtn: { backgroundColor: primary, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 20 },
+    modalConfirmText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+    fileMenuContent: { backgroundColor: surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: border },
+    fileMenuHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: border, alignSelf: 'center', marginBottom: 16 },
+    fileMenuTitle: { color: text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
+    fileMenuItem: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: border },
+    fileMenuItemText: { fontSize: 15, fontWeight: '500' },
+  });
+};

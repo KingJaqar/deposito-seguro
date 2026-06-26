@@ -90,19 +90,20 @@ export default function LoginScreen() {
               {row.map((token) => {
                 let btnBg = '#3A3A3C';
                 let txtColor = '#FFF';
-                
+
                 if (token === '=') {
                   btnBg = '#FF9F0A';
                 } else if (token === 'C' || token === '(' || token === ')' || token === '%') {
                   btnBg = '#A5A5A5';
                   txtColor = '#000';
                 }
-                
+
                 return (
                   <TouchableOpacity
                     key={token}
                     style={[styles.calcButton, { backgroundColor: btnBg }]}
                     onPress={() => handleCalculatorPress(token)}
+                    activeOpacity={0.7}
                   >
                     <Text style={[styles.calcButtonText, { color: txtColor }]}>
                       {token}
@@ -128,9 +129,10 @@ export default function LoginScreen() {
         value={inputBuffer}
         onChangeText={setInputBuffer}
       />
-      <TouchableOpacity 
-        style={[styles.stdSubmit, { backgroundColor: colors.primary }]} 
+      <TouchableOpacity
+        style={[styles.stdSubmit, { backgroundColor: colors.primary }]}
         onPress={handleStandardAuth}
+        activeOpacity={0.8}
       >
         <Text style={styles.stdSubmitText}>Unlock Pipeline</Text>
       </TouchableOpacity>

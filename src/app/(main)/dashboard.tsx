@@ -1,4 +1,3 @@
-// File: src/app/(main)/dashboard.tsx
 import { router } from 'expo-router';
 import {
   Box,
@@ -29,13 +28,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Animated, {
-  FadeInDown,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
 import { CategoryTint } from '../../constants/Colors';
@@ -51,9 +44,6 @@ const VAULT_GAP = 16;
 const CATEGORY_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - CATEGORY_GAP * 2) / 3;
 const VAULT_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
 
-// Total vault capacity shown on the storage summary card. The vault store does not
-// currently expose a quota field, so this is a fixed display ceiling matching the
-// reference design (100 GB). Swap for a real quota value if/when the store adds one.
 const DISPLAY_CAPACITY_GB = 100;
 
 export default function DashboardScreen() {
@@ -67,9 +57,6 @@ export default function DashboardScreen() {
   } = useVaultStore();
   const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
 
-  // Dashboard-specific palette with safe fallbacks: light/dark define these tokens,
-  // but disguise-mode palettes (calculator/notes/utility) and amoled don't, so every
-  // read here falls back to that palette's base equivalent rather than reading undefined.
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
     surface: colors.dashboardSurface ?? colors.surface,
@@ -93,20 +80,7 @@ export default function DashboardScreen() {
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
 
-  const scrollY = useSharedValue(0);
   const scrollViewRef = useRef<ScrollView>(null);
-
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-    },
-  });
-
-  // Subtle compress + fade as the user scrolls — purely cosmetic, never hides content.
-  const animatedHeaderStyle = useAnimatedStyle(() => {
-    const opacity = Math.max(0.85, 1 - scrollY.value / 400);
-    return { opacity };
-  });
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
@@ -144,13 +118,10 @@ export default function DashboardScreen() {
     { key: 'other', label: 'Other', count: otherCount, color: CategoryTint.other, Icon: Box },
   ];
 
-  // Vault tile accent colors cycle through a small fixed palette so each card reads
-  // distinctly, mirroring the reference design's per-vault folder tint.
   const vaultAccentPalette = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'];
 
   const rootFolders = folders.filter(f => !f.parentId);
   const subFolders = folders.filter(f => !!f.parentId);
-  const allFoldersOrdered = [...rootFolders, ...subFolders];
 
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
@@ -223,8 +194,6 @@ export default function DashboardScreen() {
         }
         break;
       case 'favorite':
-        // Folders are favorited via toggleFolderFavorite, not the file-scoped
-        // toggleFavorite (which silently no-ops on a folder id).
         toggleFolderFavorite && toggleFolderFavorite(folder.id);
         break;
     }
@@ -259,37 +228,17 @@ export default function DashboardScreen() {
 
   const moveDestinations = folders.filter(f => f.id !== targetFolder?.id);
 
-  // ── Pressable scale wrapper (shared by category + vault tiles) ──
-  const PressScale = ({
-    children, onPress, onLongPress, style,
-  }: { children: React.ReactNode; onPress?: () => void; onLongPress?: () => void; style?: any }) => {
-    const scale = useSharedValue(1);
-    const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-    return (
-      <Pressable
-        onPress={onPress}
-        onLongPress={onLongPress}
-        onPressIn={() => { scale.value = withTiming(0.95, { duration: 100 }); }}
-        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
-      >
-        <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>
-      </Pressable>
-    );
-  };
-
   const CategoryTile = ({ item, index }: { item: typeof categoryData[number]; index: number }) => (
-    <Animated.View entering={FadeInDown.delay(80 + index * 30).duration(300)}>
-      <PressScale
-        onPress={() => router.push('/(main)/search')}
-        style={[styles.categoryTile, { backgroundColor: dash.surface, width: CATEGORY_TILE_WIDTH }]}
-      >
-        <View style={[styles.categoryIconChip, { backgroundColor: `${item.color}1A` }]}>
-          <item.Icon size={20} color={item.color} strokeWidth={2.2} />
-        </View>
-        <Text style={[styles.categoryLabel, { color: dash.text }]} numberOfLines={1}>{item.label}</Text>
-        <Text style={[styles.categoryCount, { color: dash.textMuted }]}>{item.count} files</Text>
-      </PressScale>
-    </Animated.View>
+    <Pressable
+      onPress={() => router.push('/(main)/search')}
+      style={[styles.categoryTile, { backgroundColor: dash.surface, width: CATEGORY_TILE_WIDTH }]}
+    >
+      <View style={[styles.categoryIconChip, { backgroundColor: `${item.color}1A` }]}>
+        <item.Icon size={20} color={item.color} strokeWidth={2.2} />
+      </View>
+      <Text style={[styles.categoryLabel, { color: dash.text }]} numberOfLines={1}>{item.label}</Text>
+      <Text style={[styles.categoryCount, { color: dash.textMuted }]}>{item.count} files</Text>
+    </Pressable>
   );
 
   const VaultTile = ({ item, index }: { item: any; index: number }) => {
@@ -302,89 +251,83 @@ export default function DashboardScreen() {
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
 
     return (
-      <Animated.View entering={FadeInDown.delay(220 + index * 50).duration(300)}>
-        <PressScale
-          onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
-          onPress={() => {
-            if (selectionMode) toggleFolderSelection(item.id);
-            else router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
-          }}
-          style={[
-            styles.vaultTile,
-            {
-              backgroundColor: dash.surface,
-              width: VAULT_TILE_WIDTH,
-              borderColor: isSelected ? dash.accent : 'transparent',
-              borderWidth: isSelected ? 2 : 0,
-            },
-          ]}
-        >
-          <View style={styles.vaultTopRow}>
-            <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
-              <Folder size={20} color={accentColor} strokeWidth={2.2} />
-            </View>
-            {selectionMode ? (
-              <View style={styles.checkBox}>
-                <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
-                  {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
-                </View>
+      <Pressable
+        onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
+        onPress={() => {
+          if (selectionMode) toggleFolderSelection(item.id);
+          else router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+        }}
+        style={[
+          styles.vaultTile,
+          {
+            backgroundColor: dash.surface,
+            width: VAULT_TILE_WIDTH,
+            borderColor: isSelected ? dash.accent : 'transparent',
+            borderWidth: 2,
+          },
+        ]}
+      >
+        <View style={styles.vaultTopRow}>
+          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
+            <Folder size={20} color={accentColor} strokeWidth={2.2} />
+          </View>
+          {selectionMode ? (
+            <View style={styles.checkBox}>
+              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
               </View>
-            ) : (
-              <TouchableOpacity
-                onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <MoreVertical size={18} color={dash.textMuted} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.vaultBottomBlock}>
-            <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
-              {item.name}
-              {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
-              {item.isFavorite ? ' ⭐' : ''}
-            </Text>
-            <View style={styles.vaultMetaRow}>
-              <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{folderFileCount} files</Text>
-              <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{sizeLabel}</Text>
             </View>
+          ) : (
+            <TouchableOpacity
+              onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <MoreVertical size={18} color={dash.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.vaultBottomBlock}>
+          <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
+            {item.name}
+            {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+            {item.isFavorite ? ' ⭐' : ''}
+          </Text>
+          <View style={styles.vaultMetaRow}>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{folderFileCount} files</Text>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{sizeLabel}</Text>
           </View>
-        </PressScale>
-      </Animated.View>
+        </View>
+      </Pressable>
     );
+
   };
 
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      {/* ── Dashboard-only header: title + tagline + theme toggle ──
-          This is intentionally a local block rather than the shared VaultHeader
-          component, since VaultHeader is used across 10+ other screens with a
-          back-button/centered-title pattern that this design does not touch. */}
-      <Animated.View style={[styles.headerRow, { backgroundColor: dash.bg }, animatedHeaderStyle]}>
+      <SafeAreaView>
+        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         <View style={styles.headerTextBlock}>
           <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
         </View>
-        <TouchableOpacity
+        <Pressable
           onPress={toggleTheme}
-          activeOpacity={0.7}
           style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
           accessibilityRole="button"
           accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-        </TouchableOpacity>
-      </Animated.View>
+        </Pressable>
+      </View>
+      </SafeAreaView>
 
-      <Animated.ScrollView
+      <ScrollView
         ref={scrollViewRef}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
         contentContainerStyle={styles.scrollBody}
         showsVerticalScrollIndicator={false}
       >
-        {/* Search bar */}
         <Pressable onPress={() => router.push('/(main)/search')}>
           <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
             <Search size={18} color={dash.textMuted} />
@@ -392,7 +335,6 @@ export default function DashboardScreen() {
           </View>
         </Pressable>
 
-        {/* Storage summary card */}
         <View
           style={[
             styles.storageCard,
@@ -432,7 +374,6 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Categories */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: dash.text }]}>Categories</Text>
@@ -447,7 +388,6 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* My Vaults */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: dash.text }]}>My Vaults</Text>
@@ -484,46 +424,58 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.vaultGrid}>
-              {allFoldersOrdered.map((item, index) => (
-                <VaultTile key={item.id} item={item} index={index} />
-              ))}
+            <View>
+              {rootFolders.length > 0 && (
+                <View style={styles.vaultSection}>
+                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>ROOT VAULTS</Text>
+                  <View style={styles.vaultGrid}>
+                    {rootFolders.map((item, index) => (
+                      <VaultTile key={item.id} item={item} index={index} />
+                    ))}
+                  </View>
+                </View>
+              )}
+              {subFolders.length > 0 && (
+                <View style={styles.vaultSection}>
+                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>SUBFOLDERS</Text>
+                  <View style={styles.vaultGrid}>
+                    {subFolders.map((item, index) => (
+                      <VaultTile key={item.id} item={item} index={index} />
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           )}
         </View>
 
         <View style={{ height: 140 }} />
-      </Animated.ScrollView>
+      </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
+      <Pressable
         onPress={handleDirectoryProvisioning}
-        activeOpacity={0.85}
         style={[styles.fab, { backgroundColor: dash.fabBg }]}
         accessibilityRole="button"
         accessibilityLabel="Create new vault"
       >
         <Plus size={26} color={dash.fabText} strokeWidth={2.4} />
-      </TouchableOpacity>
+      </Pressable>
 
-      {/* Bottom Tab Bar */}
       <AnimatedTabBar />
 
-      {/* ── Modals ── */}
       <Modal visible={showFolderModal} transparent animationType="fade" onRequestClose={() => setShowFolderModal(false)}>
-        <View style={modalS.overlay}>
-          <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
-            <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-            <Text style={[modalS.title, { color: dash.text }]}>New Vault</Text>
+        <View style={modalS.centeredOverlay}>
+          <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
+            <Text style={[modalS.centeredTitle, { color: dash.text }]}>New Vault</Text>
             <TextInput
-              style={[modalS.input, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+              style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
               placeholder="Vault name"
               placeholderTextColor={dash.textMuted}
               value={folderName}
               onChangeText={setFolderName}
               autoFocus
             />
-            <View style={modalS.btnRow}>
+            <View style={modalS.centeredBtnRow}>
               <TouchableOpacity onPress={() => setShowFolderModal(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
                 <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
               </TouchableOpacity>
@@ -531,14 +483,14 @@ export default function DashboardScreen() {
                 <Text style={{ color: dash.fabText, fontWeight: '700' }}>Create</Text>
               </TouchableOpacity>
             </View>
-          </Animated.View>
+          </View>
         </View>
       </Modal>
 
       {showFolderMenu && targetFolder && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
           <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetFolder.name}</Text>
               {[
@@ -555,7 +507,7 @@ export default function DashboardScreen() {
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
-            </Animated.View>
+            </View>
           </TouchableOpacity>
         </Modal>
       )}
@@ -574,7 +526,7 @@ export default function DashboardScreen() {
       {showRenameModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+            <View style={[modalS.sheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[modalS.title, { color: dash.text }]}>Rename Vault</Text>
               <TextInput
@@ -591,7 +543,7 @@ export default function DashboardScreen() {
                   <Text style={{ color: dash.fabText, fontWeight: '700' }}>Save</Text>
                 </TouchableOpacity>
               </View>
-            </Animated.View>
+            </View>
           </View>
         </Modal>
       )}
@@ -599,7 +551,7 @@ export default function DashboardScreen() {
       {showMoveModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+            <View style={[modalS.sheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[modalS.title, { color: dash.text }]}>Move Vault</Text>
               {moveDestinations.length === 0 ? (
@@ -613,7 +565,7 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
                 ))
               )}
-            </Animated.View>
+            </View>
           </View>
         </Modal>
       )}
@@ -625,14 +577,12 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8, paddingBottom: 140 },
 
-  // Header
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingVertical: 16,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
@@ -645,7 +595,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Search bar
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -657,7 +606,6 @@ const styles = StyleSheet.create({
   },
   searchPlaceholder: { fontSize: 14, fontWeight: '500' },
 
-  // Storage card
   storageCard: { borderRadius: 24, padding: 24, marginBottom: 32 },
   storageTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   storageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -672,7 +620,6 @@ const styles = StyleSheet.create({
   progressLabelsRow: { flexDirection: 'row', justifyContent: 'space-between' },
   progressLabel: { fontSize: 12, fontWeight: '500' },
 
-  // Sections
   section: { marginBottom: 32 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
@@ -682,14 +629,15 @@ const styles = StyleSheet.create({
   textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
   cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
 
-  // Category grid (3-col)
+  vaultSection: { marginBottom: 24 },
+  vaultSectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 },
+
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: CATEGORY_GAP },
   categoryTile: { borderRadius: 16, paddingVertical: 18, paddingHorizontal: 10, alignItems: 'center' },
   categoryIconChip: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   categoryLabel: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
   categoryCount: { fontSize: 11, fontWeight: '600' },
 
-  // Vault grid (2-col)
   vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
   vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
   vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -701,13 +649,11 @@ const styles = StyleSheet.create({
   checkBox: { marginLeft: 4 },
   checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 
-  // Empty State
   emptyCard: { borderRadius: 24, alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   emptyText: { fontSize: 14, textAlign: 'center', marginBottom: 12 },
   emptyBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
 
-  // FAB
   fab: {
     position: 'absolute',
     right: SCREEN_PADDING,
@@ -724,7 +670,6 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
 
-  // Action Sheet
   actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
   actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
   actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -739,4 +684,9 @@ const modalS = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16, fontSize: 15 },
   btnRow: { flexDirection: 'row', gap: 12 },
   btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  centeredOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+  centeredCard: { width: '85%', maxWidth: 360, borderRadius: 24, padding: 24, alignItems: 'center' },
+  centeredTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20, letterSpacing: -0.3 },
+  centeredInput: { width: '100%', borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, fontSize: 15 },
+  centeredBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
 });

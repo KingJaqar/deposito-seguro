@@ -1,9 +1,26 @@
 // File: src/app/(main)/trash.tsx
+import {
+  Box,
+  FileText,
+  Image as ImageIcon,
+  ListFilter,
+  Moon,
+  Music,
+  RotateCcw,
+  Search,
+  Smartphone,
+  Sun,
+  Trash2,
+  Video,
+} from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   FlatList,
-  Platform,
+  Modal,
+  Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,18 +28,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Animated, {
-  FadeInDown,
-  FadeOutUp,
-  Layout,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
-import { VaultHeader } from '../../components/VaultHeader';
-import { useThemeColors } from '../../contexts/ThemeContext';
+import { CategoryTint } from '../../constants/Colors';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useVaultStore } from '../../store/vaultStore';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SCREEN_PADDING = 20;
 
 type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
 type FileTypeFilter = 'all' | 'image' | 'video' | 'document' | 'audio' | 'other';
@@ -32,21 +44,19 @@ interface TrashedFile {
   name: string;
   isTrash: boolean;
   folderId?: string | null;
-  type?: string;
+  mimeType?: string;
   size?: number;
-  deletedAt?: string; // ISO string — generated if missing
+  deletedAt?: number | string;
   [key: string]: any;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const FILE_TYPE_LABELS: Record<FileTypeFilter, string> = {
+const FILE_TYPE_MAP: Record<FileTypeFilter, string> = {
   all: 'All',
-  image: '🖼 Images',
-  video: '🎬 Videos',
-  document: '📄 Docs',
-  audio: '🎵 Audio',
-  other: '📦 Other',
+  image: 'Images',
+  video: 'Videos',
+  document: 'Documents',
+  audio: 'Audio',
+  other: 'Other',
 };
 
 function detectType(name: string): FileTypeFilter {
@@ -58,15 +68,8 @@ function detectType(name: string): FileTypeFilter {
   return 'other';
 }
 
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDeletedAt(iso: string): string {
-  const d = new Date(iso);
+function formatDeletedAt(value: number | string): string {
+  const d = new Date(value);
   return d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -99,190 +102,80 @@ function groupByDate(files: TrashedFile[]): { label: string; data: TrashedFile[]
   return ORDER.filter(l => groups[l]).map(l => ({ label: l, data: groups[l] }));
 }
 
-// ─── Filter Chip ──────────────────────────────────────────────────────────────
+// Resolves the icon, tint color, and short label for a trashed file. Reads the
+// real mimeType (falling back to filename extension) so the icon chip always
+// reflects the file's actual type — matching the same detection used on the
+// dashboard's category tiles for visual consistency across the app.
+function getFileVisual(item: TrashedFile) {
+  const mimeType: string = item.mimeType || '';
+  const name: string = item.name || '';
 
-function FilterChip({
-  label,
-  active,
-  onPress,
-  colors,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  colors: any;
-}) {
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: active ? 1.02 : 1 }] }));
+  const isApp =
+    mimeType === 'application/vnd.android.package-archive' ||
+    mimeType === 'application/x-msdownload' ||
+    name.endsWith('.apk') || name.endsWith('.exe') || name.endsWith('.dmg');
 
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPress={onPress}
-    >
-      <Animated.View
-        style={[
-          chipStyles.chip,
-          animStyle,
-          {
-            backgroundColor: active
-              ? colors.primary
-              : 'rgba(255,255,255,0.06)',
-            borderColor: active ? colors.primary : 'rgba(255,255,255,0.1)',
-          },
-        ]}
-      >
-        <Text
-          style={[
-            chipStyles.chipText,
-            { color: active ? '#fff' : 'rgba(255,255,255,0.5)' },
-          ]}
-        >
-          {label}
-        </Text>
-      </Animated.View>
-    </TouchableOpacity>
-  );
+  if (isApp) return { label: 'App', color: CategoryTint.apps, Icon: Smartphone };
+  if (mimeType.startsWith('image/')) return { label: 'Image', color: CategoryTint.images, Icon: ImageIcon };
+  if (mimeType.startsWith('video/')) return { label: 'Video', color: CategoryTint.videos, Icon: Video };
+  if (mimeType.startsWith('audio/')) return { label: 'Audio', color: CategoryTint.audio, Icon: Music };
+
+  const isDoc =
+    mimeType.includes('pdf') || mimeType.includes('document') ||
+    mimeType.includes('text') || mimeType.includes('sheet') ||
+    detectType(name) === 'document';
+  if (isDoc) return { label: 'File', color: CategoryTint.docs, Icon: FileText };
+
+  return { label: 'File', color: CategoryTint.other, Icon: Box };
 }
-
-const chipStyles = StyleSheet.create({
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  chipText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.2 },
-});
-
-// ─── File Card ────────────────────────────────────────────────────────────────
-
-function TrashFileCard({
-  item,
-  colors,
-  onRestore,
-  onShred,
-}: {
-  item: TrashedFile;
-  colors: any;
-  onRestore: () => void;
-  onShred: () => void;
-}) {
-  const fileType = detectType(item.name);
-  const typeIcons: Record<FileTypeFilter, string> = {
-    all: '📁', image: '🖼️', video: '🎬', document: '📄', audio: '🎵', other: '📦',
-  };
-
-  return (
-    <Animated.View
-      entering={FadeInDown.springify().damping(16)}
-      exiting={FadeOutUp.duration(200)}
-      layout={Layout.springify()}
-    >
-      <View
-        style={[
-          cardStyles.card,
-          {
-            backgroundColor: 'rgba(255,255,255,0.04)',
-            borderColor: 'rgba(255,255,255,0.07)',
-          },
-        ]}
-      >
-        {/* Icon + Info */}
-        <View style={cardStyles.row}>
-          <View style={[cardStyles.iconBox, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
-            <Text style={cardStyles.iconText}>{typeIcons[fileType]}</Text>
-          </View>
-          <View style={cardStyles.info}>
-            <Text style={[cardStyles.fileName, { color: colors.text }]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {item.folderId && (
-              <Text style={[cardStyles.folder, { color: colors.primary }]}>
-                📂 {item.folderId}
-              </Text>
-            )}
-            <Text style={[cardStyles.deletedAt, { color: 'rgba(255,255,255,0.35)' }]}>
-              🗓 {formatDeletedAt(item.deletedAt!)}
-              {item.size ? `  ·  ${formatFileSize(item.size)}` : ''}
-            </Text>
-          </View>
-        </View>
-
-        {/* Actions */}
-        <View style={cardStyles.actions}>
-          <TouchableOpacity style={[cardStyles.btn, { backgroundColor: 'rgba(255,255,255,0.07)' }]} onPress={onRestore}>
-            <Text style={[cardStyles.btnText, { color: colors.primary }]}>↩ Restore</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[cardStyles.btn, { backgroundColor: 'rgba(255,80,80,0.15)' }]} onPress={onShred}>
-            <Text style={[cardStyles.btnText, { color: '#ff5f5f' }]}>🗑 Shred</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Animated.View>
-  );
-}
-
-const cardStyles = StyleSheet.create({
-  card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 10,
-  },
-  row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  iconText: { fontSize: 20 },
-  info: { flex: 1 },
-  fileName: { fontSize: 15, fontWeight: '600', marginBottom: 3 },
-  folder: { fontSize: 11, fontWeight: '500', marginBottom: 3 },
-  deletedAt: { fontSize: 11 },
-  actions: { flexDirection: 'row', gap: 10 },
-  btn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  btnText: { fontSize: 13, fontWeight: '700' },
-});
-
-// ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function TrashScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark, toggleTheme } = useTheme();
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
+
+  const dash = {
+    bg: colors.dashboardBg ?? colors.background,
+    surface: colors.dashboardSurface ?? colors.surface,
+    surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
+    accent: colors.dashboardAccent ?? colors.accent,
+    text: colors.dashboardText ?? colors.text,
+    textMuted: colors.dashboardTextMuted ?? colors.textMuted,
+    border: colors.dashboardBorder ?? colors.border,
+    fabBg: colors.fabBg ?? colors.primary,
+    fabText: colors.fabText ?? '#FFFFFF',
+  };
+
+  // Card-row specific tokens. These intentionally sit a touch darker/lighter
+  // than `dash.surface` (independent of the dashboard tokens above) so the
+  // trash list reads as its own distinct surface, matching the target design
+  // without altering any other screen that consumes `dash.surface`.
+  const card = {
+    bg: isDark ? '#18181B' : '#FFFFFF',
+    divider: isDark ? 'rgba(245, 239, 224, 0.08)' : 'rgba(15, 23, 42, 0.08)',
+    restoreBg: isDark ? '#202030' : '#E9E8FB',
+    restoreText: isDark ? '#7C82E8' : '#5152D6',
+    deleteBg: isDark ? '#2C1E20' : '#FBE6E5',
+    deleteText: isDark ? '#E4786F' : '#D6433A',
+  };
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all');
-  const [folderFilter, setFolderFilter] = useState<string>('all');
   const [sort, setSort] = useState<SortKey>('date_desc');
   const [showFilters, setShowFilters] = useState(false);
+  const [showFileMenu, setShowFileMenu] = useState(false);
+  const [targetItem, setTargetItem] = useState<any>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Enrich files with auto-generated deletedAt if missing
   const enrichedFiles: TrashedFile[] = useMemo(() => {
     return (files as TrashedFile[])
       .filter(f => f.isTrash)
       .map(f => ({
         ...f,
-        deletedAt: f.deletedAt ?? new Date(0).toISOString(),
+        deletedAt: f.deletedAt ?? 0,
       }));
   }, [files]);
 
-  // Unique folders in trash
-  const trashedFolders = useMemo(() => {
-    const ids = [...new Set(enrichedFiles.map(f => f.folderId).filter(Boolean))] as string[];
-    return ids;
-  }, [enrichedFiles]);
-
-  // Filter + sort
   const filtered = useMemo(() => {
     let result = enrichedFiles;
 
@@ -295,12 +188,6 @@ export default function TrashScreen() {
       result = result.filter(f => detectType(f.name) === typeFilter);
     }
 
-    if (folderFilter !== 'all') {
-      result = result.filter(f =>
-        folderFilter === '__root__' ? !f.folderId : f.folderId === folderFilter
-      );
-    }
-
     result = [...result].sort((a, b) => {
       switch (sort) {
         case 'date_desc': return new Date(b.deletedAt!).getTime() - new Date(a.deletedAt!).getTime();
@@ -311,21 +198,15 @@ export default function TrashScreen() {
     });
 
     return result;
-  }, [enrichedFiles, search, typeFilter, folderFilter, sort]);
+  }, [enrichedFiles, search, typeFilter, sort]);
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
   const handleShred = useCallback((id: string, name: string) => {
-    if (Platform.OS === 'web') {
-      if (confirm(`Permanently shred "${name}"? This cannot be undone.`)) {
-        permanentlyDeleteFile(id);
-      }
-    } else {
-      Alert.alert('Permanently Shred File', `"${name}" will be destroyed forever.`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Shred', style: 'destructive', onPress: () => permanentlyDeleteFile(id) },
-      ]);
-    }
+    Alert.alert('Permanently Shred File', `"${name}" will be destroyed forever.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Shred', style: 'destructive', onPress: () => permanentlyDeleteFile(id) },
+    ]);
   }, [permanentlyDeleteFile]);
 
   const handleShredAll = useCallback(() => {
@@ -340,16 +221,111 @@ export default function TrashScreen() {
     ]);
   }, [filtered, permanentlyDeleteFiles]);
 
-  const filterBarStyle = useAnimatedStyle(() => ({
-    height: showFilters ? 160 : 0,
-    overflow: 'hidden',
-  }));
+  const handleRestoreSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    selectedIds.forEach(id => restoreFileFromTrash(id));
+    setSelectedIds([]);
+    setSelectionMode(false);
+  }, [selectedIds, restoreFileFromTrash]);
+
+  const handleShredSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    Alert.alert('Shred Selected Files?', `This will permanently delete ${selectedIds.length} files.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Shred',
+        style: 'destructive',
+        onPress: () => permanentlyDeleteFiles(selectedIds),
+      },
+    ]);
+  }, [selectedIds, permanentlyDeleteFiles]);
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
 
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
 
-  // Flat list data: section headers + items
+  const TrashRow = ({ item }: { item: TrashedFile }) => {
+    const visual = getFileVisual(item);
+    const isSelected = selectedIds.includes(item.id);
+    const VisualIcon = visual.Icon;
+
+    return (
+      <Pressable
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onPress={() => {
+          if (selectionMode) toggleSelection(item.id);
+        }}
+        style={[
+          styles.row,
+          {
+            backgroundColor: card.bg,
+            borderColor: isSelected ? dash.accent : 'transparent',
+            borderWidth: 2,
+          },
+        ]}
+      >
+        <View style={styles.rowTop}>
+          <View style={[styles.iconChip, { backgroundColor: `${visual.color}20` }]}>
+            <VisualIcon size={20} color={visual.color} strokeWidth={2} />
+          </View>
+
+          <View style={styles.rowInfo}>
+            <Text style={[styles.rowName, { color: dash.text }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <View style={styles.rowMetaRow}>
+              <Text style={[styles.rowMeta, { color: dash.textMuted }]} numberOfLines={1}>
+                {formatDeletedAt(item.deletedAt!)}
+              </Text>
+              <View style={[styles.metaDot, { backgroundColor: dash.textMuted }]} />
+              <Text style={[styles.rowMeta, { color: visual.color, fontWeight: '700' }]} numberOfLines={1}>
+                {visual.label}
+              </Text>
+            </View>
+          </View>
+
+          {selectionMode && (
+            <View style={styles.checkBox}>
+              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {!selectionMode && (
+          <>
+            <View style={[styles.rowDivider, { backgroundColor: card.divider }]} />
+            <View style={styles.rowActions}>
+              <TouchableOpacity
+                onPress={() => restoreFileFromTrash(item.id)}
+                activeOpacity={0.8}
+                style={[styles.pillBtn, { backgroundColor: card.restoreBg }]}
+              >
+                <RotateCcw size={14} color={card.restoreText} strokeWidth={2.4} />
+                <Text style={[styles.pillBtnText, { color: card.restoreText }]}>Restore</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleShred(item.id, item.name)}
+                activeOpacity={0.8}
+                style={[styles.pillBtn, { backgroundColor: card.deleteBg }]}
+              >
+                <Trash2 size={14} color={card.deleteText} strokeWidth={2.4} />
+                <Text style={[styles.pillBtnText, { color: card.deleteText }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </Pressable>
+    );
+  };
+
   type ListItem =
     | { type: 'section'; label: string }
     | { type: 'file'; file: TrashedFile };
@@ -364,139 +340,244 @@ export default function TrashScreen() {
   }, [grouped]);
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Trash" showBack />
-
-      {/* ── Search Bar ── */}
-      <View style={[styles.searchWrap, { borderColor: 'rgba(255,255,255,0.09)' }]}>
-        <View style={[styles.searchBox, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search deleted files…"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            style={[styles.searchInput, { color: colors.text }]}
-            clearButtonMode="while-editing"
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Text style={styles.clearBtn}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.filterToggle,
-            {
-              backgroundColor: showFilters
-                ? colors.primary
-                : 'rgba(255,255,255,0.06)',
-            },
-          ]}
-          onPress={toggleFilters}
-        >
-          <Text style={styles.filterToggleText}>⚙</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Expandable Filter Panel ── */}
-      <Animated.View style={filterBarStyle}>
-        <View style={styles.filterPanel}>
-          {/* File type */}
-          <Text style={[styles.filterLabel, { color: 'rgba(255,255,255,0.4)' }]}>
-            FILE TYPE
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-            {(Object.keys(FILE_TYPE_LABELS) as FileTypeFilter[]).map(k => (
-              <FilterChip
-                key={k}
-                label={FILE_TYPE_LABELS[k]}
-                active={typeFilter === k}
-                onPress={() => setTypeFilter(k)}
-                colors={colors}
-              />
-            ))}
-          </ScrollView>
-
-          {/* Folder */}
-          <Text style={[styles.filterLabel, { color: 'rgba(255,255,255,0.4)' }]}>
-            FOLDER
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-            <FilterChip label="📂 All" active={folderFilter === 'all'} onPress={() => setFolderFilter('all')} colors={colors} />
-            <FilterChip label="🏠 Root" active={folderFilter === '__root__'} onPress={() => setFolderFilter('__root__')} colors={colors} />
-            {trashedFolders.map(fid => (
-              <FilterChip key={fid} label={`📁 ${fid}`} active={folderFilter === fid} onPress={() => setFolderFilter(fid)} colors={colors} />
-            ))}
-          </ScrollView>
-
-          {/* Sort */}
-          <Text style={[styles.filterLabel, { color: 'rgba(255,255,255,0.4)' }]}>SORT</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {([
-              ['date_desc', '🕐 Newest'],
-              ['date_asc', '🕐 Oldest'],
-              ['name_asc', 'A → Z'],
-              ['name_desc', 'Z → A'],
-            ] as [SortKey, string][]).map(([k, label]) => (
-              <FilterChip key={k} label={label} active={sort === k} onPress={() => setSort(k)} colors={colors} />
-            ))}
-          </ScrollView>
-        </View>
-      </Animated.View>
-
-      {/* ── Toolbar ── */}
-      <View style={styles.toolbar}>
-        <Text style={[styles.countText, { color: 'rgba(255,255,255,0.4)' }]}>
-          {filtered.length} {filtered.length === 1 ? 'file' : 'files'}
-        </Text>
-        {filtered.length > 0 && (
-          <TouchableOpacity onPress={handleShredAll}>
-            <Text style={[styles.shredAllText, { color: '#ff5f5f' }]}>Shred All</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* ── List ── */}
-      <FlatList
-        data={listData}
-        keyExtractor={(item, index) =>
-          item.type === 'section' ? `section-${item.label}` : item.file.id
-        }
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => {
-          if (item.type === 'section') {
-            return (
-              <Text style={[styles.sectionHeader, { color: 'rgba(255,255,255,0.35)' }]}>
-                {item.label}
-              </Text>
-            );
-          }
-
-          return (
-            <TrashFileCard
-              item={item.file}
-              colors={colors}
-              onRestore={() => restoreFileFromTrash(item.file.id)}
-              onShred={() => handleShred(item.file.id, item.file.name)}
-            />
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyEmoji}>🗑️</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>Trash is empty</Text>
-            <Text style={[styles.emptySubtitle, { color: 'rgba(255,255,255,0.3)' }]}>
-              {search ? 'No results match your search.' : 'Files you delete will appear here.'}
-            </Text>
+    <View style={[styles.root, { backgroundColor: dash.bg }]}>
+      <SafeAreaView>
+        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+          <View style={styles.headerTextBlock}>
+            <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Trash</Text>
+            <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Deleted files</Text>
           </View>
-        }
-      />
+          <Pressable
+            onPress={toggleTheme}
+            style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+            accessibilityRole="button"
+            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+          </Pressable>
+        </View>
+      </SafeAreaView>
+
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={styles.scrollBody}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.searchBar, { backgroundColor: card.bg }]}>
+            <Search size={18} color={dash.textMuted} />
+            <TextInput
+              style={[styles.searchInput, { color: dash.text }]}
+              placeholder="Search deleted files..."
+              placeholderTextColor={dash.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={{ color: dash.textMuted, fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filters Row */}
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              onPress={toggleFilters}
+              style={[styles.filterToggleBtn, { backgroundColor: card.bg }]}
+            >
+              <ListFilter size={14} color={dash.textMuted} strokeWidth={2.2} />
+              <Text style={[styles.filterToggleText, { color: dash.textMuted }]}>Filters</Text>
+            </TouchableOpacity>
+            <View style={styles.headerRightBlock}>
+              {!selectionMode && filtered.length > 0 && (
+                <TouchableOpacity onPress={handleShredAll}>
+                  <Text style={[styles.shredAllText, { color: card.deleteText }]}>Shred All</Text>
+                </TouchableOpacity>
+              )}
+              {!selectionMode && (
+                <Text style={[styles.countText, { color: dash.textMuted }]}>
+                  {filtered.length} {filtered.length === 1 ? 'file' : 'files'}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {showFilters && (
+            <View style={styles.filterPanel}>
+              <View style={styles.categorySection}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+                  {(Object.keys(FILE_TYPE_MAP) as FileTypeFilter[]).map(k => {
+                    const isActive = typeFilter === k;
+                    const tint = k === 'all' ? colors.primary : k === 'image' ? CategoryTint.images : k === 'video' ? CategoryTint.videos : k === 'document' ? CategoryTint.docs : k === 'audio' ? CategoryTint.audio : CategoryTint.other;
+                    return (
+                      <TouchableOpacity
+                        key={k}
+                        onPress={() => setTypeFilter(k)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[
+                          styles.categoryPill,
+                          {
+                            backgroundColor: isActive ? card.bg : `${tint}12`,
+                            borderColor: isActive ? dash.textMuted : `${tint}35`,
+                            borderWidth: isActive ? 1.5 : 1,
+                          },
+                        ]}>
+                          <View style={[styles.categoryDot, { backgroundColor: tint }]} />
+                          <Text style={[
+                            styles.categoryPillLabel,
+                            { color: isActive ? dash.text : tint, fontWeight: isActive ? '700' : '500' }
+                          ]}>
+                            {FILE_TYPE_MAP[k]}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View style={styles.categorySection}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+                  {([
+                    ['date_desc', 'Newest'],
+                    ['date_asc', 'Oldest'],
+                    ['name_asc', 'A → Z'],
+                    ['name_desc', 'Z → A'],
+                  ] as [SortKey, string][]).map(([k, label]) => {
+                    const isActive = sort === k;
+                    return (
+                      <TouchableOpacity
+                        key={k}
+                        onPress={() => setSort(k)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[
+                          styles.categoryPill,
+                          {
+                            backgroundColor: isActive ? card.bg : `${colors.primary}12`,
+                            borderColor: isActive ? dash.textMuted : `${colors.primary}35`,
+                            borderWidth: isActive ? 1.5 : 1,
+                          },
+                        ]}>
+                          <View style={[styles.categoryDot, { backgroundColor: colors.primary }]} />
+                          <Text style={[
+                            styles.categoryPillLabel,
+                            { color: isActive ? dash.text : colors.primary, fontWeight: isActive ? '700' : '500' }
+                          ]}>
+                            {label}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          )}
+
+          {selectionMode && (
+            <View style={styles.selectionBar}>
+              <TouchableOpacity onPress={() => {
+                const fileIds = filtered.map(f => f.id);
+                const allSelected = fileIds.every(id => selectedIds.includes(id));
+                if (allSelected) {
+                  setSelectedIds([]);
+                } else {
+                  setSelectedIds(fileIds);
+                }
+              }} style={styles.textBtn}>
+                <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                  {filtered.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleRestoreSelected} style={styles.textBtn}>
+                <Text style={{ color: colors.success, fontSize: 13, fontWeight: '700' }}>Restore</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleShredSelected} style={styles.textBtnDanger}>
+                <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {filtered.length === 0 && !search && (
+            <View style={[styles.emptyCard, { backgroundColor: card.bg }]}>
+              <Trash2 size={32} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.6 }} />
+              <Text style={[styles.emptyTitle, { color: dash.text }]}>Trash is empty</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Files you delete will appear here.</Text>
+            </View>
+          )}
+
+          {filtered.length === 0 && search && (
+            <View style={[styles.emptyCard, { backgroundColor: card.bg }]}>
+              <Search size={32} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.4 }} />
+              <Text style={[styles.emptyTitle, { color: dash.text }]}>No results found</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Try a different search term</Text>
+            </View>
+          )}
+
+          {filtered.length > 0 && (
+            <FlatList
+              data={listData}
+              keyExtractor={(item) =>
+                item.type === 'section' ? `section-${item.label}` : item.file.id
+              }
+              scrollEnabled={false}
+              contentContainerStyle={{ paddingBottom: 140 }}
+              renderItem={({ item }) => {
+                if (item.type === 'section') {
+                  return (
+                    <View style={styles.sectionHeaderWrapper}>
+                      <Text style={[styles.sectionHeader, { color: dash.textMuted }]}>
+                        {item.label}
+                      </Text>
+                    </View>
+                  );
+                }
+
+                return <TrashRow item={item.file} />;
+              }}
+            />
+          )}
+        </ScrollView>
+      </View>
 
       <AnimatedTabBar />
+
+      {showFileMenu && targetItem && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
+          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
+            <View style={[styles.actionSheet, { backgroundColor: card.bg }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
+              {[
+                { action: 'restore', label: 'Restore', color: dash.accent },
+                { action: 'shred', label: 'Shred Permanently', color: colors.error },
+              ].map(item => (
+                <TouchableOpacity
+                  key={item.action}
+                  style={[styles.actionSheetItem, { borderBottomColor: dash.border }]}
+                  onPress={() => {
+                    setShowFileMenu(false);
+                    if (item.action === 'restore') {
+                      restoreFileFromTrash(targetItem.id);
+                    } else {
+                      handleShred(targetItem.id, targetItem.name);
+                    }
+                  }}
+                >
+                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -504,75 +585,137 @@ export default function TrashScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  searchWrap: {
+  headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 10,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  searchBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 8,
-  },
-  searchIcon: { fontSize: 14 },
-  searchInput: { flex: 1, fontSize: 14, padding: 0 },
-  clearBtn: { fontSize: 13, color: 'rgba(255,255,255,0.3)', paddingLeft: 4 },
-  filterToggle: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+  headerTextBlock: { flex: 1, marginRight: 12 },
+  headerTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  filterToggleText: { fontSize: 18 },
 
-  filterPanel: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  filterLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
+  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8 },
 
-  toolbar: {
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+
+  filterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 8,
+    marginBottom: 8,
   },
-  countText: { fontSize: 12, fontWeight: '500' },
-  shredAllText: { fontSize: 12, fontWeight: '700' },
+  filterToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  filterToggleText: { fontSize: 13, fontWeight: '600' },
+  headerRightBlock: { alignItems: 'flex-end', gap: 2 },
+  shredAllText: { fontSize: 13, fontWeight: '700' },
 
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 110,
+  filterPanel: { marginTop: 10, marginBottom: 4 },
+
+  categorySection: { paddingVertical: 4, marginBottom: 8 },
+  categoryScroll: { paddingHorizontal: 4, gap: 8 },
+  categoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 5,
   },
+  categoryDot: { width: 6, height: 6, borderRadius: 3 },
+  categoryPillLabel: { fontSize: 12 },
+
+  countText: { fontSize: 12, fontWeight: '500' },
+  selectionBar: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12 },
+  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+
+  sectionHeaderWrapper: { marginTop: 18, marginBottom: 10 },
   sectionHeader: {
     fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginTop: 20,
-    marginBottom: 10,
+    opacity: 0.6,
   },
 
-  emptyWrap: {
-    alignItems: 'center',
-    marginTop: 80,
-    paddingHorizontal: 40,
+  row: {
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    marginBottom: 12,
   },
-  emptyEmoji: { fontSize: 52, marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 8 },
-  emptySubtitle: { fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconChip: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowInfo: { flex: 1, minWidth: 0 },
+  rowName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 5 },
+  rowMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowMeta: { fontSize: 12, fontWeight: '500' },
+  metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.6 },
+
+  checkBox: { marginLeft: 4 },
+  checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+
+  rowDivider: { height: 1, marginTop: 14, marginBottom: 12 },
+  rowActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  pillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+  },
+  pillBtnText: { fontSize: 13, fontWeight: '700' },
+
+  emptyCard: { borderRadius: 20, alignItems: 'center', paddingVertical: 32, paddingHorizontal: 20 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
+  emptyText: { fontSize: 13, textAlign: 'center', marginBottom: 10 },
+
+  actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
+  actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
+  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
+  actionSheetLabel: { fontSize: 15, fontWeight: '500' },
+});
+
+const modalS = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
 });

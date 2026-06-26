@@ -1,6 +1,6 @@
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AnimatedCard } from '../../../components/AnimatedCard';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
@@ -45,7 +45,9 @@ export default function EncryptionKeysScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Encryption Keys" showBack />
+      <SafeAreaView>
+        <VaultHeader title="Encryption Keys" showBack />
+      </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[styles.description, { color: colors.textMuted }]}>
           Create up to 20 keys. Generated keys are high-entropy; custom key phrases are hashed before storage.
@@ -101,8 +103,8 @@ export default function EncryptionKeysScreen() {
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>Create a key to assign it to folders or files.</Text>
           </View>
         ) : (
-          encryptionKeys.map((key: EncryptionKeyMetadata, index: number) => (
-            <Animated.View key={key.id} entering={FadeInDown.delay(index * 40).duration(220)}>
+          encryptionKeys.map((key: EncryptionKeyMetadata) => (
+            <View key={key.id}>
               <TouchableOpacity
                 style={[styles.keyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => Alert.alert(key.name, `Fingerprint: ${key.fingerprint}`)}
@@ -123,20 +125,20 @@ export default function EncryptionKeysScreen() {
                     [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Delete', style: 'destructive', onPress: async () => {
-                      const result = await deleteEncryptionKey(key.id);
-                      if (result === 'in-use') {
-                        Alert.alert('Key In Use', 'This key is assigned to at least one file or folder. Reassign or remove encryption before deleting it.');
-                      } else if (result === 'not-found') {
-                        Alert.alert('Key Not Found', 'This encryption key no longer exists.');
-                      }
-                    } },
+                        const result = await deleteEncryptionKey(key.id);
+                        if (result === 'in-use') {
+                          Alert.alert('Key In Use', 'This key is assigned to at least one file or folder. Reassign or remove encryption before deleting it.');
+                        } else if (result === 'not-found') {
+                          Alert.alert('Key Not Found', 'This encryption key no longer exists.');
+                        }
+                      } },
                     ]
                   )}
                 >
                   <Text style={{ color: colors.error, fontSize: 12, fontWeight: '700' }}>Delete Key</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
-            </Animated.View>
+            </View>
           ))
         )}
 

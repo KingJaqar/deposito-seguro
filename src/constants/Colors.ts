@@ -33,9 +33,19 @@ export interface ThemeColors {
   shadow: string;
   glass: string;
 
-  // Dashboard redesign tokens — optional since only light/dark define them;
-  // disguise-mode palettes (calculator/notes/utility) and amoled fall back to
-  // the base keys above when these are absent, so nothing ever reads undefined.
+  vaultSurface: string;
+  vaultIconBg: string;
+  vaultTextMuted: string;
+  vaultSectionText: string;
+  vaultAddFileBg: string;
+  vaultFolderBadgeBg: string;
+  vaultFolderIcon: string;
+  vaultSelectBg: string;
+  vaultSelectBorder: string;
+  vaultPurgeBg: string;
+  vaultPurgeText: string;
+  vaultTrashIcon: string;
+
   dashboardBg?: string;
   dashboardSurface?: string;
   dashboardSurfaceHover?: string;
@@ -50,25 +60,37 @@ export interface ThemeColors {
 
 export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes' | 'utility', ThemeColors> = {
   light: {
-    background: '#F5F5F7',
-    backgroundGradientStart: '#F5F5F7',
-    backgroundGradientEnd: '#E8E8ED',
+    background: '#F5EFE0',
+    backgroundGradientStart: '#F5EFE0',
+    backgroundGradientEnd: '#EDE5D5',
     surface: '#FFFFFF',
     surfaceElevated: '#FFFFFF',
-    text: '#1D1D1F',
-    textSecondary: '#6E6E73',
-    textMuted: '#8E8E93',
-    primary: '#007AFF',
-    primaryLight: '#007AFF',
-    primaryDark: '#0055CC',
-    border: '#D2D2D7',
-    borderLight: '#E5E5EA',
-    accent: '#5856D6',
-    error: '#FF3B30',
-    success: '#34C759',
-    warning: '#FF9500',
-    shadow: 'rgba(0,0,0,0.08)',
-    glass: 'rgba(255,255,255,0.72)',
+    text: '#0F172A',
+    textSecondary: '#334155',
+    textMuted: '#64748B',
+    primary: '#5162FF',
+    primaryLight: '#6366F1',
+    primaryDark: '#3B3FB8',
+    border: '#E2DDD5',
+    borderLight: '#EDE8E0',
+    accent: '#A8C7E0',
+    error: '#EF4444',
+    success: '#22C55E',
+    warning: '#F59E0B',
+    shadow: 'rgba(15, 23, 42, 0.08)',
+    glass: 'rgba(245, 239, 224, 0.72)',
+    vaultSurface: '#FFFFFF',
+    vaultIconBg: '#F5EFE0',
+    vaultTextMuted: '#64748B',
+    vaultSectionText: '#475569',
+    vaultAddFileBg: '#5162FF',
+    vaultFolderBadgeBg: '#F5F0E6',
+    vaultFolderIcon: '#F59E0B',
+    vaultSelectBg: '#E8E8FF',
+    vaultSelectBorder: '#5162FF',
+    vaultPurgeBg: '#FEE2E2',
+    vaultPurgeText: '#DC2626',
+    vaultTrashIcon: '#DC2626',
 
     // ── Dashboard redesign tokens (light mode) ──────────────────────────────
     dashboardBg: '#F5EFE0',
@@ -78,7 +100,7 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     dashboardText: '#0F172A',
     dashboardTextMuted: 'rgba(15, 23, 42, 0.55)',
     dashboardBorder: 'rgba(15, 23, 42, 0.10)',
-    dashboardNavBar: 'rgba(255, 255, 255, 0.92)',
+    dashboardNavBar: 'rgba(245, 239, 224, 0.92)',
     fabBg: '#0F172A',
     fabText: '#FFFFFF',
   },
@@ -91,17 +113,29 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     text: '#FFFFFF',
     textSecondary: '#C8C8D8',
     textMuted: '#8E8EA0',
-    primary: '#5E5CE6',
+    primary: '#5E66F6',
     primaryLight: '#7B79F0',
     primaryDark: '#4A48C0',
     border: '#2A2A45',
     borderLight: '#353555',
     accent: '#00D4AA',
-    error: '#FF453A',
+    error: '#E56E73',
     success: '#30D158',
     warning: '#FF9F0A',
     shadow: 'rgba(0,0,0,0.4)',
     glass: 'rgba(20,20,40,0.72)',
+    vaultSurface: '#131316',
+    vaultIconBg: '#1A1A1E',
+    vaultTextMuted: '#52525B',
+    vaultSectionText: '#6E6E77',
+    vaultAddFileBg: '#5E66F6',
+    vaultFolderBadgeBg: '#221A0F',
+    vaultFolderIcon: '#E09626',
+    vaultSelectBg: '#131316',
+    vaultSelectBorder: '#5E66F6',
+    vaultPurgeBg: '#2A1619',
+    vaultPurgeText: '#E56E73',
+    vaultTrashIcon: '#E56E73',
 
     // ── Dashboard redesign tokens (dark mode) ───────────────────────────────
     dashboardBg: '#000000',
@@ -124,17 +158,29 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     text: '#FFFFFF',
     textSecondary: '#C8C8D8',
     textMuted: '#8E8EA0',
-    primary: '#5E5CE6',
+    primary: '#5E66F6',
     primaryLight: '#7B79F0',
     primaryDark: '#4A48C0',
     border: '#1A1A1C',
     borderLight: '#252528',
     accent: '#00D4AA',
-    error: '#FF453A',
+    error: '#E56E73',
     success: '#30D158',
     warning: '#FF9F0A',
     shadow: 'rgba(0,0,0,0.6)',
     glass: 'rgba(13,13,13,0.72)',
+    vaultSurface: '#131316',
+    vaultIconBg: '#1A1A1E',
+    vaultTextMuted: '#52525B',
+    vaultSectionText: '#6E6E77',
+    vaultAddFileBg: '#5E66F6',
+    vaultFolderBadgeBg: '#221A0F',
+    vaultFolderIcon: '#E09626',
+    vaultSelectBg: '#131316',
+    vaultSelectBorder: '#5E66F6',
+    vaultPurgeBg: '#2A1619',
+    vaultPurgeText: '#E56E73',
+    vaultTrashIcon: '#E56E73',
   },
   calculator: {
     background: '#17171C',
@@ -156,6 +202,18 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     warning: '#FF9F0A',
     shadow: 'rgba(0,0,0,0.3)',
     glass: 'rgba(45,45,45,0.72)',
+    vaultSurface: '#1C1C1E',
+    vaultIconBg: '#252528',
+    vaultTextMuted: '#8E8E93',
+    vaultSectionText: '#A1A1A6',
+    vaultAddFileBg: '#5162FF',
+    vaultFolderBadgeBg: '#2A2518',
+    vaultFolderIcon: '#F59E0B',
+    vaultSelectBg: '#252838',
+    vaultSelectBorder: '#5162FF',
+    vaultPurgeBg: '#2E1A1C',
+    vaultPurgeText: '#FF5A60',
+    vaultTrashIcon: '#FF5A60',
   },
   notes: {
     background: '#FDFBF7',
@@ -177,6 +235,18 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     warning: '#E6A016',
     shadow: 'rgba(44,42,41,0.08)',
     glass: 'rgba(255,255,255,0.72)',
+    vaultSurface: '#F2F2F7',
+    vaultIconBg: '#E5E5EA',
+    vaultTextMuted: '#8E8E93',
+    vaultSectionText: '#6E6E73',
+    vaultAddFileBg: '#5162FF',
+    vaultFolderBadgeBg: '#F5F0E6',
+    vaultFolderIcon: '#F59E0B',
+    vaultSelectBg: '#E8E8FF',
+    vaultSelectBorder: '#5162FF',
+    vaultPurgeBg: '#FFEBEC',
+    vaultPurgeText: '#FF453A',
+    vaultTrashIcon: '#FF453A',
   },
   utility: {
     background: '#F0F4F8',
@@ -198,5 +268,17 @@ export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes
     warning: '#F57C00',
     shadow: 'rgba(16,42,67,0.08)',
     glass: 'rgba(255,255,255,0.72)',
+    vaultSurface: '#F2F2F7',
+    vaultIconBg: '#E5E5EA',
+    vaultTextMuted: '#627D98',
+    vaultSectionText: '#33658A',
+    vaultAddFileBg: '#5162FF',
+    vaultFolderBadgeBg: '#F5F0E6',
+    vaultFolderIcon: '#F59E0B',
+    vaultSelectBg: '#E8E8FF',
+    vaultSelectBorder: '#5162FF',
+    vaultPurgeBg: '#FFEBEC',
+    vaultPurgeText: '#D32F2F',
+    vaultTrashIcon: '#D32F2F',
   },
 };

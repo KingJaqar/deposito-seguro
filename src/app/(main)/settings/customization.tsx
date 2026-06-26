@@ -1,8 +1,5 @@
-// File: src/app/(main)/settings/customization.tsx
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-} from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -21,17 +18,14 @@ function OptionRow({
   onPress: () => void;
   colors: any;
 }) {
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: active ? 1.02 : 1 }] }));
-
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
     >
-      <Animated.View
+      <View
         style={[
           optStyles.row,
-          animStyle,
           {
             backgroundColor: active
               ? `${colors.primary}22`
@@ -59,7 +53,7 @@ function OptionRow({
         >
           {active && <View style={optStyles.radioDot} />}
         </View>
-      </Animated.View>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -117,7 +111,9 @@ export default function CustomizationSettingsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Appearance" showBack />
+      <SafeAreaView>
+        <VaultHeader title="Appearance" showBack />
+      </SafeAreaView>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         <SectionTitle title="Color Theme" />

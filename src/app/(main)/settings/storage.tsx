@@ -1,20 +1,13 @@
 // File: src/app/(main)/settings/storage.tsx
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import Animated, {
-  Easing,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
 import { StorageService } from '../../../services/storage';
 
-function AnimatedBar({
+function ProgressBar({
   ratio,
   color,
   delay = 0,
@@ -23,19 +16,9 @@ function AnimatedBar({
   color: string;
   delay?: number;
 }) {
-  const width = useSharedValue(0);
-  const barStyle = useAnimatedStyle(() => ({ width: `${width.value * 100}%` as any }));
-
-  useEffect(() => {
-    width.value = withDelay(
-      delay,
-      withTiming(ratio, { duration: 900, easing: Easing.out(Easing.cubic) })
-    );
-  }, [delay, ratio, width]);
-
   return (
     <View style={barStyles.track}>
-      <Animated.View style={[barStyles.fill, { backgroundColor: color }, barStyle]} />
+      <View style={[barStyles.fill, { backgroundColor: color, width: `${ratio * 100}%` }]} />
     </View>
   );
 }
@@ -70,8 +53,7 @@ function StatCard({
   colors: any;
 }) {
   return (
-    <Animated.View
-      entering={FadeInDown.delay(delay ?? 0).springify().damping(18)}
+    <View
       style={[
         statStyles.card,
         {
@@ -94,13 +76,13 @@ function StatCard({
       </View>
       {barRatio !== undefined && barColor ? (
         <View style={{ marginTop: 14 }}>
-          <AnimatedBar ratio={barRatio} color={barColor} delay={delay ?? 0} />
+          <ProgressBar ratio={barRatio} color={barColor} delay={delay ?? 0} />
           <Text style={[statStyles.barLabel, { color: 'rgba(255,255,255,0.3)' }]}>
             {Math.round(barRatio * 100)}% used
           </Text>
         </View>
       ) : null}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -148,8 +130,9 @@ export default function StorageTelemetryScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Storage" showBack />
-
+      <SafeAreaView>
+        <VaultHeader title="Storage" showBack />
+      </SafeAreaView>
       <View style={styles.content}>
         {loading ? (
           <View style={styles.loadingWrap}>
@@ -212,7 +195,7 @@ export default function StorageTelemetryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, flex: 1 },
+  content: { padding: 16, flex: 1, paddingBottom: 110 },
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',

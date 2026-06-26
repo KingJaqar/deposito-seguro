@@ -52,41 +52,61 @@ export const folderStyles = StyleSheet.create({
   padding16: { padding: 16 },
   headerBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   headerIconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' },
+
+  // Stats Banner - Full-width card with 24px border radius
   statsBanner: {
     flexDirection: 'row',
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 4,
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderWidth: 1,
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 4,
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statNum: { fontSize: 16, fontWeight: '800' },
-  statLabel: { fontSize: 10, fontWeight: '600', marginTop: 2 },
-  statDivider: { width: 1, marginVertical: 4 },
+  statNum: { fontSize: 18, fontWeight: '800' },
+  statLabel: { fontSize: 11, fontWeight: '600', marginTop: 4 },
+  statDivider: { width: 1, marginVertical: 4, backgroundColor: '#222225' },
+
+  // Action Strip - Pill buttons with 999 border radius
   actionStripLocal: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center' },
-  primaryChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 16 },
-  actionChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 16 },
-  selCountBadge: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16 },
+  primaryChip: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999 },
+  actionChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 999 },
+  selCountBadge: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 999 },
+
   scrollContent: { paddingHorizontal: 16, paddingTop: 4 },
-  sectionLabelLocal: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, marginTop: 4 },
-  folderCardLocal: { marginBottom: 8, borderRadius: 18, overflow: 'hidden' },
+
+  // Section Labels - Uppercase, small, generous letter spacing
+  sectionLabelLocal: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 4 },
+
+  // Folder Cards - 20px border radius, no borders
+  folderCardLocal: { marginBottom: 8, borderRadius: 20, overflow: 'hidden' },
   folderCardRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+
+  // Folder Icon Box - Darker rounded square wrapper
   folderIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  fileCardLocal: { marginBottom: 8, borderRadius: 18, overflow: 'hidden' },
+
+  // File Cards - 20px border radius, no borders
+  fileCardLocal: { marginBottom: 8, borderRadius: 20, overflow: 'hidden' },
   fileCardRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+
+  // File Icon Box - Darker rounded square wrapper
   fileIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+
   encryptedBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, padding: 2 },
-  fileNameLocal: { fontSize: 15, fontWeight: '600' },
+
+  fileNameLocal: { fontSize: 15, fontWeight: '700' },
+
   checkCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+
   fileActionBtn: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+
   emptyBlock: { alignItems: 'center', paddingVertical: 52 },
   progressCard: { margin: 40, borderRadius: 24, padding: 32, alignItems: 'center' },
   progressText: { fontSize: 15, fontWeight: '600', marginTop: 16, marginBottom: 16 },
   progressBar: { width: '100%', height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.1)', overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },
+
   bottomTabsLocal: {
     position: 'absolute',
     bottom: 0,

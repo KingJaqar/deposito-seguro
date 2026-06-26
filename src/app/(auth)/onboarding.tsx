@@ -26,7 +26,9 @@ export default function OnboardingScreen() {
       <View style={styles.container}>
         <View style={styles.brandingBox}>
           <Text style={[styles.logo, { color: colors.primary }]}>🔒</Text>
-          <Text style={[styles.title, { color: colors.text }]}>DEPOSITO SEGURO</Text>
+          <Text style={[styles.title, { color: colors.text }]}>
+            DEPOSITO SEGURO
+          </Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
             Zero-Knowledge Local Digital Vault
           </Text>
@@ -45,8 +47,8 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.buttonContainer}>
-          <StyledButton 
-            title="Setup Secure Vault Space" 
+          <StyledButton
+            title="Setup Secure Vault Space"
             onPress={() => router.push('/(auth)/register')}
           />
         </View>

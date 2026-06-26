@@ -1,45 +1,18 @@
-// File: src/components/VaultHeader.tsx
 import { router } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
-import Animated, {
-  Extrapolation,
-  interpolate,
-  SharedValue,
-  useAnimatedStyle
-} from 'react-native-reanimated';
 import { useThemeColors } from '../contexts/ThemeContext';
 
 interface HeaderProps {
   title: string;
   showBack?: boolean;
   rightButton?: React.ReactNode;
-  scrollY?: SharedValue<number>;
+  scrollY?: any;
   style?: ViewStyle;
 }
 
-export const VaultHeader = ({ title, showBack = false, rightButton, scrollY, style }: HeaderProps) => {
+export const VaultHeader = ({ title, showBack = false, rightButton, style }: HeaderProps) => {
   const colors = useThemeColors();
-
-  // If scrollY is provided, add parallax and collapse effects
-  const animatedHeaderStyle = useAnimatedStyle(() => {
-    if (!scrollY) {
-      return {};
-    }
-    return {
-      transform: [{ translateY: -scrollY.value * 0.3 }],
-      opacity: interpolate(scrollY.value, [0, 60], [1, 0], Extrapolation.CLAMP),
-    };
-  });
-
-  const animatedTitleStyle = useAnimatedStyle(() => {
-    if (!scrollY) {
-      return {};
-    }
-    return {
-      transform: [{ scale: interpolate(scrollY.value, [0, 80], [1, 0.92], Extrapolation.CLAMP) }],
-    };
-  });
 
   const handleBackPress = () => {
     if (showBack) {
@@ -48,7 +21,16 @@ export const VaultHeader = ({ title, showBack = false, rightButton, scrollY, sty
   };
 
   return (
-    <Animated.View style={[styles.container, { borderBottomColor: colors.borderLight, backgroundColor: colors.glass }, style, animatedHeaderStyle]}>
+    <View
+      style={[
+        styles.container,
+        { 
+          borderBottomColor: colors.borderLight, 
+          backgroundColor: colors.glass,
+        },
+        style,
+      ]}
+    >
       <View style={styles.content}>
         {showBack && (
           <TouchableOpacity
@@ -56,17 +38,22 @@ export const VaultHeader = ({ title, showBack = false, rightButton, scrollY, sty
             style={styles.backBtn}
             activeOpacity={0.7}
           >
-            <Animated.View style={[styles.backIconWrap, { backgroundColor: `${colors.primary}15` }]}>
+            <View
+              style={[
+                styles.backIconWrap,
+                { backgroundColor: `${colors.primary}15` },
+              ]}
+            >
               <Text style={styles.backIcon}>←</Text>
-            </Animated.View>
+            </View>
           </TouchableOpacity>
         )}
-        
-        <Animated.View style={[styles.titleContainer, animatedTitleStyle]}>
+
+        <View style={styles.titleContainer}>
           <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
             {title}
           </Text>
-        </Animated.View>
+        </View>
 
         {rightButton && (
           <View style={styles.rightBtn}>
@@ -74,19 +61,18 @@ export const VaultHeader = ({ title, showBack = false, rightButton, scrollY, sty
           </View>
         )}
       </View>
-      
-      {/* Subtle bottom gradient line */}
+
       <View style={[styles.gradientLine, { backgroundColor: colors.primary, opacity: 0.3 }]} />
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
+    paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     justifyContent: 'space-between',
     zIndex: 100,
