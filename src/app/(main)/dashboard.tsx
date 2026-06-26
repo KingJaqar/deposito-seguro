@@ -14,7 +14,7 @@ import {
   Sun,
   Video,
 } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Alert,
   Dimensions,
@@ -28,7 +28,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
 import { CategoryTint } from '../../constants/Colors';
@@ -57,7 +56,7 @@ export default function DashboardScreen() {
   } = useVaultStore();
   const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
 
-  const dash = {
+  const dash = useMemo(() => ({
     bg: colors.dashboardBg ?? colors.background,
     surface: colors.dashboardSurface ?? colors.surface,
     surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
@@ -67,7 +66,7 @@ export default function DashboardScreen() {
     border: colors.dashboardBorder ?? colors.border,
     fabBg: colors.fabBg ?? colors.primary,
     fabText: colors.fabText ?? '#FFFFFF',
-  };
+  }), [colors]);
 
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
@@ -84,44 +83,58 @@ export default function DashboardScreen() {
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
-  const activeFiles = files.filter(f => !f.isTrash);
-  const totalBytes = activeFiles.reduce((sum, f) => sum + f.size, 0);
+  const activeFiles = useMemo(() => files.filter(f => !f.isTrash), [files]);
+  const totalBytes = useMemo(() => activeFiles.reduce((sum, f) => sum + f.size, 0), [activeFiles]);
   const totalGB = totalBytes / (1024 * 1024 * 1024);
   const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
   const displayStorageValue = totalGB >= 1 ? totalGB.toFixed(1) : totalMB;
   const displayStorageUnit = totalGB >= 1 ? 'GB' : 'MB';
   const percentUsed = Math.min(100, Math.round((totalGB / DISPLAY_CAPACITY_GB) * 100));
 
-  const imageCount = activeFiles.filter(f => f.mimeType?.startsWith('image/')).length;
-  const videoCount = activeFiles.filter(f => f.mimeType?.startsWith('video/')).length;
-  const audioCount = activeFiles.filter(f => f.mimeType?.startsWith('audio/')).length;
-  const appCount = activeFiles.filter(f =>
+  const imageCount = useMemo(() => activeFiles.filter(f => f.mimeType?.startsWith('image/')).length, [activeFiles]);
+  const videoCount = useMemo(() => activeFiles.filter(f => f.mimeType?.startsWith('video/')).length, [activeFiles]);
+  const audioCount = useMemo(() => activeFiles.filter(f => f.mimeType?.startsWith('audio/')).length, [activeFiles]);
+  const appCount = useMemo(() => activeFiles.filter(f =>
     f.mimeType === 'application/vnd.android.package-archive' ||
     f.mimeType === 'application/x-msdownload' ||
     f.name?.endsWith('.apk') || f.name?.endsWith('.exe') || f.name?.endsWith('.dmg')
-  ).length;
-  const docCount = activeFiles.filter(f =>
+  ).length, [activeFiles]);
+  const docCount = useMemo(() => activeFiles.filter(f =>
     !f.mimeType?.startsWith('image/') &&
     !f.mimeType?.startsWith('video/') &&
     !f.mimeType?.startsWith('audio/') &&
     !f.name?.endsWith('.apk') && !f.name?.endsWith('.exe') && !f.name?.endsWith('.dmg') &&
     (f.mimeType?.includes('pdf') || f.mimeType?.includes('document') || f.mimeType?.includes('text') || f.mimeType?.includes('sheet'))
-  ).length;
-  const otherCount = activeFiles.length - imageCount - videoCount - audioCount - appCount - docCount;
+  ).length, [activeFiles]);
+  const otherCount = useMemo(() => activeFiles.length - imageCount - videoCount - audioCount - appCount - docCount, [activeFiles, imageCount, videoCount, audioCount, appCount, docCount]);
 
-  const categoryData = [
+  const categoryData = useMemo(() => [
     { key: 'images', label: 'Images', count: imageCount, color: CategoryTint.images, Icon: ImageIcon },
     { key: 'videos', label: 'Videos', count: videoCount, color: CategoryTint.videos, Icon: Video },
     { key: 'docs', label: 'Docs', count: docCount, color: CategoryTint.docs, Icon: FileText },
     { key: 'audio', label: 'Audio', count: audioCount, color: CategoryTint.audio, Icon: Music },
     { key: 'apps', label: 'Apps', count: appCount, color: CategoryTint.apps, Icon: Smartphone },
     { key: 'other', label: 'Other', count: otherCount, color: CategoryTint.other, Icon: Box },
-  ];
+  ], [imageCount, videoCount, audioCount, appCount, docCount, otherCount]);
 
-  const vaultAccentPalette = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'];
+  const vaultAccentPalette = useMemo(() => ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'], []);
 
-  const rootFolders = folders.filter(f => !f.parentId);
-  const subFolders = folders.filter(f => !!f.parentId);
+  const rootFolders = useMemo(() => folders.filter(f => !f.parentId), [folders]);
+  const subFolders = useMemo(() => folders.filter(f => !!f.parentId), [folders]);
+
+  const folderStatsMap = useMemo(() => {
+    const map: Record<string, { count: number; size: number }> = {};
+    for (const f of files) {
+      if (f.isTrash) continue;
+      const fid = f.folderId;
+      if (!map[fid]) map[fid] = { count: 0, size: 0 };
+      map[fid].count += 1;
+      map[fid].size += f.size;
+    }
+    return map;
+  }, [files]);
+
+  const moveDestinations = useMemo(() => folders.filter(f => f.id !== targetFolder?.id), [folders, targetFolder]);
 
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
@@ -209,9 +222,9 @@ export default function DashboardScreen() {
     setShowMoveModal(false);
   };
 
-  const toggleFolderSelection = (folderId: string) => {
+  const toggleFolderSelection = useCallback((folderId: string) => {
     setSelectedFolderIds(prev => prev.includes(folderId) ? prev.filter(id => id !== folderId) : [...prev, folderId]);
-  };
+  }, []);
 
   const handleSelectAllFolders = () => {
     const allIds = folders.map(f => f.id);
@@ -226,9 +239,7 @@ export default function DashboardScreen() {
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedFolderIds([]); };
 
-  const moveDestinations = folders.filter(f => f.id !== targetFolder?.id);
-
-  const CategoryTile = ({ item, index }: { item: typeof categoryData[number]; index: number }) => (
+  const CategoryTile = useCallback(({ item, index }: { item: typeof categoryData[number]; index: number }) => (
     <Pressable
       onPress={() => router.push('/(main)/search')}
       style={[styles.categoryTile, { backgroundColor: dash.surface, width: CATEGORY_TILE_WIDTH }]}
@@ -239,13 +250,12 @@ export default function DashboardScreen() {
       <Text style={[styles.categoryLabel, { color: dash.text }]} numberOfLines={1}>{item.label}</Text>
       <Text style={[styles.categoryCount, { color: dash.textMuted }]}>{item.count} files</Text>
     </Pressable>
-  );
+  ), [dash.surface, dash.text, dash.textMuted]);
 
-  const VaultTile = ({ item, index }: { item: any; index: number }) => {
-    const folderFileCount = files.filter(f => f.folderId === item.id && !f.isTrash).length;
-    const folderMB = (
-      files.filter(f => f.folderId === item.id && !f.isTrash).reduce((sum, f) => sum + f.size, 0) / (1024 * 1024)
-    );
+  const VaultTile = useCallback(({ item, index }: { item: any; index: number }) => {
+    const stats = folderStatsMap[item.id] || { count: 0, size: 0 };
+    const folderFileCount = stats.count;
+    const folderMB = stats.size / (1024 * 1024);
     const sizeLabel = folderMB >= 1024 ? `${(folderMB / 1024).toFixed(1)} GB` : `${folderMB.toFixed(0)} MB`;
     const isSelected = selectedFolderIds.includes(item.id);
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
@@ -301,13 +311,11 @@ export default function DashboardScreen() {
         </View>
       </Pressable>
     );
-
-  };
+  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette]);
 
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      <SafeAreaView>
-        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+      <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         <View style={styles.headerTextBlock}>
           <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
@@ -321,7 +329,6 @@ export default function DashboardScreen() {
           {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
         </Pressable>
       </View>
-      </SafeAreaView>
 
       <ScrollView
         ref={scrollViewRef}
@@ -582,7 +589,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
-    paddingVertical: 16,
+    paddingVertical: 0,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },

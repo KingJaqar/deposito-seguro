@@ -1,5 +1,4 @@
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { AnimatedCard } from '../../../components/AnimatedCard';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
@@ -45,9 +44,7 @@ export default function EncryptionKeysScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <SafeAreaView>
-        <VaultHeader title="Encryption Keys" showBack />
-      </SafeAreaView>
+      <VaultHeader title="Encryption Keys" showBack />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[styles.description, { color: colors.textMuted }]}>
           Create up to 20 keys. Generated keys are high-entropy; custom key phrases are hashed before storage.

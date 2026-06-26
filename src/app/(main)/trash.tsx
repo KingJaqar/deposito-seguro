@@ -19,8 +19,8 @@ import {
   Dimensions,
   FlatList,
   Modal,
+  Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -226,7 +226,7 @@ export default function TrashScreen() {
     selectedIds.forEach(id => restoreFileFromTrash(id));
     setSelectedIds([]);
     setSelectionMode(false);
-  }, [selectedIds, restoreFileFromTrash]);
+  }, [selectedIds, restoreFileFromTrash, setSelectedIds]);
 
   const handleShredSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -341,22 +341,20 @@ export default function TrashScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      <SafeAreaView>
-        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
-          <View style={styles.headerTextBlock}>
-            <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Trash</Text>
-            <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Deleted files</Text>
-          </View>
-          <Pressable
-            onPress={toggleTheme}
-            style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
-            accessibilityRole="button"
-            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-          </Pressable>
+      <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+        <View style={styles.headerTextBlock}>
+          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Trash</Text>
+          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Deleted files</Text>
         </View>
-      </SafeAreaView>
+        <Pressable
+          onPress={toggleTheme}
+          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+          accessibilityRole="button"
+          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+        </Pressable>
+      </View>
 
       <View style={{ flex: 1 }}>
         <ScrollView

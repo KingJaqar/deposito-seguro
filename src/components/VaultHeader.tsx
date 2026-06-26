@@ -1,3 +1,5 @@
+// File path: src/components/VaultHeader.tsx
+
 import { router } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
@@ -24,10 +26,7 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
     <View
       style={[
         styles.container,
-        { 
-          borderBottomColor: colors.borderLight, 
-          backgroundColor: colors.glass,
-        },
+        { borderBottomColor: colors.borderLight, backgroundColor: colors.glass },
         style,
       ]}
     >
@@ -69,10 +68,10 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
 
 const styles = StyleSheet.create({
   container: {
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     justifyContent: 'space-between',
     zIndex: 100,

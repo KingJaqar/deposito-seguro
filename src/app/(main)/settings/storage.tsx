@@ -1,7 +1,6 @@
 // File: src/app/(main)/settings/storage.tsx
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -130,9 +129,7 @@ export default function StorageTelemetryScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <SafeAreaView>
-        <VaultHeader title="Storage" showBack />
-      </SafeAreaView>
+      <VaultHeader title="Storage" showBack />
       <View style={styles.content}>
         {loading ? (
           <View style={styles.loadingWrap}>

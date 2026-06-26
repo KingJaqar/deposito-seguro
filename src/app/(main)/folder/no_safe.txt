@@ -1,9 +1,10 @@
-// src/app/(main)/folder/[id].tsx
+﻿// src/app/(main)/folder/[id].tsx
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useMemo, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../../components/EncryptionKeyPicker';
 import { VaultHeader } from '../../../components/VaultHeader';
@@ -265,14 +266,17 @@ export default function FolderDetailsScreen() {
     }
   };
 
-  const st = useStyles(colors, isDark);
+  const st = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
+  const moveFolderOptions = useMemo(() => folders.filter(f => f.id !== (targetFolder?.id || targetFile?.folderId)), [folders, targetFolder, targetFile]);
 
   return (
     <View style={st.root}>
-              {/* Immersive Dark Mode Top Header */}
+      <SafeAreaView>
+        {/* Immersive Dark Mode Top Header */}
         <View style={st.topHeader}>
           <TouchableOpacity onPress={() => router.back()} style={st.backButton}>
-            <Text style={st.headerIconText}>←</Text>
+            <Text style={st.headerIconText}>â†</Text>
           </TouchableOpacity>
           <Text style={st.headerTitle} numberOfLines={1}>{folderName}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -280,10 +284,11 @@ export default function FolderDetailsScreen() {
               {isDark ? <Sun size={20} color={colors.text} /> : <Moon size={20} color={colors.text} />}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={st.menuButton}>
-              <Text style={st.headerIconText}>•••</Text>
+              <Text style={st.headerIconText}>â€¢â€¢â€¢</Text>
             </TouchableOpacity>
           </View>
         </View>
+      </SafeAreaView>
 
       <ScrollView contentContainerStyle={st.scrollContainer} showsVerticalScrollIndicator={false}>
         
@@ -317,7 +322,7 @@ export default function FolderDetailsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
-            <Text style={st.pillIconText}>📁</Text>
+            <Text style={st.pillIconText}>ðŸ“</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -331,7 +336,7 @@ export default function FolderDetailsScreen() {
             }}
           >
             <Text style={[st.selectButtonText, selectionMode && st.activeSelectButtonText]}>
-              {selectionMode ? '✓ Selected' : '☑ Select'}
+              {selectionMode ? 'âœ“ Selected' : 'â˜‘ Select'}
             </Text>
           </TouchableOpacity>
 
@@ -352,14 +357,14 @@ export default function FolderDetailsScreen() {
               >
                 <View style={st.folderCardLeft}>
                   <View style={st.folderIconContainer}>
-                    <Text style={st.cardIconText}>📁</Text>
+                    <Text style={st.cardIconText}>ðŸ“</Text>
                   </View>
                   <View>
                     <Text style={st.folderTitleText}>{folder.name}</Text>
                     <Text style={st.folderMetaText}>Directory Folder</Text>
                   </View>
                 </View>
-                <Text style={st.chevronIcon}>›</Text>
+                <Text style={st.chevronIcon}>â€º</Text>
               </TouchableOpacity>
             ))}
           </>
@@ -384,7 +389,7 @@ export default function FolderDetailsScreen() {
                 >
                   <View style={st.fileIconContainer}>
                     <Text style={st.cardIconText}>
-                      {file.mimeType?.startsWith('image/') ? '🖼️' : '📄'}
+                      {file.mimeType?.startsWith('image/') ? 'ðŸ–¼ï¸' : 'ðŸ“„'}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
@@ -404,14 +409,14 @@ export default function FolderDetailsScreen() {
                     }}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={st.menuDotsText}>•••</Text>
+                    <Text style={st.menuDotsText}>â€¢â€¢â€¢</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={st.cardMenuIcon}
                     onPressIn={() => softDeleteFile(file.id)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={[st.menuDotsText, { color: '#FF453A' }]}>🗑️</Text>
+                    <Text style={[st.menuDotsText, { color: '#FF453A' }]}>ðŸ—‘ï¸</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -534,7 +539,7 @@ export default function FolderDetailsScreen() {
               <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>
                 {targetFolder ? 'Move Folder' : 'Move File'}
               </Text>
-              {folders.filter(f => f.id !== (targetFolder?.id || targetFile?.folderId)).map(f => (
+              {moveFolderOptions.map((f: any) => (
                 <TouchableOpacity
                   key={f.id}
                   style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
@@ -544,7 +549,7 @@ export default function FolderDetailsScreen() {
                     setShowMoveModal(false);
                   }}
                 >
-                  <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>📁 {f.name}</Text>
+                  <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>ðŸ“ {f.name}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -555,7 +560,7 @@ export default function FolderDetailsScreen() {
   );
 }
 
-const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) => {
+const createStyles = (colors: ReturnType<typeof useTheme>["colors"], isDark: boolean) => {
   const bg = colors.background;
   const surface = colors.vaultSurface || colors.surface;
   const iconBg = colors.vaultIconBg || colors.surface;
@@ -637,4 +642,3 @@ const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolea
     fileMenuItemText: { fontSize: 15, fontWeight: '500' },
   });
 };
-

@@ -2,7 +2,7 @@
 import { router } from 'expo-router';
 import { Moon, Search, Sun } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Dimensions, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { BackupService } from '../../../services/backup';
@@ -166,22 +166,20 @@ export default function SettingsCenterScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      <SafeAreaView>
-        <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
-          <View style={styles.headerTextBlock}>
-            <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Settings</Text>
-            <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Manage your preferences</Text>
-          </View>
-          <Pressable
-            onPress={toggleTheme}
-            style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
-            accessibilityRole="button"
-            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-          </Pressable>
+      <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+        <View style={styles.headerTextBlock}>
+          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Settings</Text>
+          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Manage your preferences</Text>
         </View>
-      </SafeAreaView>
+        <Pressable
+          onPress={toggleTheme}
+          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+          accessibilityRole="button"
+          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+        </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollBody}

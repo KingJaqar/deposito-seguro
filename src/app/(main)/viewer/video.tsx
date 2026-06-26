@@ -2,7 +2,6 @@ import { useLocalSearchParams } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { EncryptionKeyUnlockModal } from '../../../components/EncryptionKeyUnlockModal';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -21,22 +20,25 @@ export default function VideoViewerScreen() {
   
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dismissedFileId, setDismissedFileId] = useState<string | null>(null);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
   const decryptedPathRef = useRef<string | null>(null);
 
   const fileMeta = files.find(f => f.id === fileId);
   const isEncrypted = fileMeta?.isEncrypted && fileMeta?.encryptionKeyId;
   const needsUnlock = isEncrypted && fileId && !isUnlocked(fileId);
-  const showUnlockModal = !!needsUnlock && dismissedFileId !== fileId;
 
   useEffect(() => {
     let mounted = true;
     decryptedPathRef.current = null;
     
+    // If file is encrypted and not unlocked, show unlock modal
+    if (needsUnlock) {
+      setShowUnlockModal(true);
+      return;
+    }
+    
     const loadFile = async () => {
       if (!fileMeta) return;
-      if (needsUnlock) return;
-      
       try {
         let path = fileMeta.localPath;
         if (fileMeta.isEncrypted && fileMeta.encryptionKeyId) {
@@ -61,16 +63,15 @@ export default function VideoViewerScreen() {
   const handleUnlock = () => {
     if (fileId) {
       markUnlocked(fileId);
-      setDismissedFileId(null);
+      setShowUnlockModal(false);
+      // Reload the file after unlocking
       setLoading(true);
       setVideoUri(null);
     }
   };
 
   const handleCancelUnlock = () => {
-    if (fileId) {
-      setDismissedFileId(fileId);
-    }
+    setShowUnlockModal(false);
   };
 
   const player = useVideoPlayer(videoUri || null, (player) => {
@@ -81,13 +82,12 @@ export default function VideoViewerScreen() {
   if (needsUnlock && fileMeta) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <SafeAreaView><VaultHeader title={fileMeta.name} showBack />
+        <VaultHeader title={fileMeta.name} showBack />
         <View style={styles.viewport}>
           <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
             🔒 This video is encrypted. Unlock required.
           </Text>
         </View>
-        </SafeAreaView>
         <EncryptionKeyUnlockModal
           visible={showUnlockModal}
           itemName={fileMeta.name}
@@ -102,11 +102,10 @@ export default function VideoViewerScreen() {
   if (loading) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <SafeAreaView><VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
+        <VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
         <View style={styles.viewport}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      </SafeAreaView>
       </View>
     );
   }
@@ -114,11 +113,10 @@ export default function VideoViewerScreen() {
   if (!videoUri) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <SafeAreaView><VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
+        <VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
         <View style={styles.viewport}>
           <Text style={{ color: colors.error }}>Failed structural conversion of specified video asset.</Text>
         </View>
-      </SafeAreaView>
       </View>
     );
   }
@@ -126,7 +124,7 @@ export default function VideoViewerScreen() {
   if (Platform.OS === 'web') {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <SafeAreaView><VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
+        <VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
         <View style={styles.viewport}>
           <video 
             src={videoUri} 
@@ -135,21 +133,19 @@ export default function VideoViewerScreen() {
             style={styles.videoElement as any}
           />
         </View>
-      </SafeAreaView>
       </View>
     );
   }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <SafeAreaView><VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
+      <VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
       <View style={styles.viewport}>
         <VideoView 
           style={styles.videoElement}
           player={player}
         />
       </View>
-    </SafeAreaView>
     </View>
   );
 }

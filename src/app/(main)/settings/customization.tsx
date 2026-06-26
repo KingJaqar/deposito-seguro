@@ -1,5 +1,4 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
@@ -111,9 +110,7 @@ export default function CustomizationSettingsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <SafeAreaView>
-        <VaultHeader title="Appearance" showBack />
-      </SafeAreaView>
+      <VaultHeader title="Appearance" showBack />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         <SectionTitle title="Color Theme" />
