@@ -1,7 +1,54 @@
 // File: src/constants/Colors.ts
 // Premium fintech-inspired color palettes with enhanced depth and gradients
 
-export const Palette = {
+// Category icon tints used by the dashboard redesign — identical across light/dark
+// per the design spec, applied at ~10% opacity as the chip background.
+export const CategoryTint = {
+  images: '#3B82F6',
+  videos: '#F43F5E',
+  docs: '#10B981',
+  audio: '#F59E0B',
+  apps: '#A855F7',
+  other: '#6B7280',
+};
+
+export interface ThemeColors {
+  background: string;
+  backgroundGradientStart: string;
+  backgroundGradientEnd: string;
+  surface: string;
+  surfaceElevated: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  primary: string;
+  primaryLight: string;
+  primaryDark: string;
+  border: string;
+  borderLight: string;
+  accent: string;
+  error: string;
+  success: string;
+  warning: string;
+  shadow: string;
+  glass: string;
+
+  // Dashboard redesign tokens — optional since only light/dark define them;
+  // disguise-mode palettes (calculator/notes/utility) and amoled fall back to
+  // the base keys above when these are absent, so nothing ever reads undefined.
+  dashboardBg?: string;
+  dashboardSurface?: string;
+  dashboardSurfaceHover?: string;
+  dashboardAccent?: string;
+  dashboardText?: string;
+  dashboardTextMuted?: string;
+  dashboardBorder?: string;
+  dashboardNavBar?: string;
+  fabBg?: string;
+  fabText?: string;
+}
+
+export const Palette: Record<'light' | 'dark' | 'amoled' | 'calculator' | 'notes' | 'utility', ThemeColors> = {
   light: {
     background: '#F5F5F7',
     backgroundGradientStart: '#F5F5F7',
@@ -22,6 +69,18 @@ export const Palette = {
     warning: '#FF9500',
     shadow: 'rgba(0,0,0,0.08)',
     glass: 'rgba(255,255,255,0.72)',
+
+    // ── Dashboard redesign tokens (light mode) ──────────────────────────────
+    dashboardBg: '#F5EFE0',
+    dashboardSurface: '#FFFFFF',
+    dashboardSurfaceHover: '#EFE9DA',
+    dashboardAccent: '#A8C7E0',
+    dashboardText: '#0F172A',
+    dashboardTextMuted: 'rgba(15, 23, 42, 0.55)',
+    dashboardBorder: 'rgba(15, 23, 42, 0.10)',
+    dashboardNavBar: 'rgba(255, 255, 255, 0.92)',
+    fabBg: '#0F172A',
+    fabText: '#FFFFFF',
   },
   dark: {
     background: '#000000',
@@ -43,6 +102,18 @@ export const Palette = {
     warning: '#FF9F0A',
     shadow: 'rgba(0,0,0,0.4)',
     glass: 'rgba(20,20,40,0.72)',
+
+    // ── Dashboard redesign tokens (dark mode) ───────────────────────────────
+    dashboardBg: '#000000',
+    dashboardSurface: '#1A1A1A',
+    dashboardSurfaceHover: '#222222',
+    dashboardAccent: '#A8C7E0',
+    dashboardText: '#F5EFE0',
+    dashboardTextMuted: 'rgba(245, 239, 224, 0.55)',
+    dashboardBorder: 'rgba(245, 239, 224, 0.12)',
+    dashboardNavBar: 'rgba(10, 10, 10, 0.92)',
+    fabBg: '#F5EFE0',
+    fabText: '#000000',
   },
   amoled: {
     background: '#000000',

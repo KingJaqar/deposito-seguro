@@ -1,29 +1,86 @@
 // File: src/app/(main)/dashboard.tsx
 import { router } from 'expo-router';
+import {
+  Box,
+  Cloud,
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  Moon,
+  MoreVertical,
+  Music,
+  Plus,
+  Search,
+  Smartphone,
+  Sun,
+  Video,
+} from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeInDown, useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
-import { AnimatedCard } from '../../components/AnimatedCard';
+import {
+  Alert,
+  Dimensions,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, {
+  FadeInDown,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
-import { VaultHeader } from '../../components/VaultHeader';
-import { useThemeColors } from '../../contexts/ThemeContext';
+import { CategoryTint } from '../../constants/Colors';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { promptCreateEncryptionKey } from '../../utils/encryptionKeyPrompt';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SCREEN_PADDING = 24;
+const CATEGORY_GAP = 12;
+const VAULT_GAP = 16;
+const CATEGORY_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - CATEGORY_GAP * 2) / 3;
+const VAULT_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
+
+// Total vault capacity shown on the storage summary card. The vault store does not
+// currently expose a quota field, so this is a fixed display ceiling matching the
+// reference design (100 GB). Swap for a real quota value if/when the store adds one.
+const DISPLAY_CAPACITY_GB = 100;
 
 export default function DashboardScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark, toggleTheme } = useTheme();
   const {
     folders, files,
     createFolder, hydrateVault, renameFolder, moveFolder,
     deleteFolder, shredFolder,
-    shredMultipleFolders, exportFolderFiles, toggleFavorite,
+    shredMultipleFolders, exportFolderFiles, toggleFolderFavorite,
     assignFolderEncryptionKey,
   } = useVaultStore();
   const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
+
+  // Dashboard-specific palette with safe fallbacks: light/dark define these tokens,
+  // but disguise-mode palettes (calculator/notes/utility) and amoled don't, so every
+  // read here falls back to that palette's base equivalent rather than reading undefined.
+  const dash = {
+    bg: colors.dashboardBg ?? colors.background,
+    surface: colors.dashboardSurface ?? colors.surface,
+    surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
+    accent: colors.dashboardAccent ?? colors.accent,
+    text: colors.dashboardText ?? colors.text,
+    textMuted: colors.dashboardTextMuted ?? colors.textMuted,
+    border: colors.dashboardBorder ?? colors.border,
+    fabBg: colors.fabBg ?? colors.primary,
+    fabText: colors.fabText ?? '#FFFFFF',
+  };
 
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
@@ -36,7 +93,6 @@ export default function DashboardScreen() {
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
 
-  // Scroll tracking for header animation
   const scrollY = useSharedValue(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -46,11 +102,21 @@ export default function DashboardScreen() {
     },
   });
 
+  // Subtle compress + fade as the user scrolls — purely cosmetic, never hides content.
+  const animatedHeaderStyle = useAnimatedStyle(() => {
+    const opacity = Math.max(0.85, 1 - scrollY.value / 400);
+    return { opacity };
+  });
+
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
   const activeFiles = files.filter(f => !f.isTrash);
   const totalBytes = activeFiles.reduce((sum, f) => sum + f.size, 0);
+  const totalGB = totalBytes / (1024 * 1024 * 1024);
   const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+  const displayStorageValue = totalGB >= 1 ? totalGB.toFixed(1) : totalMB;
+  const displayStorageUnit = totalGB >= 1 ? 'GB' : 'MB';
+  const percentUsed = Math.min(100, Math.round((totalGB / DISPLAY_CAPACITY_GB) * 100));
 
   const imageCount = activeFiles.filter(f => f.mimeType?.startsWith('image/')).length;
   const videoCount = activeFiles.filter(f => f.mimeType?.startsWith('video/')).length;
@@ -69,8 +135,22 @@ export default function DashboardScreen() {
   ).length;
   const otherCount = activeFiles.length - imageCount - videoCount - audioCount - appCount - docCount;
 
+  const categoryData = [
+    { key: 'images', label: 'Images', count: imageCount, color: CategoryTint.images, Icon: ImageIcon },
+    { key: 'videos', label: 'Videos', count: videoCount, color: CategoryTint.videos, Icon: Video },
+    { key: 'docs', label: 'Docs', count: docCount, color: CategoryTint.docs, Icon: FileText },
+    { key: 'audio', label: 'Audio', count: audioCount, color: CategoryTint.audio, Icon: Music },
+    { key: 'apps', label: 'Apps', count: appCount, color: CategoryTint.apps, Icon: Smartphone },
+    { key: 'other', label: 'Other', count: otherCount, color: CategoryTint.other, Icon: Box },
+  ];
+
+  // Vault tile accent colors cycle through a small fixed palette so each card reads
+  // distinctly, mirroring the reference design's per-vault folder tint.
+  const vaultAccentPalette = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'];
+
   const rootFolders = folders.filter(f => !f.parentId);
   const subFolders = folders.filter(f => !!f.parentId);
+  const allFoldersOrdered = [...rootFolders, ...subFolders];
 
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
@@ -123,7 +203,11 @@ export default function DashboardScreen() {
       case 'move':
         setTargetFolder(folder); setShowMoveModal(true); break;
       case 'export':
-        exportFolderFiles(folder.id).then(paths => { if (paths.length > 0) alert(`Exported ${paths.length} files`); }); break;
+        exportFolderFiles(folder.id).then(paths => {
+          if (paths.length > 0) Alert.alert('Export Complete', `Exported ${paths.length} files`);
+          else Alert.alert('Nothing to Export', 'This vault has no files to export.');
+        }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
+        break;
       case 'delete':
         deleteFolder(folder.id); break;
       case 'shred':
@@ -139,7 +223,9 @@ export default function DashboardScreen() {
         }
         break;
       case 'favorite':
-        toggleFavorite && toggleFavorite(folder.id);
+        // Folders are favorited via toggleFolderFavorite, not the file-scoped
+        // toggleFavorite (which silently no-ops on a folder id).
+        toggleFolderFavorite && toggleFolderFavorite(folder.id);
         break;
     }
   };
@@ -171,62 +257,125 @@ export default function DashboardScreen() {
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedFolderIds([]); };
 
-  const FolderRow = ({ item, index }: { item: any; index: number }) => {
+  const moveDestinations = folders.filter(f => f.id !== targetFolder?.id);
+
+  // ── Pressable scale wrapper (shared by category + vault tiles) ──
+  const PressScale = ({
+    children, onPress, onLongPress, style,
+  }: { children: React.ReactNode; onPress?: () => void; onLongPress?: () => void; style?: any }) => {
+    const scale = useSharedValue(1);
+    const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+    return (
+      <Pressable
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={() => { scale.value = withTiming(0.95, { duration: 100 }); }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+      >
+        <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>
+      </Pressable>
+    );
+  };
+
+  const CategoryTile = ({ item, index }: { item: typeof categoryData[number]; index: number }) => (
+    <Animated.View entering={FadeInDown.delay(80 + index * 30).duration(300)}>
+      <PressScale
+        onPress={() => router.push('/(main)/search')}
+        style={[styles.categoryTile, { backgroundColor: dash.surface, width: CATEGORY_TILE_WIDTH }]}
+      >
+        <View style={[styles.categoryIconChip, { backgroundColor: `${item.color}1A` }]}>
+          <item.Icon size={20} color={item.color} strokeWidth={2.2} />
+        </View>
+        <Text style={[styles.categoryLabel, { color: dash.text }]} numberOfLines={1}>{item.label}</Text>
+        <Text style={[styles.categoryCount, { color: dash.textMuted }]}>{item.count} files</Text>
+      </PressScale>
+    </Animated.View>
+  );
+
+  const VaultTile = ({ item, index }: { item: any; index: number }) => {
     const folderFileCount = files.filter(f => f.folderId === item.id && !f.isTrash).length;
+    const folderMB = (
+      files.filter(f => f.folderId === item.id && !f.isTrash).reduce((sum, f) => sum + f.size, 0) / (1024 * 1024)
+    );
+    const sizeLabel = folderMB >= 1024 ? `${(folderMB / 1024).toFixed(1)} GB` : `${folderMB.toFixed(0)} MB`;
     const isSelected = selectedFolderIds.includes(item.id);
-    const isFav = item.isFavorite;
+    const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
 
     return (
-      <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
-        <AnimatedCard
-          style={[styles.folderCard, {
-            backgroundColor: colors.surfaceElevated,
-            borderColor: isSelected ? colors.primary : 'transparent',
-            borderWidth: isSelected ? 2 : 0,
-          }]}
+      <Animated.View entering={FadeInDown.delay(220 + index * 50).duration(300)}>
+        <PressScale
           onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
           onPress={() => {
             if (selectionMode) toggleFolderSelection(item.id);
             else router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
           }}
+          style={[
+            styles.vaultTile,
+            {
+              backgroundColor: dash.surface,
+              width: VAULT_TILE_WIDTH,
+              borderColor: isSelected ? dash.accent : 'transparent',
+              borderWidth: isSelected ? 2 : 0,
+            },
+          ]}
         >
-          <View style={styles.folderCardContent}>
-            {selectionMode && (
+          <View style={styles.vaultTopRow}>
+            <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
+              <Folder size={20} color={accentColor} strokeWidth={2.2} />
+            </View>
+            {selectionMode ? (
               <View style={styles.checkBox}>
-                <View style={[styles.checkInner, { backgroundColor: isSelected ? colors.primary : 'transparent', borderColor: colors.primary }]}>
-                  {isSelected && <Text style={{ color: '#FFF', fontSize: 10, fontWeight: '700' }}>✓</Text>}
+                <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+                  {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
                 </View>
               </View>
-            )}
-            <View style={[styles.folderIconWrap, { backgroundColor: `${colors.primary}18` }]}>
-              <Text style={{ fontSize: 22 }}>📁</Text>
-              {isFav && <View style={styles.favBadge}><Text style={{ fontSize: 8 }}>⭐</Text></View>}
-            </View>
-            <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={[styles.folderName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
-              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>
-                {folderFileCount} {folderFileCount === 1 ? 'file' : 'files'}
-                {item.isEncrypted && item.encryptionKeyId ? ' · 🔒' : ''}
-              </Text>
-            </View>
-            {!selectionMode && (
+            ) : (
               <TouchableOpacity
-                style={styles.moreBtn}
                 onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Text style={{ color: colors.textMuted, fontSize: 20 }}>···</Text>
+                <MoreVertical size={18} color={dash.textMuted} />
               </TouchableOpacity>
             )}
           </View>
-        </AnimatedCard>
+
+          <View style={styles.vaultBottomBlock}>
+            <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
+              {item.name}
+              {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+              {item.isFavorite ? ' ⭐' : ''}
+            </Text>
+            <View style={styles.vaultMetaRow}>
+              <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{folderFileCount} files</Text>
+              <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{sizeLabel}</Text>
+            </View>
+          </View>
+        </PressScale>
       </Animated.View>
     );
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <VaultHeader title="Storage Vault" scrollY={scrollY} />
+    <View style={[styles.root, { backgroundColor: dash.bg }]}>
+      {/* ── Dashboard-only header: title + tagline + theme toggle ──
+          This is intentionally a local block rather than the shared VaultHeader
+          component, since VaultHeader is used across 10+ other screens with a
+          back-button/centered-title pattern that this design does not touch. */}
+      <Animated.View style={[styles.headerRow, { backgroundColor: dash.bg }, animatedHeaderStyle]}>
+        <View style={styles.headerTextBlock}>
+          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
+          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
+        </View>
+        <TouchableOpacity
+          onPress={toggleTheme}
+          activeOpacity={0.7}
+          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
+          accessibilityRole="button"
+          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
+        </TouchableOpacity>
+      </Animated.View>
 
       <Animated.ScrollView
         ref={scrollViewRef}
@@ -235,152 +384,151 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.scrollBody}
         showsVerticalScrollIndicator={false}
       >
-        {/* Premium Stats Cards */}
-        <View style={styles.statsRow}>
-          <AnimatedCard delay={0} style={[styles.statCard, { backgroundColor: colors.surfaceElevated }]}>
-            <View style={styles.statContent}>
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Folders</Text>
-              <Text style={[styles.statValue, { color: colors.primary }]}>{folders.length}</Text>
+        {/* Search bar */}
+        <Pressable onPress={() => router.push('/(main)/search')}>
+          <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
+            <Search size={18} color={dash.textMuted} />
+            <Text style={[styles.searchPlaceholder, { color: dash.textMuted }]}>Search files, vaults...</Text>
+          </View>
+        </Pressable>
+
+        {/* Storage summary card */}
+        <View
+          style={[
+            styles.storageCard,
+            { backgroundColor: isDark ? dash.surface : dash.accent },
+          ]}
+        >
+          <View style={styles.storageTopRow}>
+            <View style={styles.storageLabelRow}>
+              <Cloud size={18} color={isDark ? dash.textMuted : dash.text} />
+              <Text style={[styles.storageLabel, { color: isDark ? dash.textMuted : dash.text }]}>
+                Cloud Storage
+              </Text>
             </View>
-          </AnimatedCard>
-          <AnimatedCard delay={50} style={[styles.statCard, { backgroundColor: colors.surfaceElevated }]}>
-            <View style={styles.statContent}>
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Storage</Text>
-              <Text style={[styles.statValue, { color: colors.success }]}>{totalMB} MB</Text>
+            <View style={[styles.usedPill, { backgroundColor: isDark ? dash.surfaceHover : dash.surface }]}>
+              <Text style={[styles.usedPillText, { color: dash.text }]}>{percentUsed}% Used</Text>
             </View>
-          </AnimatedCard>
-          <AnimatedCard delay={100} style={[styles.statCard, { backgroundColor: colors.surfaceElevated }]}>
-            <View style={styles.statContent}>
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Files</Text>
-              <Text style={[styles.statValue, { color: colors.accent }]}>{activeFiles.length}</Text>
-            </View>
-          </AnimatedCard>
+          </View>
+
+          <View style={styles.storageValueRow}>
+            <Text style={[styles.storageValue, { color: dash.text }]}>{displayStorageValue}</Text>
+            <Text style={[styles.storageUnit, { color: dash.text }]}> {displayStorageUnit}</Text>
+          </View>
+
+          <View style={[styles.progressTrack, { backgroundColor: isDark ? dash.surfaceHover : 'rgba(255,255,255,0.4)' }]}>
+            <View
+              style={[
+                styles.progressFill,
+                { backgroundColor: isDark ? dash.fabBg : dash.text, width: `${Math.max(2, percentUsed)}%` },
+              ]}
+            />
+          </View>
+          <View style={styles.progressLabelsRow}>
+            <Text style={[styles.progressLabel, { color: isDark ? dash.textMuted : dash.text }]}>0 GB</Text>
+            <Text style={[styles.progressLabel, { color: isDark ? dash.textMuted : dash.text }]}>
+              {DISPLAY_CAPACITY_GB} GB
+            </Text>
+          </View>
         </View>
 
-        {/* File Types Grid */}
+        {/* Categories */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>File Types</Text>
+            <Text style={[styles.sectionTitle, { color: dash.text }]}>Categories</Text>
+            <TouchableOpacity onPress={() => router.push('/(main)/search')}>
+              <Text style={[styles.seeAll, { color: dash.textMuted }]}>See all</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.typeGrid}>
-            {[
-              { label: 'Images', count: imageCount, color: '#A78BFA', icon: '🖼' },
-              { label: 'Videos', count: videoCount, color: '#FF6B6B', icon: '🎬' },
-              { label: 'Docs', count: docCount, color: '#34D399', icon: '📄' },
-              { label: 'Audio', count: audioCount, color: '#FBBF24', icon: '🎵' },
-              { label: 'Apps', count: appCount, color: '#60A5FA', icon: '📱' },
-              { label: 'Other', count: otherCount, color: '#F472B6', icon: '📦' },
-            ].map((item, i) => (
-              <AnimatedCard key={i} delay={150 + i * 30} style={[styles.typeCard, { backgroundColor: `${item.color}08` }]}>
-                <TouchableOpacity
-                  onPress={() => router.push('/(main)/search')}
-                  activeOpacity={0.7}
-                  style={styles.typeCardContent}
-                >
-                  <Text style={{ fontSize: 24, marginBottom: 4 }}>{item.icon}</Text>
-                  <Text style={[styles.typeLabel, { color: item.color }]}>{item.label}</Text>
-                  <Text style={[styles.typeCount, { color: colors.text }]}>{item.count}</Text>
-                </TouchableOpacity>
-              </AnimatedCard>
+          <View style={styles.categoryGrid}>
+            {categoryData.map((item, i) => (
+              <CategoryTile key={item.key} item={item} index={i} />
             ))}
           </View>
         </View>
 
-        {/* Vaults Section */}
+        {/* My Vaults */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Vaults</Text>
-            <View style={styles.sectionActions}>
-              {selectionMode ? (
-                <>
-                  <TouchableOpacity onPress={handleSelectAllFolders} style={styles.textBtn}>
-                    <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>
-                      {selectedFolderIds.length === folders.length ? 'Deselect All' : 'Select All'}
-                    </Text>
-                  </TouchableOpacity>
-                  {selectedFolderIds.length > 0 && (
-                    <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
-                      <Text style={{ color: '#FF3B30', fontSize: 13, fontWeight: '600' }}>Shred</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600' }}>Cancel</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <TouchableOpacity onPress={handleDirectoryProvisioning} style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '300' }}>+</Text>
+            <Text style={[styles.sectionTitle, { color: dash.text }]}>My Vaults</Text>
+            {selectionMode ? (
+              <View style={styles.sectionActions}>
+                <TouchableOpacity onPress={handleSelectAllFolders} style={styles.textBtn}>
+                  <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                    {selectedFolderIds.length === folders.length ? 'Deselect All' : 'Select All'}
+                  </Text>
                 </TouchableOpacity>
-              )}
-            </View>
+                {selectedFolderIds.length > 0 && (
+                  <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
+                    <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                  <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={() => router.push('/(main)/favorites')}>
+                <Text style={[styles.seeAll, { color: dash.textMuted }]}>See all</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {folders.length === 0 ? (
-            <AnimatedCard style={styles.emptyCard}>
-              <View style={styles.emptyBlock}>
-                <Text style={{ fontSize: 48, marginBottom: 12 }}>🏦</Text>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>No Vaults Yet</Text>
-                <Text style={[styles.emptyText, { color: colors.textMuted }]}>Create your first secure vault to get started</Text>
-                <TouchableOpacity onPress={handleDirectoryProvisioning} style={[styles.emptyBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 14 }}>Create First Vault</Text>
-                </TouchableOpacity>
-              </View>
-            </AnimatedCard>
+            <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
+              <Text style={{ fontSize: 48, marginBottom: 12 }}>🏦</Text>
+              <Text style={[styles.emptyTitle, { color: dash.text }]}>No Vaults Yet</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Create your first secure vault to get started</Text>
+              <TouchableOpacity onPress={handleDirectoryProvisioning} style={[styles.emptyBtn, { backgroundColor: dash.fabBg }]}>
+                <Text style={{ color: dash.fabText, fontWeight: '700', fontSize: 14 }}>Create First Vault</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
-            <>
-              {/* Root Folders */}
-              {rootFolders.length > 0 && (
-                <>
-                  <View style={styles.groupLabel}>
-                    <View style={[styles.groupLine, { backgroundColor: colors.border }]} />
-                    <Text style={[styles.groupText, { color: colors.textMuted }]}>ROOT</Text>
-                    <View style={[styles.groupLine, { backgroundColor: colors.border }]} />
-                  </View>
-                  {rootFolders.map((item, index) => <FolderRow key={item.id} item={item} index={index} />)}
-                </>
-              )}
-
-              {/* Sub Folders */}
-              {subFolders.length > 0 && (
-                <>
-                  <View style={styles.groupLabel}>
-                    <View style={[styles.groupLine, { backgroundColor: colors.border }]} />
-                    <Text style={[styles.groupText, { color: colors.textMuted }]}>SUBFOLDERS</Text>
-                    <View style={[styles.groupLine, { backgroundColor: colors.border }]} />
-                  </View>
-                  {subFolders.map((item, index) => <FolderRow key={item.id} item={item} index={rootFolders.length + index} />)}
-                </>
-              )}
-            </>
+            <View style={styles.vaultGrid}>
+              {allFoldersOrdered.map((item, index) => (
+                <VaultTile key={item.id} item={item} index={index} />
+              ))}
+            </View>
           )}
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={{ height: 140 }} />
       </Animated.ScrollView>
 
-      {/* Animated Tab Bar */}
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        onPress={handleDirectoryProvisioning}
+        activeOpacity={0.85}
+        style={[styles.fab, { backgroundColor: dash.fabBg }]}
+        accessibilityRole="button"
+        accessibilityLabel="Create new vault"
+      >
+        <Plus size={26} color={dash.fabText} strokeWidth={2.4} />
+      </TouchableOpacity>
+
+      {/* Bottom Tab Bar */}
       <AnimatedTabBar />
 
       {/* ── Modals ── */}
       <Modal visible={showFolderModal} transparent animationType="fade" onRequestClose={() => setShowFolderModal(false)}>
         <View style={modalS.overlay}>
-          <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: colors.surfaceElevated }]}>
-            <View style={modalS.handle} />
-            <Text style={[modalS.title, { color: colors.text }]}>New Vault</Text>
+          <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+            <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+            <Text style={[modalS.title, { color: dash.text }]}>New Vault</Text>
             <TextInput
-              style={[modalS.input, { borderColor: colors.border, color: colors.text, backgroundColor: `${colors.border}15` }]}
+              style={[modalS.input, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
               placeholder="Vault name"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={dash.textMuted}
               value={folderName}
               onChangeText={setFolderName}
               autoFocus
             />
             <View style={modalS.btnRow}>
-              <TouchableOpacity onPress={() => setShowFolderModal(false)} style={[modalS.btn, { borderColor: colors.border, borderWidth: 1 }]}>
-                <Text style={{ color: colors.text, fontWeight: '600' }}>Cancel</Text>
+              <TouchableOpacity onPress={() => setShowFolderModal(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
+                <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={confirmFolderCreation} style={[modalS.btn, { backgroundColor: colors.primary }]}>
-                <Text style={{ color: '#FFF', fontWeight: '600' }}>Create</Text>
+              <TouchableOpacity onPress={confirmFolderCreation} style={[modalS.btn, { backgroundColor: dash.fabBg }]}>
+                <Text style={{ color: dash.fabText, fontWeight: '700' }}>Create</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -390,21 +538,20 @@ export default function DashboardScreen() {
       {showFolderMenu && targetFolder && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
           <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[styles.actionSheet, { backgroundColor: colors.surfaceElevated }]}>
-              <View style={modalS.handle} />
-              <Text style={[styles.actionSheetTitle, { color: colors.text }]}>{targetFolder.name}</Text>
+            <Animated.View entering={FadeInDown.duration(300)} style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetFolder.name}</Text>
               {[
-                { action: 'rename', label: 'Rename', color: colors.text },
-                { action: 'move', label: 'Move', color: colors.text },
-                { action: 'export', label: 'Export', color: colors.text },
-                { action: 'register-key', label: 'Create & Assign Key', color: colors.primary },
-                { action: 'assign-key', label: 'Assign Existing Key', color: colors.primary },
+                { action: 'rename', label: 'Rename', color: dash.text },
+                { action: 'move', label: 'Move', color: dash.text },
+                { action: 'export', label: 'Export', color: dash.text },
+                { action: 'register-key', label: 'Create & Assign Key', color: dash.accent },
+                { action: 'assign-key', label: 'Assign Existing Key', color: dash.accent },
                 { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
-                { action: 'add-to-fav-folder', label: 'Add to Favorites Folder', color: '#FBBF24' },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ].map(item => (
-                <TouchableOpacity key={item.action} style={styles.actionSheetItem} onPress={() => handleFolderAction(targetFolder, item.action)}>
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetFolder, item.action)}>
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
@@ -427,21 +574,21 @@ export default function DashboardScreen() {
       {showRenameModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: colors.surfaceElevated }]}>
-              <View style={modalS.handle} />
-              <Text style={[modalS.title, { color: colors.text }]}>Rename Vault</Text>
+            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[modalS.title, { color: dash.text }]}>Rename Vault</Text>
               <TextInput
-                style={[modalS.input, { borderColor: colors.border, color: colors.text, backgroundColor: `${colors.border}15` }]}
+                style={[modalS.input, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
                 value={renameText}
                 onChangeText={setRenameText}
                 autoFocus
               />
               <View style={modalS.btnRow}>
-                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[modalS.btn, { borderColor: colors.border, borderWidth: 1 }]}>
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>Cancel</Text>
+                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
+                  <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={confirmRename} style={[modalS.btn, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: '#FFF', fontWeight: '600' }}>Save</Text>
+                <TouchableOpacity onPress={confirmRename} style={[modalS.btn, { backgroundColor: dash.fabBg }]}>
+                  <Text style={{ color: dash.fabText, fontWeight: '700' }}>Save</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
@@ -452,14 +599,20 @@ export default function DashboardScreen() {
       {showMoveModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: colors.surfaceElevated }]}>
-              <View style={modalS.handle} />
-              <Text style={[modalS.title, { color: colors.text }]}>Move Vault</Text>
-              {folders.filter(f => f.id !== targetFolder?.id).map(f => (
-                <TouchableOpacity key={f.id} style={styles.actionSheetItem} onPress={() => confirmMove(f.id)}>
-                  <Text style={[styles.actionSheetLabel, { color: colors.text }]}>📁  {f.name}</Text>
-                </TouchableOpacity>
-              ))}
+            <Animated.View entering={FadeInDown.duration(300)} style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[modalS.title, { color: dash.text }]}>Move Vault</Text>
+              {moveDestinations.length === 0 ? (
+                <Text style={[styles.emptyText, { color: dash.textMuted, paddingVertical: 12 }]}>
+                  No other vaults available to move into.
+                </Text>
+              ) : (
+                moveDestinations.map(f => (
+                  <TouchableOpacity key={f.id} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => confirmMove(f.id)}>
+                    <Text style={[styles.actionSheetLabel, { color: dash.text }]}>📁  {f.name}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </Animated.View>
           </View>
         </Modal>
@@ -470,64 +623,117 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scrollBody: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 },
+  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8, paddingBottom: 140 },
 
-  // Stats Row
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 24, marginTop: 8 },
-  statCard: { flex: 1, borderRadius: 20, overflow: 'hidden' },
-  statContent: { padding: 16, alignItems: 'center' },
-  statLabel: { fontSize: 11, fontWeight: '500', marginBottom: 6, letterSpacing: 0.5 },
-  statValue: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  // Header
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  headerTextBlock: { flex: 1, marginRight: 12 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Search bar
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 32,
+  },
+  searchPlaceholder: { fontSize: 14, fontWeight: '500' },
+
+  // Storage card
+  storageCard: { borderRadius: 24, padding: 24, marginBottom: 32 },
+  storageTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  storageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  storageLabel: { fontSize: 13, fontWeight: '600' },
+  usedPill: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  usedPillText: { fontSize: 12, fontWeight: '700' },
+  storageValueRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 18 },
+  storageValue: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
+  storageUnit: { fontSize: 16, fontWeight: '700' },
+  progressTrack: { height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
+  progressFill: { height: '100%', borderRadius: 3 },
+  progressLabelsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  progressLabel: { fontSize: 12, fontWeight: '500' },
 
   // Sections
-  section: { marginBottom: 24 },
+  section: { marginBottom: 32 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
-  sectionActions: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  addBtn: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  textBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  textBtnDanger: { paddingHorizontal: 8, paddingVertical: 4 },
-  cancelBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+  seeAll: { fontSize: 13, fontWeight: '600' },
+  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
 
-  // File Types Grid
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  typeCard: { width: (SCREEN_WIDTH - 56) / 3, borderRadius: 18, overflow: 'hidden' },
-  typeCardContent: { padding: 14, alignItems: 'center' },
-  typeLabel: { fontSize: 11, fontWeight: '600', marginBottom: 2, letterSpacing: 0.3 },
-  typeCount: { fontSize: 16, fontWeight: '700' },
+  // Category grid (3-col)
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: CATEGORY_GAP },
+  categoryTile: { borderRadius: 16, paddingVertical: 18, paddingHorizontal: 10, alignItems: 'center' },
+  categoryIconChip: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  categoryLabel: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  categoryCount: { fontSize: 11, fontWeight: '600' },
 
-  // Group Labels
-  groupLabel: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, marginTop: 4 },
-  groupLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  groupText: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
-
-  // Folder Cards
-  folderCard: { marginBottom: 8, borderRadius: 18, overflow: 'hidden' },
-  folderCardContent: { flexDirection: 'row', alignItems: 'center', padding: 14 },
-  checkBox: { marginRight: 10 },
+  // Vault grid (2-col)
+  vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
+  vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
+  vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  vaultIconChip: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  vaultBottomBlock: { marginTop: 14 },
+  vaultName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 6 },
+  vaultMetaRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  vaultMeta: { fontSize: 12, fontWeight: '600' },
+  checkBox: { marginLeft: 4 },
   checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  folderIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  favBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 6, padding: 2 },
-  folderName: { fontSize: 15, fontWeight: '600', letterSpacing: -0.2 },
-  moreBtn: { paddingHorizontal: 8, paddingVertical: 4 },
 
   // Empty State
-  emptyCard: { borderRadius: 20, overflow: 'hidden' },
-  emptyBlock: { alignItems: 'center', paddingVertical: 40, gap: 12 },
-  emptyTitle: { fontSize: 18, fontWeight: '700' },
-  emptyText: { fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
+  emptyCard: { borderRadius: 24, alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  emptyText: { fontSize: 14, textAlign: 'center', marginBottom: 12 },
   emptyBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    right: SCREEN_PADDING,
+    bottom: 100,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
 
   // Action Sheet
   actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
   actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
-  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.04)' },
+  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
   actionSheetLabel: { fontSize: 15, fontWeight: '500' },
 });
 
 const modalS = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', alignSelf: 'center', marginBottom: 16 },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 32 },
   title: { fontSize: 20, fontWeight: '700', marginBottom: 16, letterSpacing: -0.3 },
   input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16, fontSize: 15 },
