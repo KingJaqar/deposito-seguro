@@ -19,14 +19,13 @@ import {
   Dimensions,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { CategoryTint } from '../../constants/Colors';
@@ -588,11 +587,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 8,
+    paddingTop: 50,
     paddingBottom: 16,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
   themeToggle: {
     width: 40,

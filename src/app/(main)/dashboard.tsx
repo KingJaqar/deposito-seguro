@@ -2,6 +2,8 @@ import { router } from 'expo-router';
 import {
   Box,
   Cloud,
+  Eye,
+  EyeOff,
   FileText,
   Folder,
   Image as ImageIcon,
@@ -10,11 +12,13 @@ import {
   Music,
   Plus,
   Search,
+  ShieldCheck,
   Smartphone,
   Sun,
   Video,
+  X,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -29,12 +33,13 @@ import {
   View,
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
-import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
+import { FilePasswordPicker } from '../../components/FilePasswordPicker';
+import { FilePasswordUnlockModal } from '../../components/FilePasswordUnlockModal';
 import { CategoryTint } from '../../constants/Colors';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { promptCreateEncryptionKey } from '../../utils/encryptionKeyPrompt';
+import { getPasswordStrength, getPasswordValidationMessages, validatePassword } from '../../utils/filePasswordValidation';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
@@ -52,9 +57,9 @@ export default function DashboardScreen() {
     createFolder, hydrateVault, renameFolder, moveFolder,
     deleteFolder, shredFolder,
     shredMultipleFolders, exportFolderFiles, toggleFolderFavorite,
-    assignFolderEncryptionKey,
+    assignFolderFilePassword, removeFolderFilePassword,
   } = useVaultStore();
-  const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
+  const { filePasswords, createFilePassword, filePasswordExists } = useSettingsStore();
 
   const dash = useMemo(() => ({
     bg: colors.dashboardBg ?? colors.background,
@@ -68,6 +73,8 @@ export default function DashboardScreen() {
     fabText: colors.fabText ?? '#FFFFFF',
   }), [colors]);
 
+  const overlay = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
+
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [showFolderMenu, setShowFolderMenu] = useState(false);
@@ -78,6 +85,17 @@ export default function DashboardScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockTarget, setUnlockTarget] = useState<{ type: 'folder'; id: string; name: string; filePasswordId: string; onUnlock: () => void } | null>(null);
+  const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
+  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ id: string; name: string } | null>(null);
+  const [newPasswordLabel, setNewPasswordLabel] = useState('');
+  const [newPasswordDescription, setNewPasswordDescription] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newConfirmPassword, setNewConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
+  const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'folder'; id: string; name: string; filePasswordId: string } | null>(null);
 
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -139,44 +157,70 @@ export default function DashboardScreen() {
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
       const name = window.prompt('Folder name:');
-      if (name && name.trim()) createFolder(name.trim(), colors.primary, 'folder', false);
+      if (name !== null) createFolder(name.trim() || 'New Folder', colors.primary, 'folder', false);
     } else {
       setShowFolderModal(true);
     }
   };
 
   const confirmFolderCreation = () => {
-    if (folderName.trim()) createFolder(folderName.trim(), colors.primary, 'folder', false);
+    createFolder(folderName.trim(), colors.primary, 'folder', false);
     setShowFolderModal(false);
     setFolderName('');
   };
 
-  const handleRegisterEncryptionKey = (folderId: string, folderNameValue: string) => {
-    if (encryptionKeys.length >= 20) {
-      Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
+  const handleCreateAndAssignPassword = (targetId: string, targetName: string) => {
+    if (filePasswords.length >= 20) {
+      Alert.alert('File Password Limit', 'You can only create up to 20 file passwords.');
+      return;
+    }
+    setCreatePasswordTarget({ id: targetId, name: targetName });
+    setShowCreatePasswordModal(true);
+  };
+
+  const newPasswordStrength = getPasswordStrength(newPassword);
+  const newStrengthColor = newPasswordStrength === 'weak' ? colors.error : newPasswordStrength === 'medium' ? '#FBBF24' : '#34C759';
+  const newStrengthLabel = newPasswordStrength === 'weak' ? 'Weak' : newPasswordStrength === 'medium' ? 'Medium' : 'Strong';
+  const newStrengthWidth = newPasswordStrength === 'weak' ? '33%' : newPasswordStrength === 'medium' ? '66%' : '100%';
+
+  const confirmCreateAndAssignPassword = async () => {
+    if (!createPasswordTarget) return;
+
+    if (!newPasswordLabel.trim()) {
+      Alert.alert('Password Label Required', 'Give this file password a recognizable name.');
       return;
     }
 
-    promptCreateEncryptionKey(folderNameValue, async (options) => {
-      if (encryptionKeys.length >= 20) {
-        Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
-        return;
-      }
+    if (filePasswordExists(newPasswordLabel)) {
+      Alert.alert('Password Label Already Used', 'File password labels must be unique.');
+      return;
+    }
 
-      if (encryptionKeyExists(options.name)) {
-        Alert.alert('Key Name Already Used', 'Encryption key names must be unique.');
-        return;
-      }
+    const validation = validatePassword(newPassword);
+    if (!validation.valid) {
+      Alert.alert('Password Does Not Meet Requirements', validation.message);
+      return;
+    }
 
-      const key = await createEncryptionKey(options.name, options.customKey, options.description);
-      if (!key) {
-        Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
-        return;
-      }
+    if (newPassword !== newConfirmPassword) {
+      Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
+      return;
+    }
 
-      await assignFolderEncryptionKey(folderId, key.id);
-      Alert.alert('Encryption Registered', 'A new encryption key was generated and assigned.');
-    });
+    const fp = await createFilePassword(newPasswordLabel, newPassword, newPasswordDescription);
+    if (!fp) {
+      Alert.alert('File Password Limit', 'You can only create up to 20 file passwords.');
+      return;
+    }
+
+    await assignFolderFilePassword(createPasswordTarget.id, fp.id);
+    setShowCreatePasswordModal(false);
+    setCreatePasswordTarget(null);
+    setNewPasswordLabel('');
+    setNewPasswordDescription('');
+    setNewPassword('');
+    setNewConfirmPassword('');
+    Alert.alert('File Password Created & Assigned', `${fp.label} has been created and assigned.`);
   };
 
   const handleFolderAction = (folder: any, action: string) => {
@@ -198,12 +242,23 @@ export default function DashboardScreen() {
         Alert.alert('Delete Permanently', 'Shred this folder and all contents?',
           [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFolder(folder.id) }]); break;
       case 'register-key':
-        handleRegisterEncryptionKey(folder.id, folder.name); break;
+        handleCreateAndAssignPassword(folder.id, folder.name); break;
       case 'assign-key':
-        if (encryptionKeys.length === 0) {
-          Alert.alert('No Encryption Keys', 'Create an encryption key in Settings first.');
+        if (filePasswords.length === 0) {
+          Alert.alert('No File Passwords', 'Create a file password in Settings first.');
         } else {
           setKeyPickerTarget({ id: folder.id, name: folder.name });
+        }
+        break;
+      case 'remove-key':
+        if (folder.filePasswordId) {
+          setPendingPasswordRemoval({
+            type: 'folder',
+            id: folder.id,
+            name: folder.name,
+            filePasswordId: folder.filePasswordId
+          });
+          setShowUnlockModal(true);
         }
         break;
       case 'favorite':
@@ -260,13 +315,35 @@ export default function DashboardScreen() {
     const isSelected = selectedFolderIds.includes(item.id);
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
 
+    const handleVaultPress = () => {
+      if (selectionMode) {
+        toggleFolderSelection(item.id);
+        return;
+      }
+      
+      // Check if folder has password protection
+      if (item.hasFilePassword && item.filePasswordId) {
+        setUnlockTarget({
+          type: 'folder',
+          id: item.id,
+          name: item.name,
+          filePasswordId: item.filePasswordId,
+          onUnlock: () => {
+            setShowUnlockModal(false);
+            setUnlockTarget(null);
+            router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+          }
+        });
+        setShowUnlockModal(true);
+      } else {
+        router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+      }
+    };
+
     return (
       <Pressable
         onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
-        onPress={() => {
-          if (selectionMode) toggleFolderSelection(item.id);
-          else router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
-        }}
+        onPress={handleVaultPress}
         style={[
           styles.vaultTile,
           {
@@ -316,6 +393,7 @@ export default function DashboardScreen() {
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
       <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
+        
         <View style={styles.headerTextBlock}>
           <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
@@ -500,16 +578,26 @@ export default function DashboardScreen() {
             <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetFolder.name}</Text>
-              {[
-                { action: 'rename', label: 'Rename', color: dash.text },
-                { action: 'move', label: 'Move', color: dash.text },
-                { action: 'export', label: 'Export', color: dash.text },
-                { action: 'register-key', label: 'Create & Assign Key', color: dash.accent },
-                { action: 'assign-key', label: 'Assign Existing Key', color: dash.accent },
-                { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
-                { action: 'delete', label: 'Move to Trash', color: colors.error },
-                { action: 'shred', label: 'Shred Permanently', color: colors.error },
-              ].map(item => (
+              {(() => {
+                const hasPassword = targetFolder.hasFilePassword || targetFolder.filePasswordId;
+                const baseItems = [
+                  { action: 'rename', label: 'Rename', color: dash.text },
+                  { action: 'move', label: 'Move', color: dash.text },
+                  { action: 'export', label: 'Export', color: dash.text },
+                  { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+                  { action: 'delete', label: 'Move to Trash', color: colors.error },
+                  { action: 'shred', label: 'Shred Permanently', color: colors.error },
+                ];
+                if (hasPassword) {
+                  baseItems.splice(3, 0, { action: 'remove-key', label: 'Remove Assigned File Password', color: colors.error });
+                } else {
+                  baseItems.splice(3, 0, 
+                    { action: 'register-key', label: 'Assign and Create File Password', color: dash.accent },
+                    { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
+                  );
+                }
+                return baseItems;
+              })().map(item => (
                 <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetFolder, item.action)}>
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
@@ -519,16 +607,168 @@ export default function DashboardScreen() {
         </Modal>
       )}
 
-      <EncryptionKeyPicker
+      <FilePasswordPicker
         visible={!!keyPickerTarget}
         onClose={() => setKeyPickerTarget(null)}
-        onSelectKey={async (keyId) => {
+        onSelectPassword={async (passwordId: string) => {
           if (!keyPickerTarget) return;
-          await assignFolderEncryptionKey(keyPickerTarget.id, keyId);
+          await assignFolderFilePassword(keyPickerTarget.id, passwordId);
           setKeyPickerTarget(null);
-          Alert.alert('Encryption Assigned', 'The selected encryption key is now registered.');
+          Alert.alert('File Password Assigned', 'The selected file password is now registered.');
         }}
       />
+
+      {/* File Password Unlock Modal */}
+      {(unlockTarget || pendingPasswordRemoval) && (
+        <FilePasswordUnlockModal
+          visible={showUnlockModal}
+          targetName={unlockTarget?.name ?? pendingPasswordRemoval?.name ?? ''}
+          targetId={unlockTarget?.id ?? pendingPasswordRemoval?.id ?? ''}
+          targetType={unlockTarget?.type ?? pendingPasswordRemoval?.type ?? 'folder'}
+          filePasswordId={unlockTarget?.filePasswordId ?? pendingPasswordRemoval?.filePasswordId ?? ''}
+          onClose={() => {
+            setShowUnlockModal(false);
+            setUnlockTarget(null);
+            setPendingPasswordRemoval(null);
+          }}
+          onUnlock={() => {
+            if (pendingPasswordRemoval) {
+              removeFolderFilePassword(pendingPasswordRemoval.id);
+              Alert.alert('File Password Removed', 'The file password has been removed from this folder.');
+              setPendingPasswordRemoval(null);
+            } else if (unlockTarget) {
+              unlockTarget.onUnlock();
+            }
+            setShowUnlockModal(false);
+            setUnlockTarget(null);
+          }}
+        />
+      )}
+
+      {/* File Password Registration Modal */}
+      <Modal visible={showCreatePasswordModal} transparent animationType="fade" onRequestClose={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: overlay }}>
+          <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pms.content}>
+              <Text style={[pms.title, { color: dash.text }]}>File Password Registration</Text>
+              
+              <View style={[pms.targetRow, { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
+                <FileText size={16} color={dash.textMuted} strokeWidth={2} />
+                <Text style={[pms.targetChipText, { color: dash.textMuted }]}>for {createPasswordTarget?.name}</Text>
+              </View>
+
+              <View style={{ marginBottom: 20 }}>
+                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Password Label</Text>
+                <TextInput
+                  style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text }]}
+                  placeholder="e.g. Personal Vault Password"
+                  placeholderTextColor={dash.textMuted}
+                  value={newPasswordLabel}
+                  onChangeText={setNewPasswordLabel}
+                />
+              </View>
+
+              <View style={{ marginBottom: 24 }}>
+                <View style={pms.labelRow}>
+                  <Text style={[pms.label, { color: dash.text, marginBottom: 0 }]}>Description</Text>
+                  <View style={[pms.optionalBadge, { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1 }]}>
+                    <Text style={[pms.optionalBadgeText, { color: dash.textMuted }]}>optional</Text>
+                  </View>
+                </View>
+                <TextInput
+                  style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, minHeight: 100, textAlignVertical: 'top' }]}
+                  placeholder="What is this password used for?"
+                  placeholderTextColor={dash.textMuted}
+                  value={newPasswordDescription}
+                  onChangeText={setNewPasswordDescription}
+                  multiline
+                />
+              </View>
+
+              <View style={[pms.sectionDivider, { backgroundColor: 'transparent' }]}>
+                <View style={[pms.dividerLine, { backgroundColor: dash.border }]} />
+                <Text style={[pms.sectionLabel, { color: dash.textMuted }]}>SECURITY</Text>
+                <View style={[pms.dividerLine, { backgroundColor: dash.border }]} />
+              </View>
+
+              <View style={{ marginBottom: 20 }}>
+                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Create Password</Text>
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, paddingRight: 50 }]}
+                    placeholder="Enter a strong password"
+                    placeholderTextColor={dash.textMuted}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry={!showNewPassword}
+                  />
+                  <TouchableOpacity
+                    style={pms.eyeButton}
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                  >
+                    {showNewPassword ? <Eye size={18} color={dash.textMuted} strokeWidth={2} /> : <EyeOff size={18} color={dash.textMuted} strokeWidth={2} />}
+                  </TouchableOpacity>
+                </View>
+                {newPassword.length > 0 && (
+                  <View style={{ marginTop: 10, gap: 6 }}>
+                    <View style={{ height: 4, borderRadius: 2, backgroundColor: dash.border, overflow: 'hidden' }}>
+                      <View style={{ height: '100%', borderRadius: 2, backgroundColor: newStrengthColor, width: newStrengthWidth }} />
+                    </View>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: newStrengthColor, textTransform: 'capitalize' }}>{newStrengthLabel} password</Text>
+                  </View>
+                )}
+                {newPassword.length > 0 && (
+                  <View style={[pms.validationBox, { backgroundColor: 'rgba(255,69,58,0.06)', borderWidth: 1, borderColor: 'rgba(255,69,58,0.12)' }]}>
+                    <Text style={[pms.validationTitle, { color: dash.textMuted }]}>Password Requirements</Text>
+                    {getPasswordValidationMessages(newPassword).messages.map((msg, idx) => (
+                      <View key={idx} style={pms.validationItem}>
+                        <Text style={[pms.validationIcon, { color: msg.valid ? '#34C759' : colors.error }]}>{msg.valid ? '✓' : '✗'}</Text>
+                        <Text style={[pms.validationText, { color: msg.valid ? dash.textMuted : colors.error }]}>{msg.text}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={{ marginBottom: 20 }}>
+                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Confirm Password</Text>
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, paddingRight: 50 }]}
+                    placeholder="Confirm your password"
+                    placeholderTextColor={dash.textMuted}
+                    value={newConfirmPassword}
+                    onChangeText={setNewConfirmPassword}
+                    secureTextEntry={!showNewConfirmPassword}
+                  />
+                  <TouchableOpacity
+                    style={pms.eyeButton}
+                    onPress={() => setShowNewConfirmPassword(!showNewConfirmPassword)}
+                  >
+                    {showNewConfirmPassword ? <Eye size={18} color={dash.textMuted} strokeWidth={2} /> : <EyeOff size={18} color={dash.textMuted} strokeWidth={2} />}
+                  </TouchableOpacity>
+                </View>
+                {newConfirmPassword.length > 0 && newPassword !== newConfirmPassword && (
+                  <Text style={{ fontSize: 12, color: colors.error, marginTop: 8, fontWeight: '600' }}>Passwords do not match</Text>
+                )}
+              </View>
+
+              <View style={pms.actions}>
+                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[pms.cancelBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                  <X size={18} color={dash.text} strokeWidth={2.5} />
+                  <Text style={[pms.cancelText, { color: dash.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmCreateAndAssignPassword} style={[pms.primaryBtn, { backgroundColor: dash.fabBg }]}>
+                  <ShieldCheck size={18} color={dash.fabText} strokeWidth={2.5} />
+                  <Text style={[pms.primaryText, { color: dash.fabText }]}>Create Password</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+
 
       {showRenameModal && (
         <Modal transparent animationType="fade">
@@ -590,9 +830,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 0,
+    paddingTop: 50,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4},
   headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
   themeToggle: {
     width: 40,
@@ -692,8 +933,41 @@ const modalS = StyleSheet.create({
   btnRow: { flexDirection: 'row', gap: 12 },
   btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   centeredOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
-  centeredCard: { width: '85%', maxWidth: 360, borderRadius: 24, padding: 24, alignItems: 'center' },
+  centeredCard: { width: '90%', maxWidth: 400, maxHeight: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
   centeredTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20, letterSpacing: -0.3 },
   centeredInput: { width: '100%', borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, fontSize: 15 },
   centeredBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
+});
+
+const pms = StyleSheet.create({
+  content: { width: '100%', alignItems: 'stretch' },
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 },
+  targetRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 28, gap: 10 },
+  targetChip: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+  targetChipText: { fontSize: 13, fontWeight: '600' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+  optionalBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginLeft: 8 },
+  optionalBadgeText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  input: { width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15 },
+  inputIconRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  passwordWrapper: { position: 'relative' },
+  eyeButton: { position: 'absolute', right: 14, top: '50%', marginTop: -12, padding: 6 },
+  sectionDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginHorizontal: 16 },
+  strengthRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 10 },
+  strengthBar: { height: 4, borderRadius: 2, flex: 1, overflow: 'hidden' },
+  strengthFill: { height: '100%', borderRadius: 2 },
+  strengthText: { fontSize: 11, fontWeight: '600' },
+  validationBox: { marginTop: 10, padding: 12, borderRadius: 12 },
+  validationTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
+  validationItem: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  validationIcon: { fontSize: 12, marginRight: 8, fontWeight: '700', width: 16, textAlign: 'center' },
+  validationText: { fontSize: 12, fontWeight: '500' },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 32 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  cancelText: { fontSize: 15, fontWeight: '700' },
+  primaryBtn: { flex: 1.2, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  primaryText: { fontSize: 15, fontWeight: '700' },
 });

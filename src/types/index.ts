@@ -3,6 +3,16 @@ export type ThemeMode = 'light' | 'dark' | 'amoled';
 export type DisguiseMode = 'default' | 'calculator' | 'notes' | 'utility';
 export type GridListView = 'grid' | 'list';
 
+export interface FilePasswordMetadata {
+  id: string;
+  label: string;
+  description?: string;
+  password: string;
+  fingerprint: string;
+  createdAt: number;
+}
+
+// Legacy encryption key type for backward compatibility
 export interface EncryptionKeyMetadata {
   id: string;
   name: string;
@@ -10,8 +20,6 @@ export interface EncryptionKeyMetadata {
   key: string;
   fingerprint: string;
   createdAt: number;
-  /** Salt used when hashing a custom key phrase. Only present for custom phrase keys. */
-  salt?: string;
 }
 
 export interface FolderMetadata {
@@ -19,6 +27,10 @@ export interface FolderMetadata {
   name: string;
   color?: string;
   icon?: string;
+  // File password fields
+  hasFilePassword?: boolean;
+  filePasswordId?: string;
+  // Legacy encryption fields for backward compatibility
   isEncrypted?: boolean;
   encryptionKeyId?: string;
   isFavorite: boolean;
@@ -34,7 +46,11 @@ export interface FileMetadata {
   size: number;
   mimeType: string;
   localPath: string;
-  isEncrypted: boolean;
+  // File password fields
+  hasFilePassword?: boolean;
+  filePasswordId?: string;
+  // Legacy encryption fields for backward compatibility
+  isEncrypted?: boolean;
   encryptionKeyId?: string;
   isFavorite: boolean;
   isTrash: boolean;

@@ -3,10 +3,8 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { EncryptionKeyUnlockModal } from '../../../components/EncryptionKeyUnlockModal';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
-import { useUnlockState } from '../../../contexts/UnlockContext';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
@@ -17,27 +15,17 @@ export default function DocumentViewerScreen() {
   const colors = useThemeColors();
   const { files } = useVaultStore();
   const encryptionKeys = useSettingsStore((state: { encryptionKeys: EncryptionKeyMetadata[] }) => state.encryptionKeys);
-  const { isUnlocked, markUnlocked } = useUnlockState();
   
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fileContent, setFileContent] = useState<string | null>(null);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
   const decryptedUriRef = useRef<string | null>(null);
 
   const fileMeta = files.find(f => f.id === fileId);
-  const isEncrypted = fileMeta?.isEncrypted && fileMeta?.encryptionKeyId;
-  const needsUnlock = isEncrypted && fileId && !isUnlocked(fileId);
 
   useEffect(() => {
     let mounted = true;
     decryptedUriRef.current = null;
-    
-    // If file is encrypted and not unlocked, show unlock modal
-    if (needsUnlock) {
-      setShowUnlockModal(true);
-      return;
-    }
     
     const loadFile = async () => {
       if (!fileMeta) return;
@@ -79,7 +67,7 @@ export default function DocumentViewerScreen() {
         StorageService.removeSandboxFile(decryptedUriRef.current).catch(e => console.error(e));
       }
     };
-  }, [fileId, fileMeta, needsUnlock]);
+  }, [fileId, fileMeta]);
 
   const handleOpenExternally = async () => {
     if (decryptedUri) {
@@ -89,25 +77,6 @@ export default function DocumentViewerScreen() {
         Alert.alert('Error', 'Could not open document');
       }
     }
-  };
-
-  const handleUnlock = () => {
-    if (fileId) {
-      markUnlocked(fileId);
-      setShowUnlockModal(false);
-      // Reload the file after unlocking
-      setLoading(true);
-      setDecryptedUri(null);
-      setFileContent(null);
-    }
-  };
-
-  const handleCancelUnlock = () => {
-    setShowUnlockModal(false);
-    // Navigate back since user cancelled
-    setTimeout(() => {
-      // Could navigate back or show blocked state
-    }, 100);
   };
 
   const isText = fileMeta?.mimeType.startsWith('text/');
@@ -121,27 +90,6 @@ export default function DocumentViewerScreen() {
             {fileContent}
           </Text>
         </ScrollView>
-      </View>
-    );
-  }
-
-  // Show unlock modal if needed
-  if (needsUnlock && fileMeta) {
-    return (
-      <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <VaultHeader title={fileMeta.name} showBack />
-        <View style={styles.viewport}>
-          <Text style={{ color: colors.textMuted, textAlign: 'center' }}>
-            🔒 This document is encrypted. Unlock required.
-          </Text>
-        </View>
-        <EncryptionKeyUnlockModal
-          visible={showUnlockModal}
-          itemName={fileMeta.name}
-          requiredKeyId={fileMeta.encryptionKeyId!}
-          onUnlock={handleUnlock}
-          onCancel={handleCancelUnlock}
-        />
       </View>
     );
   }

@@ -447,8 +447,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 8,
+    paddingTop: 50,
     paddingBottom: 16,
+    
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
   headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },

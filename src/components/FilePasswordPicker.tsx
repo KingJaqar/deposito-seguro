@@ -1,17 +1,17 @@
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../contexts/ThemeContext';
 import { useSettingsStore } from '../store/settingsStore';
-import { EncryptionKeyMetadata } from '../types';
+import { FilePasswordMetadata } from '../types';
 
-interface EncryptionKeyPickerProps {
+interface FilePasswordPickerProps {
   visible: boolean;
   onClose: () => void;
-  onSelectKey: (keyId: string) => void;
+  onSelectPassword: (passwordId: string) => void;
 }
 
-export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: EncryptionKeyPickerProps) {
+export function FilePasswordPicker({ visible, onClose, onSelectPassword }: FilePasswordPickerProps) {
   const colors = useThemeColors();
-  const encryptionKeys = useSettingsStore((state: { encryptionKeys: EncryptionKeyMetadata[] }) => state.encryptionKeys);
+  const filePasswords = useSettingsStore((state: { filePasswords: FilePasswordMetadata[] }) => state.filePasswords);
 
   if (!visible) return null;
 
@@ -27,22 +27,22 @@ export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: Encryptio
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.handle} />
-          <Text style={[styles.title, { color: colors.text }]}>Assign Encryption Key</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Assign File Password</Text>
 
-          {encryptionKeys.length === 0 ? (
+          {filePasswords.length === 0 ? (
             <View style={styles.empty}>
-              <Text style={{ color: colors.text, fontSize: 34, marginBottom: 8 }}>🔑</Text>
-              <Text style={[styles.emptyText, { color: colors.text }]}>No encryption keys yet</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Create a key from Settings, then assign it here.</Text>
+              <Text style={{ color: colors.text, fontSize: 34, marginBottom: 8 }}>🔒</Text>
+              <Text style={[styles.emptyText, { color: colors.text }]}>No file passwords yet</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Create a password from Settings, then assign it here.</Text>
             </View>
           ) : (
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-              {encryptionKeys.map((key: EncryptionKeyMetadata) => (
-                <KeyItem
-                  key={key.id}
-                  keyItem={key}
+              {filePasswords.map((fp: FilePasswordMetadata) => (
+                <PasswordItem
+                  key={fp.id}
+                  passwordItem={fp}
                   colors={colors}
-                  onPress={() => onSelectKey(key.id)}
+                  onPress={() => onSelectPassword(fp.id)}
                 />
               ))}
             </ScrollView>
@@ -53,30 +53,35 @@ export function EncryptionKeyPicker({ visible, onClose, onSelectKey }: Encryptio
   );
 }
 
-function KeyItem({
-  keyItem,
+function PasswordItem({
+  passwordItem,
   colors,
   onPress,
 }: {
-  keyItem: EncryptionKeyMetadata;
+  passwordItem: FilePasswordMetadata;
   colors: any;
   onPress: () => void;
 }) {
   return (
     <View>
       <TouchableOpacity
-        style={[styles.keyRow, { borderColor: colors.border }]}
+        style={[styles.passwordRow, { borderColor: colors.border }]}
         onPress={onPress}
         activeOpacity={0.7}
       >
-        <View style={styles.keyContent}>
+        <View style={styles.passwordContent}>
           <View>
-            <Text style={[styles.keyName, { color: colors.text }]} numberOfLines={1}>
-              {keyItem.name}
+            <Text style={[styles.passwordName, { color: colors.text }]} numberOfLines={1}>
+              {passwordItem.label}
             </Text>
-            <Text style={[styles.keyMeta, { color: colors.textMuted }]}>
-              Fingerprint {keyItem.fingerprint}
+            <Text style={[styles.passwordMeta, { color: colors.textMuted }]}>
+              Fingerprint {passwordItem.fingerprint}
             </Text>
+            {passwordItem.description && (
+              <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                {passwordItem.description}
+              </Text>
+            )}
           </View>
           <Text style={{ color: colors.primary, fontSize: 22 }}>›</Text>
         </View>
@@ -113,7 +118,7 @@ const styles = StyleSheet.create({
   scroll: {
     maxHeight: 360,
   },
-  keyRow: {
+  passwordRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -122,17 +127,17 @@ const styles = StyleSheet.create({
     marginHorizontal: -18,
     paddingHorizontal: 18,
   },
-  keyContent: {
+  passwordContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  keyName: {
+  passwordName: {
     fontSize: 15,
     fontWeight: '700',
   },
-  keyMeta: {
+  passwordMeta: {
     fontSize: 12,
     marginTop: 3,
   },

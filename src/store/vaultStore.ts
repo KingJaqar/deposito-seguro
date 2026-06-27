@@ -24,6 +24,12 @@ interface VaultStoreActions extends VaultState {
   moveFileToFolder: (fileId: string, targetFolderId: string) => Promise<void>;
   exportFileToDevice: (fileId: string) => Promise<string | null>;
   exportFolderFiles: (folderId: string) => Promise<string[]>;
+  // File Password methods
+  assignFolderFilePassword: (folderId: string, passwordId: string) => Promise<void>;
+  assignFileFilePassword: (fileId: string, passwordId: string) => Promise<void>;
+  removeFolderFilePassword: (folderId: string) => Promise<void>;
+  removeFileFilePassword: (fileId: string) => Promise<void>;
+  // Legacy encryption methods (kept for backward compatibility)
   assignFolderEncryptionKey: (folderId: string, keyId: string) => Promise<void>;
   assignFileEncryptionKey: (fileId: string, keyId: string) => Promise<void>;
   removeFolderEncryptionKey: (folderId: string) => Promise<void>;
@@ -93,9 +99,18 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }
   },
   createFolder: async (name, color, icon, isEncrypted, parentId) => {
+    let folderName = name?.trim() || 'New Folder';
+    const { folders } = get();
+    const existingNames = new Set(folders.map(f => f.name));
+    let uniqueName = folderName;
+    let counter = 2;
+    while (existingNames.has(uniqueName)) {
+      uniqueName = `${folderName} (${counter})`;
+      counter++;
+    }
     const newFolder: FolderMetadata = {
       id: SecureCrypto.generateUUID(),
-      name,
+      name: uniqueName,
       color,
       icon,
       isEncrypted,
@@ -196,9 +211,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
             isPersonalFavoritesFolder: false,
             createdAt: Date.now()
           };
-          state.folders.push(restoredFolder);
+          state.folders.push(restoredFolder!);
         }
-        targetFolderId = restoredFolder.id;
+        targetFolderId = restoredFolder!.id;
       }
       
       const files = state.files.map(f => 
@@ -363,6 +378,40 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }
     return exportedPaths;
   },
+  assignFolderFilePassword: async (folderId, passwordId) => {
+    const passwordExists = useSettingsStore.getState().filePasswords.some((p) => p.id === passwordId);
+    if (!passwordExists) return;
+
+    set((state) => {
+      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasFilePassword: true, filePasswordId: passwordId } : f);
+      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
+      return { folders };
+    });
+  },
+  assignFileFilePassword: async (fileId, passwordId) => {
+    const passwordExists = useSettingsStore.getState().filePasswords.some((p) => p.id === passwordId);
+    if (!passwordExists) return;
+
+    set((state) => {
+      const files = state.files.map(f => f.id === fileId ? { ...f, hasFilePassword: true, filePasswordId: passwordId } : f);
+      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
+      return { files };
+    });
+  },
+  removeFolderFilePassword: async (folderId) => {
+    set((state) => {
+      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasFilePassword: false, filePasswordId: undefined } : f);
+      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
+      return { folders };
+    });
+  },
+  removeFileFilePassword: async (fileId) => {
+    set((state) => {
+      const files = state.files.map(f => f.id === fileId ? { ...f, hasFilePassword: false, filePasswordId: undefined } : f);
+      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
+      return { files };
+    });
+  },
   assignFolderEncryptionKey: async (folderId, keyId) => {
     const keyExists = useSettingsStore.getState().encryptionKeys.some((k: EncryptionKeyMetadata) => k.id === keyId);
     if (!keyExists) return;
@@ -447,9 +496,18 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     });
   },
   createPersonalFavoritesFolder: async (name) => {
+    let folderName = name?.trim() || 'New Folder';
+    const { folders } = get();
+    const existingNames = new Set(folders.map(f => f.name));
+    let uniqueName = folderName;
+    let counter = 2;
+    while (existingNames.has(uniqueName)) {
+      uniqueName = `${folderName} (${counter})`;
+      counter++;
+    }
     const newFolder: FolderMetadata = {
       id: SecureCrypto.generateUUID(),
-      name,
+      name: uniqueName,
       isEncrypted: false,
       isFavorite: true,
       isPersonalFavoritesFolder: true,

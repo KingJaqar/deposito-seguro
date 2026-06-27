@@ -4,12 +4,13 @@ import { Moon, Plus, Search, Star, Sun } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
-import { EncryptionKeyPicker } from '../../components/EncryptionKeyPicker';
+import { FilePasswordPicker } from '../../components/FilePasswordPicker';
+import { FilePasswordUnlockModal } from '../../components/FilePasswordUnlockModal';
 import { CategoryTint } from '../../constants/Colors';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { promptCreateEncryptionKey } from '../../utils/encryptionKeyPrompt';
+import { validatePassword } from '../../utils/filePasswordValidation';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
@@ -33,9 +34,10 @@ export default function FavoritesScreen() {
   const {
     files, folders,
     toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile,
-    assignFileEncryptionKey,
+    assignFileFilePassword, removeFileFilePassword,
+    assignFolderFilePassword, removeFolderFilePassword,
   } = useVaultStore();
-  const { encryptionKeys, createEncryptionKey, encryptionKeyExists } = useSettingsStore();
+  const { filePasswords, createFilePassword, filePasswordExists } = useSettingsStore();
 
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
@@ -61,6 +63,15 @@ export default function FavoritesScreen() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameText, setRenameText] = useState('');
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; filePasswordId: string; onUnlock: () => void } | null>(null);
+  const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
+  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string } | null>(null);
+  const [newPasswordLabel, setNewPasswordLabel] = useState('');
+  const [newPasswordDescription, setNewPasswordDescription] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newConfirmPassword, setNewConfirmPassword] = useState('');
+  const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'file' | 'folder'; id: string; name: string; filePasswordId: string } | null>(null);
 
   const favoriteFiles = files.filter(f => f.isFavorite && !f.isTrash);
   const favoriteFolders = folders.filter(f => f.isFavorite);
@@ -117,6 +128,31 @@ export default function FavoritesScreen() {
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
 
   const handleFileNavigate = (file: any) => {
+    // Check if file has password protection
+    if (file.hasFilePassword && file.filePasswordId) {
+      setUnlockTarget({
+        type: 'file',
+        id: file.id,
+        name: file.name,
+        filePasswordId: file.filePasswordId,
+        onUnlock: () => {
+          setShowUnlockModal(false);
+          setUnlockTarget(null);
+          // Navigate to viewer after unlock
+          if (file.mimeType?.startsWith('image/')) {
+            router.push({ pathname: '/(main)/viewer/image', params: { fileId: file.id } });
+          } else if (file.mimeType?.startsWith('video/')) {
+            router.push({ pathname: '/(main)/viewer/video', params: { fileId: file.id } });
+          } else {
+            router.push({ pathname: '/(main)/viewer/document', params: { fileId: file.id } });
+          }
+        }
+      });
+      setShowUnlockModal(true);
+      return;
+    }
+    
+    // No password, navigate directly
     if (file.mimeType?.startsWith('image/')) {
       router.push({ pathname: '/(main)/viewer/image', params: { fileId: file.id } });
     } else if (file.mimeType?.startsWith('video/')) {
@@ -124,6 +160,60 @@ export default function FavoritesScreen() {
     } else {
       router.push({ pathname: '/(main)/viewer/document', params: { fileId: file.id } });
     }
+  };
+
+  const handleCreateAndAssignPassword = (targetId: string, targetName: string, targetType: 'file' | 'folder') => {
+    if (filePasswords.length >= 20) {
+      Alert.alert('File Password Limit', 'You can only create up to 20 file passwords.');
+      return;
+    }
+    setCreatePasswordTarget({ type: targetType, id: targetId, name: targetName });
+    setShowCreatePasswordModal(true);
+  };
+
+  const confirmCreateAndAssignPassword = async () => {
+    if (!createPasswordTarget) return;
+
+    if (!newPasswordLabel.trim()) {
+      Alert.alert('Password Label Required', 'Give this file password a recognizable name.');
+      return;
+    }
+
+    if (filePasswordExists(newPasswordLabel)) {
+      Alert.alert('Password Label Already Used', 'File password labels must be unique.');
+      return;
+    }
+
+    const validation = validatePassword(newPassword);
+    if (!validation.valid) {
+      Alert.alert('Password Does Not Meet Requirements', validation.message);
+      return;
+    }
+
+    if (newPassword !== newConfirmPassword) {
+      Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
+      return;
+    }
+
+    const fp = await createFilePassword(newPasswordLabel, newPassword, newPasswordDescription);
+    if (!fp) {
+      Alert.alert('File Password Limit', 'You can only create up to 20 file passwords.');
+      return;
+    }
+
+    if (createPasswordTarget.type === 'file') {
+      await assignFileFilePassword(createPasswordTarget.id, fp.id);
+    } else {
+      await assignFolderFilePassword(createPasswordTarget.id, fp.id);
+    }
+
+    setShowCreatePasswordModal(false);
+    setCreatePasswordTarget(null);
+    setNewPasswordLabel('');
+    setNewPasswordDescription('');
+    setNewPassword('');
+    setNewConfirmPassword('');
+    Alert.alert('File Password Created & Assigned', `${fp.label} has been created and assigned.`);
   };
 
   const handleFileAction = (file: any, action: string) => {
@@ -135,39 +225,45 @@ export default function FavoritesScreen() {
         Alert.alert('Confirm Shred', 'Permanently delete this file?',
           [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(file.id) }]
         ); break;
-      case 'register-key': handleRegisterEncryptionKey(file.id, file.name); break;
+      case 'register-key': handleCreateAndAssignPassword(file.id, file.name, 'file'); break;
       case 'assign-key': setKeyPickerTarget({ id: file.id, name: file.name }); break;
+      case 'remove-key':
+        if (file.filePasswordId) {
+          setPendingPasswordRemoval({
+            type: 'file',
+            id: file.id,
+            name: file.name,
+            filePasswordId: file.filePasswordId
+          });
+          setShowUnlockModal(true);
+        }
+        break;
     }
   };
 
-  const handleRegisterEncryptionKey = (targetId: string, targetName: string) => {
-    if (encryptionKeys.length >= 20) {
-      Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
-      return;
+  const handleFolderNavigate = (folder: any) => {
+    if (folder.hasFilePassword && folder.filePasswordId) {
+      setUnlockTarget({
+        type: 'folder',
+        id: folder.id,
+        name: folder.name,
+        filePasswordId: folder.filePasswordId,
+        onUnlock: () => {
+          setShowUnlockModal(false);
+          setUnlockTarget(null);
+          router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+        }
+      });
+      setShowUnlockModal(true);
+    } else {
+      router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
     }
-    promptCreateEncryptionKey(targetName, async (options) => {
-      if (encryptionKeys.length >= 20) {
-        Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
-        return;
-      }
-      if (encryptionKeyExists(options.name)) {
-        Alert.alert('Key Name Already Used', 'Encryption key names must be unique.');
-        return;
-      }
-      const key = await createEncryptionKey(options.name, options.customKey, options.description);
-      if (!key) {
-        Alert.alert('Encryption Key Limit', 'You can only create up to 20 encryption keys.');
-        return;
-      }
-      await assignFileEncryptionKey(targetId, key.id);
-      Alert.alert('Encryption Registered', 'A new encryption key was generated and assigned.');
-    });
   };
 
   const handleFolderAction = (folder: any, action: string) => {
     setShowFolderMenu(false);
     switch (action) {
-      case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
+      case 'open': handleFolderNavigate(folder); break;
       case 'unfavorite': toggleFavorite(folder.id); break;
       case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
       case 'delete': softDeleteFile(folder.id); break;
@@ -175,6 +271,19 @@ export default function FavoritesScreen() {
         Alert.alert('Confirm Shred', 'Permanently delete this folder?',
           [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(folder.id) }]
         ); break;
+      case 'register-key': handleCreateAndAssignPassword(folder.id, folder.name, 'folder'); break;
+      case 'assign-key': setKeyPickerTarget({ id: folder.id, name: folder.name }); break;
+      case 'remove-key':
+        if (folder.filePasswordId) {
+          setPendingPasswordRemoval({
+            type: 'folder',
+            id: folder.id,
+            name: folder.name,
+            filePasswordId: folder.filePasswordId
+          });
+          setShowUnlockModal(true);
+        }
+        break;
     }
   };
 
@@ -198,7 +307,7 @@ export default function FavoritesScreen() {
         onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
         onPress={() => {
           if (selectionMode) toggleSelection(item.id);
-          else if (type === 'folder') router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
+          else if (type === 'folder') handleFolderNavigate(item);
           else handleFileNavigate(item);
         }}
         style={[
@@ -453,13 +562,23 @@ export default function FavoritesScreen() {
             <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
-              {[
-                { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
-                { action: 'delete', label: 'Move to Trash', color: colors.error },
-                { action: 'shred', label: 'Shred Permanently', color: colors.error },
-                { action: 'register-key', label: 'Create & Assign Encryption Key', color: dash.accent },
-                { action: 'assign-key', label: 'Assign Existing Encryption Key', color: dash.accent },
-              ].map(item => (
+              {(() => {
+                const hasPassword = targetItem.hasFilePassword || targetItem.filePasswordId;
+                const baseItems = [
+                  { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
+                  { action: 'delete', label: 'Move to Trash', color: colors.error },
+                  { action: 'shred', label: 'Shred Permanently', color: colors.error },
+                ];
+                if (hasPassword) {
+                  baseItems.push({ action: 'remove-key', label: 'Remove Assigned File Password', color: colors.error });
+                } else {
+                  baseItems.push(
+                    { action: 'register-key', label: 'Assign and Create File Password', color: dash.accent },
+                    { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
+                  );
+                }
+                return baseItems;
+              })().map(item => (
                 <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFileAction(targetItem, item.action)}>
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
@@ -469,16 +588,144 @@ export default function FavoritesScreen() {
         </Modal>
       )}
 
-      <EncryptionKeyPicker
+      {showFolderMenu && targetItem && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
+          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
+            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
+              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
+              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
+              {(() => {
+                const hasPassword = targetItem.hasFilePassword && targetItem.filePasswordId;
+                const baseItems = [
+                  { action: 'open', label: 'Open Folder', color: dash.accent },
+                  { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
+                  { action: 'delete', label: 'Move to Trash', color: colors.error },
+                  { action: 'shred', label: 'Shred Permanently', color: colors.error },
+                ];
+                if (hasPassword) {
+                  baseItems.splice(3, 0, { action: 'remove-key', label: 'Remove Assigned File Password', color: colors.error });
+                } else {
+                  baseItems.splice(3, 0,
+                    { action: 'register-key', label: 'Assign and Create File Password', color: dash.accent },
+                    { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
+                  );
+                }
+                return baseItems;
+              })().map(item => (
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetItem, item.action)}>
+                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      <FilePasswordPicker
         visible={!!keyPickerTarget}
         onClose={() => setKeyPickerTarget(null)}
-        onSelectKey={async (keyId) => {
+        onSelectPassword={async (passwordId: string) => {
           if (!keyPickerTarget) return;
-          await assignFileEncryptionKey(keyPickerTarget.id, keyId);
+          await assignFileFilePassword(keyPickerTarget.id, passwordId);
           setKeyPickerTarget(null);
-          Alert.alert('Encryption Assigned', 'The selected encryption key is now registered.');
+          Alert.alert('File Password Assigned', 'The selected file password is now registered.');
         }}
       />
+
+      {/* File Password Unlock Modal */}
+      {(unlockTarget || pendingPasswordRemoval) && (
+        <FilePasswordUnlockModal
+          visible={showUnlockModal}
+          targetName={unlockTarget?.name ?? pendingPasswordRemoval?.name ?? ''}
+          targetId={unlockTarget?.id ?? pendingPasswordRemoval?.id ?? ''}
+          targetType={unlockTarget?.type ?? pendingPasswordRemoval?.type ?? 'file'}
+          filePasswordId={unlockTarget?.filePasswordId ?? pendingPasswordRemoval?.filePasswordId ?? ''}
+          onClose={() => {
+            setShowUnlockModal(false);
+            setUnlockTarget(null);
+            setPendingPasswordRemoval(null);
+          }}
+          onUnlock={() => {
+            if (pendingPasswordRemoval) {
+              if (pendingPasswordRemoval.type === 'file') {
+                removeFileFilePassword(pendingPasswordRemoval.id);
+              } else {
+                removeFolderFilePassword(pendingPasswordRemoval.id);
+              }
+              Alert.alert('File Password Removed', 'The file password has been removed from this item.');
+              setPendingPasswordRemoval(null);
+            } else if (unlockTarget) {
+              unlockTarget.onUnlock();
+            }
+            setShowUnlockModal(false);
+            setUnlockTarget(null);
+          }}
+        />
+      )}
+
+      {/* File Password Registration Modal */}
+      <Modal visible={showCreatePasswordModal} transparent animationType="fade" onRequestClose={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); }}>
+        <View style={modalS.centeredOverlay}>
+          <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[modalS.centeredTitle, { color: dash.text }]}>File Password Registration</Text>
+              <Text style={[{ fontSize: 13, color: dash.textMuted, marginBottom: 20 }]}>to {createPasswordTarget?.name}</Text>
+
+              <Text style={[{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: dash.text, marginBottom: 6 }]}>Password Label</Text>
+              <TextInput
+                style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+                placeholder="e.g. Personal Vault Password"
+                placeholderTextColor={dash.textMuted}
+                value={newPasswordLabel}
+                onChangeText={setNewPasswordLabel}
+              />
+
+              <Text style={[{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: dash.text, marginBottom: 6 }]}>Description (Optional)</Text>
+              <TextInput
+                style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+                placeholder="What is this password used for?"
+                placeholderTextColor={dash.textMuted}
+                value={newPasswordDescription}
+                onChangeText={setNewPasswordDescription}
+                multiline
+              />
+
+              <Text style={[{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: dash.text, marginBottom: 6 }]}>Create a Password *</Text>
+              <TextInput
+                style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+                placeholder="Enter a strong password"
+                placeholderTextColor={dash.textMuted}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+              />
+
+              <Text style={[{ fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: dash.text, marginBottom: 6 }]}>Confirm Password *</Text>
+              <TextInput
+                style={[modalS.centeredInput, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
+                placeholder="Confirm your password"
+                placeholderTextColor={dash.textMuted}
+                value={newConfirmPassword}
+                onChangeText={setNewConfirmPassword}
+                secureTextEntry
+              />
+
+              {newConfirmPassword.length > 0 && newPassword !== newConfirmPassword && (
+                <Text style={[{ fontSize: 12, color: colors.error, marginBottom: 12, fontWeight: '600' }]}>Passwords do not match</Text>
+              )}
+
+              <View style={modalS.centeredBtnRow}>
+                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); }} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
+                  <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmCreateAndAssignPassword} style={[modalS.btn, { backgroundColor: dash.fabBg }]}>
+                  <Text style={{ color: dash.fabText, fontWeight: '700' }}>Create File Password</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {showRenameModal && (
         <Modal transparent animationType="fade">
@@ -519,11 +766,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 8,
+    paddingTop: 50,
     paddingBottom: 16,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4},
   headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
   themeToggle: {
     width: 40,
