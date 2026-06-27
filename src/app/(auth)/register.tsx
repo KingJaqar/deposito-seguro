@@ -3,33 +3,38 @@ import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
+import { validatePin, PIN_MIN_LENGTH } from '../../utils/accessKeyValidation';
 
 export default function RegisterScreen() {
   const colors = useThemeColors();
   const { initializeVault } = useAuthStore();
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [hint, setHint] = useState('');
 
   const handleInitialization = async () => {
-    if (!password || !confirmPassword) {
+    if (!pin || !confirmPin) {
       Alert.alert('Missing Parameters', 'Please complete all required fields.');
       return;
     }
-    if (password.length < 4) {
-      Alert.alert('Insecure Matrix', 'Master key must be at least 4 characters long.');
+
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      Alert.alert('Invalid PIN', pinValidation.message);
       return;
     }
-    if (password !== confirmPassword) {
-      Alert.alert('Mismatch', 'Master keys do not match.');
+
+    if (pin !== confirmPin) {
+      Alert.alert('Mismatch', 'PINs do not match.');
       return;
     }
+
     if (!hint.trim()) {
       Alert.alert('Hint Required', 'Please provide a validation hint for emergency decryption recovery.');
       return;
     }
 
-    const completed = await initializeVault(password, hint.trim());
+    const completed = await initializeVault(pin, hint.trim());
     if (completed) {
       router.replace('/(main)/dashboard');
     } else {
@@ -46,24 +51,28 @@ export default function RegisterScreen() {
         </Text>
 
         <View style={styles.form}>
-          <Text style={[styles.label, { color: colors.text }]}>Master Password</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Enter PIN ({PIN_MIN_LENGTH}+ digits)</Text>
           <TextInput
             style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-            placeholder="Enter secure password string"
+            placeholder="Enter numeric PIN"
             placeholderTextColor={colors.textMuted}
             secureTextEntry
-            value={password}
-            onChangeText={setPassword}
+            value={pin}
+            onChangeText={setPin}
+            keyboardType="number-pad"
+            maxLength={10}
           />
 
-          <Text style={[styles.label, { color: colors.text }]}>Confirm Master Password</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Confirm PIN</Text>
           <TextInput
             style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-            placeholder="Repeat password string"
+            placeholder="Repeat PIN"
             placeholderTextColor={colors.textMuted}
             secureTextEntry
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
+            value={confirmPin}
+            onChangeText={setConfirmPin}
+            keyboardType="number-pad"
+            maxLength={10}
           />
 
           <Text style={[styles.label, { color: colors.text }]}>Password Security Hint</Text>

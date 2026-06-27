@@ -1,56 +1,56 @@
 import { Alert } from 'react-native';
 import {
   validatePassword
-} from './filePasswordValidation';
+} from './accessKeyValidation';
 
-export interface FilePasswordCreateOptions {
+export interface AccessKeyCreateOptions {
   label: string;
   description?: string;
   password: string;
 }
 
-export type OnFilePasswordCreate = (options: FilePasswordCreateOptions) => void | Promise<void>;
+export type OnAccessKeyCreate = (options: AccessKeyCreateOptions) => void | Promise<void>;
 
 /**
- * Multi-step prompt to create a file password with all fields:
- * 1. Password label (required)
+ * Multi-step prompt to create an access key with all fields:
+ * 1. Access key label (required)
  * 2. Description (optional)
  * 3. Create password (required with validation)
  * 4. Confirm password
  */
-export const promptCreateFilePassword = (
+export const promptCreateAccessKey = (
   targetName: string,
-  onCreate: OnFilePasswordCreate
+  onCreate: OnAccessKeyCreate
 ) => {
   Alert.prompt(
-    'Create File Password',
-    `Enter a label for the password assigned to "${targetName}".`,
+    'Create Access Key',
+    `Enter a label for the access key assigned to "${targetName}".`,
     [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Next',
-        onPress: (label?: string) => promptPasswordDescription(label?.trim() || targetName, onCreate),
+        onPress: (label?: string) => promptAccessKeyDescription(label?.trim() || targetName, onCreate),
       },
     ],
     'plain-text'
   );
 };
 
-const promptPasswordDescription = (
+const promptAccessKeyDescription = (
   label: string,
-  onCreate: OnFilePasswordCreate
+  onCreate: OnAccessKeyCreate
 ) => {
   Alert.prompt(
     'Optional Description',
-    'Enter an optional description for this password, or tap Skip.',
+    'Enter an optional description for this access key, or tap Skip.',
     [
       {
         text: 'Skip',
-        onPress: () => promptPasswordCreation(label, '', onCreate),
+        onPress: () => promptAccessKeyCreation(label, '', onCreate),
       },
       {
         text: 'Next',
-        onPress: (description?: string) => promptPasswordCreation(label, description?.trim() || '', onCreate),
+        onPress: (description?: string) => promptAccessKeyCreation(label, description?.trim() || '', onCreate),
       },
     ],
     'plain-text',
@@ -59,10 +59,10 @@ const promptPasswordDescription = (
   );
 };
 
-const promptPasswordCreation = (
+const promptAccessKeyCreation = (
   label: string,
   description: string,
-  onCreate: OnFilePasswordCreate
+  onCreate: OnAccessKeyCreate
 ) => {
   Alert.prompt(
     'Create Password',
@@ -81,7 +81,7 @@ const promptPasswordCreation = (
             Alert.alert('Weak Password', validation.message);
             return;
           }
-          promptPasswordConfirmation(label, description, password, onCreate);
+          promptAccessKeyConfirmation(label, description, password, onCreate);
         },
       },
     ],
@@ -89,11 +89,11 @@ const promptPasswordCreation = (
   );
 };
 
-const promptPasswordConfirmation = (
+const promptAccessKeyConfirmation = (
   label: string,
   description: string,
   password: string,
-  onCreate: OnFilePasswordCreate
+  onCreate: OnAccessKeyCreate
 ) => {
   Alert.prompt(
     'Confirm Password',

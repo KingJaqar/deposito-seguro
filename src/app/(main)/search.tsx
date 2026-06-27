@@ -4,6 +4,7 @@ import { Moon, Search, Sun } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
+import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useVaultStore } from '../../store/vaultStore';
 
@@ -50,6 +51,7 @@ export default function SearchScreen() {
   const [targetItem, setTargetItem] = useState<any>(null);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameText, setRenameText] = useState('');
+  const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
@@ -129,11 +131,21 @@ export default function SearchScreen() {
     setShowFileMenu(false);
     switch (action) {
       case 'favorite': toggleFavorite(file.id); break;
-      case 'delete': softDeleteFile(file.id); break;
-      case 'shred':
-        Alert.alert('Confirm Shred', 'Permanently delete this file?',
-          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(file.id) }]
-        ); break;
+       case 'delete':
+         confirmDestructive(
+           'Move to Trash',
+           `Move "${file.name}" into retention trash?`,
+           () => softDeleteFile(file.id)
+         );
+         break;
+       case 'shred':
+         confirmDestructive(
+           'Permanently Shred',
+           `Shred "${file.name}" permanently?`,
+           () => shredFile(file.id),
+           'Shred Permanently'
+         );
+         break;
     }
   };
 
@@ -141,11 +153,21 @@ export default function SearchScreen() {
     setShowFolderMenu(false);
     switch (action) {
       case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
-      case 'delete': softDeleteFile(folder.id); break;
-      case 'shred':
-        Alert.alert('Confirm Shred', 'Permanently delete this folder?',
-          [{ text: 'Cancel', style: 'cancel' }, { text: 'Shred', style: 'destructive', onPress: () => shredFile(folder.id) }]
-        ); break;
+       case 'delete':
+         confirmDestructive(
+           'Move to Trash',
+           `Move "${folder.name}" into retention trash?`,
+           () => softDeleteFile(folder.id)
+         );
+         break;
+       case 'shred':
+         confirmDestructive(
+           'Permanently Shred',
+           `Shred "${folder.name}" permanently?`,
+           () => shredFile(folder.id),
+           'Shred Permanently'
+         );
+         break;
     }
   };
 
@@ -357,13 +379,15 @@ export default function SearchScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => {
                     if (selectedIds.length === 0) return;
-                    Alert.alert('Delete Selected', `Move ${selectedIds.length} items to trash?`, [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => {
+                    confirmDestructive(
+                      'Move to Trash',
+                      `Move ${selectedIds.length} items to trash?`,
+                      () => {
                         selectedIds.forEach(id => softDeleteFile(id));
                         exitSelectionMode();
-                      }}
-                    ]);
+                      },
+                      'Move to Trash'
+                    );
                   }} style={styles.textBtnDanger}>
                     <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
                   </TouchableOpacity>
@@ -393,6 +417,8 @@ export default function SearchScreen() {
 
         <View style={{ height: 140 }} />
       </ScrollView>
+
+      <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
 
       <AnimatedTabBar />
 

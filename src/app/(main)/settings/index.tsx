@@ -104,15 +104,28 @@ export default function SettingsCenterScreen() {
       ] as SettingItem[],
     },
     {
-      title: 'File Password Control',
+      title: 'Access Key Control',
       items: [
         {
           id: 'passwords',
-          title: 'File Passwords',
-          description: 'Create, view, and manage file passwords',
+          title: 'Access Keys',
+          description: 'Create, view, and manage access keys',
           icon: '🔒',
           type: 'link' as const,
-          onPress: () => router.push('/(main)/settings/file-passwords'),
+          onPress: () => router.push('/(main)/settings/access-keys'),
+        },
+      ] as SettingItem[],
+    },
+    {
+      title: 'Vault Authentication',
+      items: [
+        {
+          id: 'auth-key',
+          title: 'Authentication Key',
+          description: 'Manage your vault authentication key',
+          icon: '🔑',
+          type: 'link' as const,
+          onPress: () => router.push('/(main)/settings/auth-key'),
         },
       ] as SettingItem[],
     },

@@ -24,11 +24,11 @@ interface VaultStoreActions extends VaultState {
   moveFileToFolder: (fileId: string, targetFolderId: string) => Promise<void>;
   exportFileToDevice: (fileId: string) => Promise<string | null>;
   exportFolderFiles: (folderId: string) => Promise<string[]>;
-  // File Password methods
-  assignFolderFilePassword: (folderId: string, passwordId: string) => Promise<void>;
-  assignFileFilePassword: (fileId: string, passwordId: string) => Promise<void>;
-  removeFolderFilePassword: (folderId: string) => Promise<void>;
-  removeFileFilePassword: (fileId: string) => Promise<void>;
+  // Access Key methods
+  assignFolderAccessKey: (folderId: string, passwordId: string) => Promise<void>;
+  assignFileAccessKey: (fileId: string, passwordId: string) => Promise<void>;
+  removeFolderAccessKey: (folderId: string) => Promise<void>;
+  removeFileAccessKey: (fileId: string) => Promise<void>;
   // Legacy encryption methods (kept for backward compatibility)
   assignFolderEncryptionKey: (folderId: string, keyId: string) => Promise<void>;
   assignFileEncryptionKey: (fileId: string, keyId: string) => Promise<void>;
@@ -378,36 +378,36 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }
     return exportedPaths;
   },
-  assignFolderFilePassword: async (folderId, passwordId) => {
-    const passwordExists = useSettingsStore.getState().filePasswords.some((p) => p.id === passwordId);
+  assignFolderAccessKey: async (folderId, passwordId) => {
+    const passwordExists = useSettingsStore.getState().accessKeys.some((p) => p.id === passwordId);
     if (!passwordExists) return;
 
     set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasFilePassword: true, filePasswordId: passwordId } : f);
+      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f);
       AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
       return { folders };
     });
   },
-  assignFileFilePassword: async (fileId, passwordId) => {
-    const passwordExists = useSettingsStore.getState().filePasswords.some((p) => p.id === passwordId);
+  assignFileAccessKey: async (fileId, passwordId) => {
+    const passwordExists = useSettingsStore.getState().accessKeys.some((p) => p.id === passwordId);
     if (!passwordExists) return;
 
     set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, hasFilePassword: true, filePasswordId: passwordId } : f);
+      const files = state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f);
       AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
       return { files };
     });
   },
-  removeFolderFilePassword: async (folderId) => {
+  removeFolderAccessKey: async (folderId) => {
     set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasFilePassword: false, filePasswordId: undefined } : f);
+      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f);
       AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
       return { folders };
     });
   },
-  removeFileFilePassword: async (fileId) => {
+  removeFileAccessKey: async (fileId) => {
     set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, hasFilePassword: false, filePasswordId: undefined } : f);
+      const files = state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f);
       AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
       return { files };
     });

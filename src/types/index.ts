@@ -3,13 +3,18 @@ export type ThemeMode = 'light' | 'dark' | 'amoled';
 export type DisguiseMode = 'default' | 'calculator' | 'notes' | 'utility';
 export type GridListView = 'grid' | 'list';
 
-export interface FilePasswordMetadata {
+export interface AccessKeyMetadata {
   id: string;
   label: string;
   description?: string;
   password: string;
   fingerprint: string;
   createdAt: number;
+}
+
+export interface AuthKey {
+  password: string;
+  hint?: string;
 }
 
 // Legacy encryption key type for backward compatibility
@@ -27,9 +32,9 @@ export interface FolderMetadata {
   name: string;
   color?: string;
   icon?: string;
-  // File password fields
-  hasFilePassword?: boolean;
-  filePasswordId?: string;
+  // Access key fields
+  hasAccessKey?: boolean;
+  accessKeyId?: string;
   // Legacy encryption fields for backward compatibility
   isEncrypted?: boolean;
   encryptionKeyId?: string;
@@ -46,9 +51,9 @@ export interface FileMetadata {
   size: number;
   mimeType: string;
   localPath: string;
-  // File password fields
-  hasFilePassword?: boolean;
-  filePasswordId?: string;
+  // Access key fields
+  hasAccessKey?: boolean;
+  accessKeyId?: string;
   // Legacy encryption fields for backward compatibility
   isEncrypted?: boolean;
   encryptionKeyId?: string;

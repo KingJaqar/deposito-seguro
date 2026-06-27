@@ -1,17 +1,17 @@
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../contexts/ThemeContext';
 import { useSettingsStore } from '../store/settingsStore';
-import { FilePasswordMetadata } from '../types';
+import { AccessKeyMetadata } from '../types';
 
-interface FilePasswordPickerProps {
+interface AccessKeyPickerProps {
   visible: boolean;
   onClose: () => void;
   onSelectPassword: (passwordId: string) => void;
 }
 
-export function FilePasswordPicker({ visible, onClose, onSelectPassword }: FilePasswordPickerProps) {
+export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKeyPickerProps) {
   const colors = useThemeColors();
-  const filePasswords = useSettingsStore((state: { filePasswords: FilePasswordMetadata[] }) => state.filePasswords);
+  const accessKeys = useSettingsStore((state: { accessKeys: AccessKeyMetadata[] }) => state.accessKeys);
 
   if (!visible) return null;
 
@@ -27,22 +27,22 @@ export function FilePasswordPicker({ visible, onClose, onSelectPassword }: FileP
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.handle} />
-          <Text style={[styles.title, { color: colors.text }]}>Assign File Password</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Assign Access Key</Text>
 
-          {filePasswords.length === 0 ? (
+          {accessKeys.length === 0 ? (
             <View style={styles.empty}>
               <Text style={{ color: colors.text, fontSize: 34, marginBottom: 8 }}>🔒</Text>
-              <Text style={[styles.emptyText, { color: colors.text }]}>No file passwords yet</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Create a password from Settings, then assign it here.</Text>
+              <Text style={[styles.emptyText, { color: colors.text }]}>No access keys yet</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Create an access key from Settings, then assign it here.</Text>
             </View>
           ) : (
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-              {filePasswords.map((fp: FilePasswordMetadata) => (
-                <PasswordItem
-                  key={fp.id}
-                  passwordItem={fp}
+              {accessKeys.map((ak: AccessKeyMetadata) => (
+                <AccessKeyItem
+                  key={ak.id}
+                  accessKeyItem={ak}
                   colors={colors}
-                  onPress={() => onSelectPassword(fp.id)}
+                  onPress={() => onSelectPassword(ak.id)}
                 />
               ))}
             </ScrollView>
@@ -53,33 +53,33 @@ export function FilePasswordPicker({ visible, onClose, onSelectPassword }: FileP
   );
 }
 
-function PasswordItem({
-  passwordItem,
+function AccessKeyItem({
+  accessKeyItem,
   colors,
   onPress,
 }: {
-  passwordItem: FilePasswordMetadata;
+  accessKeyItem: AccessKeyMetadata;
   colors: any;
   onPress: () => void;
 }) {
   return (
     <View>
       <TouchableOpacity
-        style={[styles.passwordRow, { borderColor: colors.border }]}
+        style={[styles.password, { borderColor: colors.border }]}
         onPress={onPress}
         activeOpacity={0.7}
       >
         <View style={styles.passwordContent}>
           <View>
             <Text style={[styles.passwordName, { color: colors.text }]} numberOfLines={1}>
-              {passwordItem.label}
+              {accessKeyItem.label}
             </Text>
             <Text style={[styles.passwordMeta, { color: colors.textMuted }]}>
-              Fingerprint {passwordItem.fingerprint}
+              Fingerprint {accessKeyItem.fingerprint}
             </Text>
-            {passwordItem.description && (
+            {accessKeyItem.description && (
               <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                {passwordItem.description}
+                {accessKeyItem.description}
               </Text>
             )}
           </View>
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
   scroll: {
     maxHeight: 360,
   },
-  passwordRow: {
+  password: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

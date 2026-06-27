@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
-import { DisguiseMode, EncryptionKeyMetadata, FilePasswordMetadata, GridListView, ThemeMode } from '../types';
+import { DisguiseMode, EncryptionKeyMetadata, AccessKeyMetadata, AuthKey, GridListView, ThemeMode } from '../types';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
 
 interface SettingsState {
@@ -19,36 +19,42 @@ interface SettingsState {
   clipboardClearEnabled: boolean;
   fakeCrashEnabled: boolean;
   showHiddenFiles: boolean;
-  filePasswords: FilePasswordMetadata[];
+  accessKeys: AccessKeyMetadata[];
   encryptionKeys: EncryptionKeyMetadata[];
+  authKey: AuthKey | null;
 
   hydrateSettings: () => Promise<void>;
-  updateSetting: <K extends keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createFilePassword' | 'deleteFilePassword' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>>(
+  updateSetting: <K extends keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createAccessKey' | 'deleteAccessKey' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>>(
     key: K,
     val: SettingsState[K]
   ) => Promise<void>;
-  createFilePassword: (label: string, password: string, description?: string) => Promise<FilePasswordMetadata | null>;
-  filePasswordExists: (label: string) => boolean;
-  deleteFilePassword: (filePasswordId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
-  updateFilePassword: (filePasswordId: string, options: { label?: string; description?: string; password?: string }) => Promise<boolean>;
+  createAccessKey: (label: string, password: string, description?: string) => Promise<AccessKeyMetadata | null>;
+  accessKeyExists: (label: string) => boolean;
+  deleteAccessKey: (accessKeyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
+  updateAccessKey: (accessKeyId: string, options: { label?: string; description?: string; password?: string }) => Promise<boolean>;
   createEncryptionKey: (name: string, customKey?: string, description?: string) => Promise<EncryptionKeyMetadata | null>;
   encryptionKeyExists: (name: string) => boolean;
   deleteEncryptionKey: (keyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
+  setAuthKey: (password: string, hint?: string) => void;
+  verifyAuthKey: (password: string) => boolean;
+  changeAuthKey: (currentPassword: string, newPassword: string) => boolean;
+  updateAuthKeyHint: (hint: string) => void;
+  deleteAuthKeyHint: () => void;
 }
 
 const SETTINGS_KEY = sanitizeSecureStoreKey('@vault_settings');
-const FILE_PASSWORD_PREFIX = 'file_password_';
+const ACCESS_KEY_PREFIX = 'access_key_';
 const ENCRYPTION_KEY_PREFIX = 'encryption_key_';
 
 const getSecureKeyPath = (id: string, prefix: string) => sanitizeSecureStoreKey(id, prefix);
 
-const loadFilePasswordValues = async (filePasswords: FilePasswordMetadata[]) => {
-  const loadedPasswords: FilePasswordMetadata[] = [];
-  for (const fp of filePasswords) {
-    const storedValue = await SecureStore.getItemAsync(getSecureKeyPath(fp.id, FILE_PASSWORD_PREFIX));
-    loadedPasswords.push(storedValue ? { ...fp, password: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) } : fp);
+const loadAccessKeyValues = async (accessKeys: AccessKeyMetadata[]) => {
+  const loadedKeys: AccessKeyMetadata[] = [];
+  for (const ak of accessKeys) {
+    const storedValue = await SecureStore.getItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX));
+    loadedKeys.push(storedValue ? { ...ak, password: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) } : ak);
   }
-  return loadedPasswords;
+  return loadedKeys;
 };
 
 const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) => {
@@ -60,7 +66,7 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
   return loadedKeys;
 };
 
-const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createFilePassword' | 'deleteFilePassword' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>)[] = [
+const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createAccessKey' | 'deleteAccessKey' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>)[] = [
   'themeMode',
   'disguiseMode',
   'viewMode',
@@ -73,8 +79,9 @@ const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSettin
   'clipboardClearEnabled',
   'fakeCrashEnabled',
   'showHiddenFiles',
-  'filePasswords',
+  'accessKeys',
   'encryptionKeys',
+  'authKey',
 ];
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -90,17 +97,18 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   clipboardClearEnabled: false,
   fakeCrashEnabled: false,
   showHiddenFiles: false,
-  filePasswords: [],
+  accessKeys: [],
   encryptionKeys: [],
+  authKey: null,
 
   hydrateSettings: async () => {
     try {
       const stored = await AsyncStorage.getItem(SETTINGS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<SettingsState>;
-        const filePasswords = parsed.filePasswords ? await loadFilePasswordValues(parsed.filePasswords) : [];
+        const accessKeys = parsed.accessKeys ? await loadAccessKeyValues(parsed.accessKeys) : [];
         const encryptionKeys = parsed.encryptionKeys ? await loadEncryptionKeyValues(parsed.encryptionKeys) : [];
-        set((state) => ({ ...state, ...parsed, filePasswords, encryptionKeys }));
+        set((state) => ({ ...state, ...parsed, accessKeys, encryptionKeys }));
       }
     } catch (e) {
       console.error('Settings store failed hydration sequence.', e);
@@ -121,54 +129,54 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     });
   },
 
-  createFilePassword: async (label, password, description) => {
+  createAccessKey: async (label, password, description) => {
     const normalizedLabel = label.trim();
     
     // Generate UUID asynchronously for cryptographic security
     const id = await SecureCrypto.generateUUID();
     
-    let created: FilePasswordMetadata | null = null;
+    let created: AccessKeyMetadata | null = null;
     set((state) => {
-      if (state.filePasswords.length >= 20) {
+      if (state.accessKeys.length >= 20) {
         return state;
       }
 
-      if (state.filePasswords.some(k => k.label.toLowerCase() === normalizedLabel.toLowerCase())) {
+      if (state.accessKeys.some(k => k.label.toLowerCase() === normalizedLabel.toLowerCase())) {
         return state;
       }
 
-      const filePassword: FilePasswordMetadata = {
+      const accessKey: AccessKeyMetadata = {
         id: id,
-        label: normalizedLabel || 'Untitled Password',
+        label: normalizedLabel || 'Untitled Access Key',
         description: description?.trim(),
         password: password,
         fingerprint: SecureCrypto.fingerprint(password),
         createdAt: Date.now(),
       };
-      const filePasswords = [...state.filePasswords, filePassword];
+      const accessKeys = [...state.accessKeys, accessKey];
       const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = ({ ...state, filePasswords } as any)[k];
+        (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
         return acc;
       }, {} as Partial<SettingsState>);
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
         (err) => console.error('Settings persist error:', err)
       );
-      SecureStore.setItemAsync(getSecureKeyPath(filePassword.id, FILE_PASSWORD_PREFIX), password).catch(
-        (err) => console.error('File password secure storage error:', err)
+      SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), password).catch(
+        (err) => console.error('Access key secure storage error:', err)
       );
-      created = filePassword;
-      return { filePasswords };
+      created = accessKey;
+      return { accessKeys };
     });
 
     return created;
   },
 
-  filePasswordExists: (label: string): boolean => {
+  accessKeyExists: (label: string): boolean => {
     const normalizedLabel = label.trim().toLowerCase();
-    return useSettingsStore.getState().filePasswords.some((k: FilePasswordMetadata) => k.label.toLowerCase() === normalizedLabel);
+    return useSettingsStore.getState().accessKeys.some((k: AccessKeyMetadata) => k.label.toLowerCase() === normalizedLabel);
   },
 
-  deleteFilePassword: async (filePasswordId) => {
+  deleteAccessKey: async (accessKeyId) => {
     try {
       const [filesRaw, foldersRaw] = await Promise.all([
         AsyncStorage.getItem('@vault_files'),
@@ -176,70 +184,119 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       ]);
       const files = filesRaw ? JSON.parse(filesRaw) : [];
       const folders = foldersRaw ? JSON.parse(foldersRaw) : [];
-      const inUse = files.some((file: any) => file.filePasswordId === filePasswordId) ||
-        folders.some((folder: any) => folder.filePasswordId === filePasswordId);
+      const inUse = files.some((file: any) => file.accessKeyId === accessKeyId) ||
+        folders.some((folder: any) => folder.accessKeyId === accessKeyId);
 
       if (inUse) return 'in-use';
 
       let deleted = false;
       set((state) => {
-        const filePasswords = state.filePasswords.filter(k => k.id !== filePasswordId);
-        if (filePasswords.length === state.filePasswords.length) {
+        const accessKeys = state.accessKeys.filter(k => k.id !== accessKeyId);
+        if (accessKeys.length === state.accessKeys.length) {
           return state;
         }
 
         deleted = true;
         const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-          (acc as any)[k] = ({ ...state, filePasswords } as any)[k];
+          (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
           return acc;
         }, {} as Partial<SettingsState>);
         AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
           (err) => console.error('Settings persist error:', err)
         );
-        SecureStore.deleteItemAsync(getSecureKeyPath(filePasswordId, FILE_PASSWORD_PREFIX)).catch(
-          (err) => console.error('File password secure deletion error:', err)
+        SecureStore.deleteItemAsync(getSecureKeyPath(accessKeyId, ACCESS_KEY_PREFIX)).catch(
+          (err) => console.error('Access key secure deletion error:', err)
         );
-        return { filePasswords };
+        return { accessKeys };
       });
 
       return deleted ? 'deleted' : 'not-found';
     } catch (e) {
-      console.error('File password deletion failed', e);
+      console.error('Access key deletion failed', e);
       return 'not-found';
     }
   },
 
-  updateFilePassword: async (filePasswordId, options) => {
+  updateAccessKey: async (accessKeyId, options) => {
     let updated = false;
     set((state) => {
-      const idx = state.filePasswords.findIndex(fp => fp.id === filePasswordId);
+      const idx = state.accessKeys.findIndex(ak => ak.id === accessKeyId);
       if (idx === -1) return state;
-      const existing = state.filePasswords[idx];
+      const existing = state.accessKeys[idx];
       const updatedLabel = options.label !== undefined ? options.label.trim() : existing.label;
       const updatedDescription = options.description !== undefined ? options.description.trim() : existing.description;
       const updatedPassword = options.password !== undefined ? options.password : existing.password;
-      const filePassword: FilePasswordMetadata = {
+      const accessKey: AccessKeyMetadata = {
         ...existing,
-        label: updatedLabel || 'Untitled Password',
+        label: updatedLabel || 'Untitled Access Key',
         description: updatedDescription || undefined,
         password: updatedPassword,
         fingerprint: SecureCrypto.fingerprint(updatedPassword),
         createdAt: existing.createdAt,
       };
-      const filePasswords = [...state.filePasswords];
-      filePasswords[idx] = filePassword;
+      const accessKeys = [...state.accessKeys];
+      accessKeys[idx] = accessKey;
       const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = ({ ...state, filePasswords } as any)[k];
+        (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
         return acc;
       }, {} as Partial<SettingsState>);
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch((err) => console.error('Settings persist error:', err));
-      SecureStore.setItemAsync(getSecureKeyPath(filePassword.id, FILE_PASSWORD_PREFIX), updatedPassword).catch(
-        (err) => console.error('File password secure storage error:', err)
+      SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), updatedPassword).catch(
+        (err) => console.error('Access key secure storage error:', err)
       );
       updated = true;
-      return { filePasswords };
+      return { accessKeys };
     });
     return updated;
+  },
+
+  setAuthKey: (password: string, hint?: string) => {
+    const authKey: AuthKey = { password, hint };
+    set({ authKey });
+    const snapshot = { authKey };
+    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
+      (err) => console.error('Settings persist error:', err)
+    );
+  },
+
+  verifyAuthKey: (password: string): boolean => {
+    return useSettingsStore.getState().authKey?.password === password;
+  },
+
+  changeAuthKey: (currentPassword: string, newPassword: string): boolean => {
+    const current = useSettingsStore.getState().authKey;
+    if (!current || current.password !== currentPassword) {
+      return false;
+    }
+    const updatedAuthKey: AuthKey = { password: newPassword, hint: current.hint };
+    set({ authKey: updatedAuthKey });
+    const snapshot = { authKey: updatedAuthKey };
+    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
+      (err) => console.error('Settings persist error:', err)
+    );
+    return true;
+  },
+
+  updateAuthKeyHint: (hint: string) => {
+    const current = useSettingsStore.getState().authKey;
+    if (!current) return;
+    const updatedAuthKey: AuthKey = { ...current, hint };
+    set({ authKey: updatedAuthKey });
+    const snapshot = { authKey: updatedAuthKey };
+    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
+      (err) => console.error('Settings persist error:', err)
+    );
+  },
+
+  deleteAuthKeyHint: () => {
+    const current = useSettingsStore.getState().authKey;
+    if (!current) return;
+    const updatedAuthKey: AuthKey = { ...current, hint: undefined };
+    set({ authKey: updatedAuthKey });
+    const snapshot = { authKey: updatedAuthKey };
+    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
+      (err) => console.error('Settings persist error:', err)
+    );
   },
 
   createEncryptionKey: async (name, customKey, description) => {

@@ -4,6 +4,7 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'reac
 import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { validatePin, PIN_MIN_LENGTH } from '../../utils/accessKeyValidation';
 
 export default function LoginScreen() {
   const colors = useThemeColors();
@@ -12,6 +13,12 @@ export default function LoginScreen() {
   const [inputBuffer, setInputBuffer] = useState('');
 
   const handleStandardAuth = async () => {
+    const pinValidation = validatePin(inputBuffer);
+    if (!pinValidation.valid) {
+      Alert.alert('Invalid PIN', pinValidation.message);
+      return;
+    }
+
     const success = await authenticate(inputBuffer);
     if (success) {
       router.replace('/(main)/dashboard');
@@ -123,11 +130,13 @@ export default function LoginScreen() {
       <Text style={[styles.stdTitle, { color: colors.text }]}>Vault Authentication Required</Text>
       <TextInput
         style={[styles.stdInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-        placeholder="Enter Cryptographic Key"
+        placeholder={`Enter ${PIN_MIN_LENGTH}+ digit PIN`}
         placeholderTextColor={colors.textMuted}
         secureTextEntry
         value={inputBuffer}
         onChangeText={setInputBuffer}
+        keyboardType="number-pad"
+        maxLength={10}
       />
       <TouchableOpacity
         style={[styles.stdSubmit, { backgroundColor: colors.primary }]}

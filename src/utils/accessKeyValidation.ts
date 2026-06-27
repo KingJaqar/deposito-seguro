@@ -1,5 +1,5 @@
 /**
- * Shared file password validation utilities
+ * Shared access key validation utilities
  * Centralized validation logic to ensure consistency across the app
  */
 
@@ -178,4 +178,41 @@ export const getStrengthBarWidth = (strength: PasswordStrength): string => {
     case 'strong':
       return '100%';
   }
+};
+
+export const PIN_MIN_LENGTH = 6;
+const PIN_MAX_LENGTH = 10;
+const PIN_REGEX = /^[0-9]+$/;
+
+export interface PinValidationResult {
+  valid: boolean;
+  message: string;
+}
+
+export const validatePin = (pin: string): PinValidationResult => {
+  if (!PIN_REGEX.test(pin)) {
+    return {
+      valid: false,
+      message: 'PIN must contain only numbers (0-9)',
+    };
+  }
+
+  if (pin.length < PIN_MIN_LENGTH) {
+    return {
+      valid: false,
+      message: `PIN must be at least ${PIN_MIN_LENGTH} digits`,
+    };
+  }
+
+  if (pin.length > PIN_MAX_LENGTH) {
+    return {
+      valid: false,
+      message: `PIN must not exceed ${PIN_MAX_LENGTH} digits`,
+    };
+  }
+
+  return {
+    valid: true,
+    message: 'PIN is valid',
+  };
 };

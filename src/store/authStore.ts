@@ -14,6 +14,8 @@ interface AuthState {
   authenticate: (password: string) => Promise<boolean>;
   terminateSession: () => void;
   updateActivity: () => void;
+  updateSecurityHint: (hint: string) => Promise<void>;
+  deleteSecurityHint: () => Promise<void>;
 }
 
 const isWeb = typeof window !== 'undefined';
@@ -79,6 +81,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return false;
     } catch {
       return false;
+    }
+  },
+  updateSecurityHint: async (hint) => {
+    try {
+      if (isWeb) {
+        await AsyncStorage.setItem('SECURITY_HINT', hint);
+      } else {
+        await SecureStore.setItemAsync(SECURE_KEYS.SECURITY_HINT, hint);
+      }
+      set({ securityHint: hint });
+    } catch (e) {
+      console.error('updateSecurityHint error', e);
+    }
+  },
+  deleteSecurityHint: async () => {
+    try {
+      if (isWeb) {
+        await AsyncStorage.removeItem('SECURITY_HINT');
+      } else {
+        await SecureStore.deleteItemAsync(SECURE_KEYS.SECURITY_HINT);
+      }
+      set({ securityHint: '' });
+    } catch (e) {
+      console.error('deleteSecurityHint error', e);
     }
   },
   terminateSession: () => set({ isAuthenticated: false }),
