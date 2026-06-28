@@ -89,7 +89,7 @@ const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSettin
 export const useSettingsStore = create<SettingsState>((set) => ({
   themeMode: 'dark',
   disguiseMode: 'default',
-  viewMode: 'grid',
+  viewMode: 'list',
   autoLockDuration: 60000,
   encryptionDefault: false,
   accentColor: '#0A84FF',

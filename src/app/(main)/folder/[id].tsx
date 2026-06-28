@@ -2,12 +2,13 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Moon, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Sun, Trash2, Undo2, X } from 'lucide-react-native';
+import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Trash2, Undo2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Image as RNImage, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../../components/DestructiveConfirmModal';
+import { ViewModeMenu } from '../../../components/ViewModeMenu';
 import { AccessKeyPicker } from '../../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -20,7 +21,8 @@ import { getPasswordStrength, getPasswordValidationMessages, validatePassword } 
 
 export default function FolderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors } = useTheme();
+  const viewMode = useSettingsStore((s: any) => s.viewMode);
   
   // Bind authentic existing global context operations
   const {
@@ -72,6 +74,22 @@ export default function FolderDetailsScreen() {
 
   const folderRecord = folders.find(f => f.id === id);
   const folderName = folderRecord ? folderRecord.name : 'Vault Root';
+
+  const SCREEN_WIDTH = Dimensions.get('window').width;
+  const getGridColumns = (mode: string) => {
+    if (mode === 'list') return 1;
+    if (mode === 'small-icons') return 5;
+    if (mode === 'medium-icons') return 3;
+    return 2;
+  };
+  const getGridItemWidth = (mode: string) => {
+    const cols = getGridColumns(mode);
+    const gap = 12;
+    return (SCREEN_WIDTH - 32 - gap * (cols - 1)) / cols;
+  };
+  const isGridMode = viewMode !== 'list';
+  const gridColumns = getGridColumns(viewMode);
+  const gridItemWidth = getGridItemWidth(viewMode);
 
   // Calculate real-time metric counters
   const totalSizeKB = useMemo(() => {
@@ -519,6 +537,8 @@ export default function FolderDetailsScreen() {
     }
   };
 
+  const themeMode = useSettingsStore((s: any) => s.themeMode);
+  const isDark = themeMode !== 'light';
   const st = useStyles(colors, isDark);
   const surface = colors.dashboardSurface ?? colors.surface;
   const border = colors.dashboardBorder ?? colors.border;
@@ -538,9 +558,7 @@ export default function FolderDetailsScreen() {
           </TouchableOpacity>
           <Text style={st.headerTitle} numberOfLines={1}>{folderName}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity onPress={toggleTheme} style={st.themeToggle} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              {isDark ? <Sun size={20} color={text} /> : <Moon size={20} color={text} />}
-            </TouchableOpacity>
+            <ViewModeMenu />
             <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={st.menuButton}>
               <Text style={st.headerIconText}>•••</Text>
             </TouchableOpacity>
@@ -629,73 +647,132 @@ export default function FolderDetailsScreen() {
         {matchedFolders.length > 0 && (
           <>
             <Text style={st.sectionHeader}>SUBFOLDERS</Text>
-            {matchedFolders.map((folder) => {
-              const isSelected = selectedFolderIds.includes(folder.id);
-              const isCutPending = clipboard?.mode === 'cut' && clipboard.folderIds.includes(folder.id);
-              return (
-                <View 
-                  key={folder.id} 
-                  style={[st.folderCard, isSelected && st.folderCardSelected, isCutPending && { opacity: 0.5 }]}
-                >
-                  <TouchableOpacity 
-                    style={st.folderCardLeft}
-                    onPress={() => {
-                      if (selectionMode) {
-                        toggleFolderSelection(folder.id);
-                        return;
-                      }
-                      if (folder.hasAccessKey && folder.accessKeyId) {
-                        setUnlockTarget({
-                          type: 'folder',
-                          id: folder.id,
-                          name: folder.name,
-                          accessKeyId: folder.accessKeyId,
-                          onUnlock: () => {
-                            setShowUnlockModal(false);
-                            setUnlockTarget(null);
-                            router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
-                          }
-                        });
-                        setShowUnlockModal(true);
-                      } else {
-                        router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                     <View style={st.folderIconContainer}>
-                       <Folder size={24} color={text} strokeWidth={2} />
-                     </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                         <Text style={st.folderTitleText} numberOfLines={1}>{folder.name}</Text>
-                         {folder.hasAccessKey && folder.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
-                         {folder.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
+            {isGridMode ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                {matchedFolders.map((folder) => {
+                  const isSelected = selectedFolderIds.includes(folder.id);
+                  const isCutPending = clipboard?.mode === 'cut' && clipboard.folderIds.includes(folder.id);
+                  return (
+                    <Pressable
+                      key={folder.id}
+                      onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([folder.id]); }}
+                      onPress={() => {
+                        if (selectionMode) {
+                          toggleFolderSelection(folder.id);
+                          return;
+                        }
+                        if (folder.hasAccessKey && folder.accessKeyId) {
+                          setUnlockTarget({
+                            type: 'folder',
+                            id: folder.id,
+                            name: folder.name,
+                            accessKeyId: folder.accessKeyId,
+                            onUnlock: () => {
+                              setShowUnlockModal(false);
+                              setUnlockTarget(null);
+                              router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+                            }
+                          });
+                          setShowUnlockModal(true);
+                        } else {
+                          router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+                        }
+                      }}
+                      style={[
+                        st.iconGridItem,
+                        {
+                          width: gridItemWidth,
+                          borderColor: isSelected ? primary : 'transparent',
+                          opacity: isCutPending ? 0.5 : 1,
+                          backgroundColor: surface,
+                        },
+                      ]}
+                    >
+                      <View style={[st.iconGridThumb, { backgroundColor: `${primary}18` }]}>
+                        <Folder size={viewMode === 'small-icons' ? 24 : viewMode === 'medium-icons' ? 28 : 32} color={primary} strokeWidth={1.8} />
+                        {(folder.hasAccessKey && folder.accessKeyId) && (
+                          <View style={[st.thumbBadge, { backgroundColor: primary }]}>
+                            <Lock size={10} color="#FFF" strokeWidth={3} />
+                          </View>
+                        )}
                       </View>
-                      <Text style={st.folderMetaText}>Directory Folder</Text>
+                      <Text style={[st.iconGridName, { color: text }]} numberOfLines={1}>{folder.name}</Text>
+                      <View style={st.iconGridIconsRow}>
+                        {folder.isFavorite && <Star size={12} color="#FBBF24" />}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              matchedFolders.map((folder) => {
+                const isSelected = selectedFolderIds.includes(folder.id);
+                const isCutPending = clipboard?.mode === 'cut' && clipboard.folderIds.includes(folder.id);
+                return (
+                  <View 
+                    key={folder.id} 
+                    style={[st.folderCard, isSelected && st.folderCardSelected, isCutPending && { opacity: 0.5 }]}
+                  >
+                    <TouchableOpacity 
+                      style={st.folderCardLeft}
+                      onPress={() => {
+                        if (selectionMode) {
+                          toggleFolderSelection(folder.id);
+                          return;
+                        }
+                        if (folder.hasAccessKey && folder.accessKeyId) {
+                          setUnlockTarget({
+                            type: 'folder',
+                            id: folder.id,
+                            name: folder.name,
+                            accessKeyId: folder.accessKeyId,
+                            onUnlock: () => {
+                              setShowUnlockModal(false);
+                              setUnlockTarget(null);
+                              router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+                            }
+                          });
+                          setShowUnlockModal(true);
+                        } else {
+                          router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                       <View style={st.folderIconContainer}>
+                         <Folder size={24} color={text} strokeWidth={2} />
+                       </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                           <Text style={st.folderTitleText} numberOfLines={1}>{folder.name}</Text>
+                           {folder.hasAccessKey && folder.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                           {folder.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
+                        </View>
+                        <Text style={st.folderMetaText}>Directory Folder</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <View style={st.folderActionsRight}>
+                      {selectionMode && (
+                        <View style={[st.checkboxIndicator, isSelected && st.checkboxIndicatorActive]} />
+                      )}
+                      {!selectionMode && (
+                        <TouchableOpacity 
+                          style={st.cardMenuIcon} 
+                          onPressIn={() => {
+                            setTargetSubfolder(folder);
+                            setShowSubfolderMenu(true);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={st.menuDotsText}>•••</Text>
+                        </TouchableOpacity>
+                      )}
+                      {!selectionMode && <Text style={st.chevronIcon}>›</Text>}
                     </View>
-                  </TouchableOpacity>
-                  <View style={st.folderActionsRight}>
-                    {selectionMode && (
-                      <View style={[st.checkboxIndicator, isSelected && st.checkboxIndicatorActive]} />
-                    )}
-                    {!selectionMode && (
-                      <TouchableOpacity 
-                        style={st.cardMenuIcon} 
-                        onPressIn={() => {
-                          setTargetSubfolder(folder);
-                          setShowSubfolderMenu(true);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={st.menuDotsText}>•••</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!selectionMode && <Text style={st.chevronIcon}>›</Text>}
                   </View>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </>
         )}
 
@@ -703,6 +780,60 @@ export default function FolderDetailsScreen() {
         <Text style={st.sectionHeader}>FILES</Text>
         {matchedFiles.length === 0 ? (
           <Text style={st.emptyText}>This directory workspace is empty</Text>
+        ) : isGridMode ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            {matchedFiles.map((file) => {
+              const isSelected = selectedFileIds.includes(file.id);
+              const isCutPending = clipboard?.mode === 'cut' && clipboard.fileIds.includes(file.id);
+              const hasThumbnail = file.mimeType?.startsWith('image/') || file.mimeType?.startsWith('video/');
+              const ft = file.mimeType?.startsWith('image/') ? { color: '#34D399', icon: '🖼️' } : file.mimeType?.startsWith('video/') ? { color: '#FF6B6B', icon: '🎬' } : { color: text, icon: <FileText size={24} color={text} strokeWidth={2} /> };
+              return (
+                <Pressable
+                  key={file.id}
+                  onLongPress={() => { setSelectionMode(true); setSelectedFileIds([file.id]); }}
+                  onPress={() => handleFileItemPress(file)}
+                  style={[
+                    st.iconGridItem,
+                    {
+                      width: gridItemWidth,
+                      backgroundColor: surface,
+                      borderColor: isSelected ? primary : 'transparent',
+                      borderWidth: 2,
+                      opacity: isCutPending ? 0.5 : 1,
+                    },
+                  ]}
+                >
+                  <View style={[st.iconGridThumb, { backgroundColor: `${ft?.color ?? primary}18` }]}>
+                    {hasThumbnail && file.localPath ? (
+                      <RNImage
+                        source={{ uri: file.localPath }}
+                        style={st.iconGridThumbImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                        {typeof ft?.icon === 'string' ? <Text style={{ fontSize: 22 }}>{ft.icon}</Text> : ft?.icon}
+                      </View>
+                    )}
+                    {file.mimeType?.startsWith('video/') && (
+                      <View style={st.videoBadge}>
+                        <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '700' }}>▶</Text>
+                      </View>
+                    )}
+                    {(file.hasAccessKey && file.accessKeyId) && (
+                      <View style={[st.thumbBadge, { backgroundColor: primary }]}>
+                        <Lock size={10} color="#FFF" strokeWidth={3} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[st.iconGridName, { color: text }]} numberOfLines={1}>{file.name}</Text>
+                  <View style={st.iconGridIconsRow}>
+                    {file.isFavorite && <Star size={12} color="#FBBF24" />}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
         ) : (
           matchedFiles.map((file) => {
             const isSelected = selectedFileIds.includes(file.id);
@@ -712,58 +843,58 @@ export default function FolderDetailsScreen() {
                 key={file.id} 
                 style={[st.fileCard, isSelected && st.fileCardSelected, isCutPending && { opacity: 0.5 }]}
               >
-<TouchableOpacity 
-                  style={st.fileCardLeft}
-                  onPress={() => handleFileItemPress(file)}
-                  activeOpacity={0.7}
-                >
-                   <View style={st.fileIconContainer}>
-                     {file.mimeType?.startsWith('image/') ? (
-                       <Image size={24} color={text} strokeWidth={2} />
-                     ) : (
-                       <FileText size={24} color={text} strokeWidth={2} />
-                     )}
-                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                       <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
-                       {file.hasAccessKey && file.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
-                       {file.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
-                    </View>
-                    <Text style={st.fileMetaText}>{(file.size / 1024).toFixed(1)} KB</Text>
+  <TouchableOpacity 
+                style={st.fileCardLeft}
+                onPress={() => handleFileItemPress(file)}
+                activeOpacity={0.7}
+              >
+                 <View style={st.fileIconContainer}>
+                   {file.mimeType?.startsWith('image/') ? (
+                     <Image size={24} color={text} strokeWidth={2} />
+                   ) : (
+                     <FileText size={24} color={text} strokeWidth={2} />
+                   )}
+                 </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                     <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
+                     {file.hasAccessKey && file.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                     {file.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                   </View>
-                </TouchableOpacity>
-                <View style={st.fileActionsRight}>
-                  {selectionMode && (
-                    <View style={[st.checkboxIndicator, isSelected && st.checkboxIndicatorActive]} />
-                  )}
-                  <TouchableOpacity 
-                    style={st.cardMenuIcon} 
-                    onPressIn={() => {
-                      setTargetFile(file);
-                      setShowFileMenu(true);
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={st.menuDotsText}>•••</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={st.cardMenuIcon}
-                    onPress={() => confirmDestructive(
-                      'Move to Trash',
-                      `Move "${file.name}" into retention trash?`,
-                      () => softDeleteFile(file.id),
-                      'Move to Trash'
-                    )}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Trash2 size={22} color="#FF453A" strokeWidth={2} />
-                  </TouchableOpacity>
+                  <Text style={st.fileMetaText}>{(file.size / 1024).toFixed(1)} KB</Text>
                 </View>
+              </TouchableOpacity>
+              <View style={st.fileActionsRight}>
+                {selectionMode && (
+                  <View style={[st.checkboxIndicator, isSelected && st.checkboxIndicatorActive]} />
+                )}
+                <TouchableOpacity 
+                  style={st.cardMenuIcon} 
+                  onPressIn={() => {
+                    setTargetFile(file);
+                    setShowFileMenu(true);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={st.menuDotsText}>•••</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={st.cardMenuIcon}
+                  onPress={() => confirmDestructive(
+                    'Move to Trash',
+                    `Move "${file.name}" into retention trash?`,
+                    () => softDeleteFile(file.id),
+                    'Move to Trash'
+                  )}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Trash2 size={22} color="#FF453A" strokeWidth={2} />
+                </TouchableOpacity>
               </View>
-            );
-          })
-        )}
+            </View>
+          );
+        })
+      )}
       </ScrollView>
 
       <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
@@ -1263,5 +1394,13 @@ const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolea
     pmsCancelText: { fontSize: 15, fontWeight: '700' },
     pmsPrimaryBtn: { flex: 1.2, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
     pmsPrimaryText: { fontSize: 15, fontWeight: '700' },
+    iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    iconGridItem: { borderRadius: 18, padding: 10, alignItems: 'center', marginBottom: 12 },
+    iconGridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8, overflow: 'hidden' },
+    iconGridThumbImage: { width: '100%', height: '100%', borderRadius: 14 },
+    thumbBadge: { position: 'absolute', bottom: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    videoBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
+    iconGridName: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 3 },
+    iconGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   });
 };

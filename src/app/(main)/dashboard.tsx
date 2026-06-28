@@ -11,7 +11,6 @@ import {
   Folder,
   Image as ImageIcon,
   Lock,
-  Moon,
   MoreVertical,
   Music,
   Plus,
@@ -19,7 +18,6 @@ import {
   Search,
   ShieldCheck,
   Smartphone,
-  Sun,
   Undo2,
   Video,
   X,
@@ -28,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -43,6 +42,7 @@ import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
+import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { CategoryTint } from '../../constants/Colors';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -59,10 +59,11 @@ const VAULT_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
 const DISPLAY_CAPACITY_GB = 100;
 
 export default function DashboardScreen() {
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors } = useTheme();
   const {
     disguiseAppName,
   } = useSettingsStore();
+  const viewMode = useSettingsStore((s) => s.viewMode);
   const {
     folders, files, clipboard, undoInfo,
     createFolder, hydrateVault, renameFolder, moveFolder,
@@ -87,7 +88,6 @@ export default function DashboardScreen() {
   }), [colors]);
 
   const displayName = disguiseAppName || 'Deposito Seguro';
-  const overlay = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
 
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
 
@@ -152,6 +152,29 @@ export default function DashboardScreen() {
   ], [imageCount, videoCount, audioCount, appCount, docCount, otherCount]);
 
   const vaultAccentPalette = useMemo(() => ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'], []);
+
+  const handleVaultPress = (folder: any) => {
+    if (selectionMode) {
+      toggleFolderSelection(folder.id);
+      return;
+    }
+    if (folder.hasAccessKey && folder.accessKeyId) {
+      setUnlockTarget({
+        type: 'folder',
+        id: folder.id,
+        name: folder.name,
+        accessKeyId: folder.accessKeyId,
+        onUnlock: () => {
+          setShowUnlockModal(false);
+          setUnlockTarget(null);
+          router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+        }
+      });
+      setShowUnlockModal(true);
+    } else {
+      router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+    }
+  };
 
   const rootFolders = useMemo(() => folders.filter(f => !f.parentId), [folders]);
   const subFolders = useMemo(() => folders.filter(f => !!f.parentId), [folders]);
@@ -372,48 +395,24 @@ export default function DashboardScreen() {
     </Pressable>
   ), [dash.surface, dash.text, dash.textMuted]);
 
-  const VaultTile = useCallback(({ item, index }: { item: any; index: number }) => {
+  const VaultTile = useCallback(({ item, index, gridWidth }: { item: any; index: number; gridWidth?: number }) => {
     const stats = folderStatsMap[item.id] || { count: 0, size: 0 };
     const folderFileCount = stats.count;
     const folderMB = stats.size / (1024 * 1024);
     const sizeLabel = folderMB >= 1024 ? `${(folderMB / 1024).toFixed(1)} GB` : `${folderMB.toFixed(0)} MB`;
     const isSelected = selectedFolderIds.includes(item.id);
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
-
-    const handleVaultPress = () => {
-      if (selectionMode) {
-        toggleFolderSelection(item.id);
-        return;
-      }
-      
-      // Check if folder has password protection
-      if (item.hasAccessKey && item.accessKeyId) {
-        setUnlockTarget({
-          type: 'folder',
-          id: item.id,
-          name: item.name,
-          accessKeyId: item.accessKeyId,
-          onUnlock: () => {
-            setShowUnlockModal(false);
-            setUnlockTarget(null);
-            router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
-          }
-        });
-        setShowUnlockModal(true);
-      } else {
-        router.push({ pathname: '/(main)/folder/[id]', params: { id: item.id } });
-      }
-    };
+    const width = gridWidth ?? VAULT_TILE_WIDTH;
 
     return (
       <Pressable
         onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
-        onPress={handleVaultPress}
+        onPress={() => handleVaultPress(item)}
         style={[
           styles.vaultTile,
           {
             backgroundColor: dash.surface,
-            width: VAULT_TILE_WIDTH,
+            width,
             borderColor: isSelected ? dash.accent : 'transparent',
             borderWidth: 2,
           },
@@ -461,7 +460,72 @@ export default function DashboardScreen() {
         </View>
       </Pressable>
     );
-  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette]);
+  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette, handleVaultPress]);
+
+  const VAULT_GAP = 12;
+  const getVaultColumns = (mode: string) => {
+    if (mode === 'list') return 1;
+    if (mode === 'small-icons') return 5;
+    if (mode === 'medium-icons') return 3;
+    return 2;
+  };
+  const getVaultItemWidth = (mode: string) => {
+    const cols = getVaultColumns(mode);
+    const gap = VAULT_GAP;
+    return (SCREEN_WIDTH - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
+  };
+
+  const renderVaultGrid = (folders: any[], accentOffset = 0) => {
+    const itemWidth = getVaultItemWidth(viewMode);
+    const isGrid = viewMode !== 'list';
+    const gap = viewMode === 'list' ? 0 : VAULT_GAP;
+
+    return (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap }}>
+        {folders.map((item, i) => {
+          const accentColor = vaultAccentPalette[(i + accentOffset) % vaultAccentPalette.length];
+          if (isGrid) {
+            return (
+              <Pressable
+                key={item.id}
+                onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
+                onPress={() => handleVaultPress(item)}
+                style={[
+                  styles.vaultGridTile,
+                  {
+                    width: itemWidth,
+                    backgroundColor: dash.surface,
+                    borderColor: selectedFolderIds.includes(item.id) ? dash.accent : 'transparent',
+                    borderWidth: 2,
+                  },
+                ]}
+              >
+                <View style={[styles.vaultGridIcon, { backgroundColor: `${accentColor}26` }]}>
+                  <Folder size={28} color={accentColor} strokeWidth={2} />
+                  {(item.hasAccessKey || item.accessKeyId) && (
+                    <View style={[styles.lockBadge, { backgroundColor: dash.accent }]}>
+                      <Lock size={10} color="#FFFFFF" strokeWidth={3} />
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.vaultGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                <View style={styles.vaultGridIconsRow}>
+                  {(item.hasAccessKey || item.accessKeyId) && <Lock size={12} color={dash.accent} />}
+                  {item.isFavorite && <ShieldCheck size={12} color="#FBBF24" />}
+                </View>
+              </Pressable>
+            );
+          }
+
+          return (
+            <View key={item.id} style={{ width: '100%', marginBottom: 12 }}>
+              <VaultTile item={item} index={i + accentOffset} />
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: dash.bg }]}>
@@ -471,14 +535,7 @@ export default function DashboardScreen() {
           <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>{displayName}</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
         </View>
-        <Pressable
-          onPress={toggleTheme}
-          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
-          accessibilityRole="button"
-          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-        </Pressable>
+        <ViewModeMenu />
       </View>
 
       <ScrollView
@@ -505,17 +562,17 @@ export default function DashboardScreen() {
         <View
           style={[
             styles.storageCard,
-            { backgroundColor: isDark ? dash.surface : dash.accent },
+            { backgroundColor: dash.accent },
           ]}
         >
           <View style={styles.storageTopRow}>
             <View style={styles.storageLabelRow}>
-              <Cloud size={18} color={isDark ? dash.textMuted : dash.text} />
-              <Text style={[styles.storageLabel, { color: isDark ? dash.textMuted : dash.text }]}>
+              <Cloud size={18} color={dash.text} />
+              <Text style={[styles.storageLabel, { color: dash.text }]}>
                 Cloud Storage
               </Text>
             </View>
-            <View style={[styles.usedPill, { backgroundColor: isDark ? dash.surfaceHover : dash.surface }]}>
+            <View style={[styles.usedPill, { backgroundColor: dash.surface }]}>
               <Text style={[styles.usedPillText, { color: dash.text }]}>{percentUsed}% Used</Text>
             </View>
           </View>
@@ -525,17 +582,17 @@ export default function DashboardScreen() {
             <Text style={[styles.storageUnit, { color: dash.text }]}> {displayStorageUnit}</Text>
           </View>
 
-          <View style={[styles.progressTrack, { backgroundColor: isDark ? dash.surfaceHover : 'rgba(255,255,255,0.4)' }]}>
+          <View style={[styles.progressTrack, { backgroundColor: dash.surfaceHover }]}>
             <View
               style={[
                 styles.progressFill,
-                { backgroundColor: isDark ? dash.fabBg : dash.text, width: `${Math.max(2, percentUsed)}%` },
+                { backgroundColor: dash.fabBg, width: `${Math.max(2, percentUsed)}%` },
               ]}
             />
           </View>
           <View style={styles.progressLabelsRow}>
-            <Text style={[styles.progressLabel, { color: isDark ? dash.textMuted : dash.text }]}>0 GB</Text>
-            <Text style={[styles.progressLabel, { color: isDark ? dash.textMuted : dash.text }]}>
+            <Text style={[styles.progressLabel, { color: dash.text }]}>0 GB</Text>
+            <Text style={[styles.progressLabel, { color: dash.text }]}>
               {DISPLAY_CAPACITY_GB} GB
             </Text>
           </View>
@@ -583,7 +640,7 @@ export default function DashboardScreen() {
                      )}
                      <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
                       <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
-                    </TouchableOpacity>
+                     </TouchableOpacity>
                   </>
                 )}
                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
@@ -611,21 +668,13 @@ export default function DashboardScreen() {
               {rootFolders.length > 0 && (
                 <View style={styles.vaultSection}>
                   <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>ROOT VAULTS</Text>
-                  <View style={styles.vaultGrid}>
-                    {rootFolders.map((item, index) => (
-                      <VaultTile key={item.id} item={item} index={index} />
-                    ))}
-                  </View>
+                  {renderVaultGrid(rootFolders, 0)}
                 </View>
               )}
               {subFolders.length > 0 && (
                 <View style={styles.vaultSection}>
                   <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>SUBFOLDERS</Text>
-                  <View style={styles.vaultGrid}>
-                    {subFolders.map((item, index) => (
-                      <VaultTile key={item.id} item={item} index={index} />
-                    ))}
-                  </View>
+                  {renderVaultGrid(subFolders, rootFolders.length)}
                 </View>
               )}
             </View>
@@ -752,7 +801,7 @@ export default function DashboardScreen() {
 
       {/* Access Key Registration Modal */}
       <Modal visible={showCreatePasswordModal} transparent animationType="fade" onRequestClose={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: overlay }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
           <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pms.content}>
               <Text style={[pms.title, { color: dash.text }]}>Access Key Registration</Text>
@@ -993,6 +1042,10 @@ const styles = StyleSheet.create({
 
   vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
   vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
+  vaultGridTile: { borderRadius: 20, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
+  vaultGridIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  vaultGridName: { fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 4 },
+  vaultGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   vaultIconChip: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   lockBadge: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },

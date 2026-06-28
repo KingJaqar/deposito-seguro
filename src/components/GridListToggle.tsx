@@ -10,7 +10,7 @@ interface ToggleProps {
 
 export const GridListToggle = ({ value, onChange }: ToggleProps) => {
   const colors = useThemeColors();
-  const isGrid = value === 'grid';
+  const isList = value === 'list';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
@@ -19,26 +19,26 @@ export const GridListToggle = ({ value, onChange }: ToggleProps) => {
           styles.pill,
           {
             backgroundColor: colors.primary,
-            left: isGrid ? 4 : 64,
+            left: isList ? 4 : 64,
           },
         ]}
       />
       <TouchableOpacity
         style={styles.btn}
-        onPress={() => onChange('grid')}
+        onPress={() => onChange('list')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.btnText, { color: isGrid ? '#FFF' : colors.text }]}>
-          Grid
+        <Text style={[styles.btnText, { color: isList ? '#FFF' : colors.text }]}>
+          List
         </Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.btn}
-        onPress={() => onChange('list')}
+        onPress={() => onChange('large-icons')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.btnText, { color: !isGrid ? '#FFF' : colors.text }]}>
-          List
+        <Text style={[styles.btnText, { color: !isList ? '#FFF' : colors.text }]}>
+          Grid
         </Text>
       </TouchableOpacity>
     </View>

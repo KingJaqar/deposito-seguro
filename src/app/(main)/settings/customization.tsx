@@ -127,17 +127,31 @@ export default function CustomizationSettingsScreen() {
 
         <SectionTitle title="Directory Layout" />
         <OptionRow
-          label="⊞ Grid View"
-          sublabel="Files displayed in a grid"
-          active={viewMode === 'grid'}
-          onPress={() => updateSetting('viewMode', 'grid')}
-          colors={colors}
-        />
-        <OptionRow
           label="☰ List View"
           sublabel="Files displayed as rows"
           active={viewMode === 'list'}
           onPress={() => updateSetting('viewMode', 'list')}
+          colors={colors}
+        />
+        <OptionRow
+          label="⊞ Large Icons"
+          sublabel="Up to 2 columns"
+          active={viewMode === 'large-icons'}
+          onPress={() => updateSetting('viewMode', 'large-icons')}
+          colors={colors}
+        />
+        <OptionRow
+          label="⊟ Medium Icons"
+          sublabel="Up to 3 columns"
+          active={viewMode === 'medium-icons'}
+          onPress={() => updateSetting('viewMode', 'medium-icons')}
+          colors={colors}
+        />
+        <OptionRow
+          label="▦ Small Icons"
+          sublabel="Up to 5 columns"
+          active={viewMode === 'small-icons'}
+          onPress={() => updateSetting('viewMode', 'small-icons')}
           colors={colors}
         />
 

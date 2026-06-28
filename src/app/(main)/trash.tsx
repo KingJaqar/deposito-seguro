@@ -4,12 +4,10 @@ import {
   FileText,
   Image as ImageIcon,
   ListFilter,
-  Moon,
   Music,
   RotateCcw,
   Search,
   Smartphone,
-  Sun,
   Trash2,
   Video,
 } from 'lucide-react-native';
@@ -18,6 +16,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image as RNImage,
   Modal,
   Pressable,
   ScrollView,
@@ -29,7 +28,9 @@ import {
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { CategoryTint } from '../../constants/Colors';
+import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -129,7 +130,8 @@ function getFileVisual(item: TrashedFile) {
 }
 
 export default function TrashScreen() {
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors } = useTheme();
+  const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
 
   const dash = {
@@ -149,12 +151,12 @@ export default function TrashScreen() {
   // trash list reads as its own distinct surface, matching the target design
   // without altering any other screen that consumes `dash.surface`.
   const card = {
-    bg: isDark ? '#18181B' : '#FFFFFF',
-    divider: isDark ? 'rgba(245, 239, 224, 0.08)' : 'rgba(15, 23, 42, 0.08)',
-    restoreBg: isDark ? '#202030' : '#E9E8FB',
-    restoreText: isDark ? '#7C82E8' : '#5152D6',
-    deleteBg: isDark ? '#2C1E20' : '#FBE6E5',
-    deleteText: isDark ? '#E4786F' : '#D6433A',
+    bg: '#18181B',
+    divider: 'rgba(245, 239, 224, 0.08)',
+    restoreBg: '#202030',
+    restoreText: '#7C82E8',
+    deleteBg: '#2C1E20',
+    deleteText: '#E4786F',
   };
 
   const [search, setSearch] = useState('');
@@ -248,6 +250,22 @@ export default function TrashScreen() {
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
+
+  const SCREEN_WIDTH = Dimensions.get('window').width;
+  const getGridColumns = (mode: string) => {
+    if (mode === 'list') return 1;
+    if (mode === 'small-icons') return 5;
+    if (mode === 'medium-icons') return 3;
+    return 2;
+  };
+  const getGridItemWidth = (mode: string) => {
+    const cols = getGridColumns(mode);
+    const gap = 12;
+    return (SCREEN_WIDTH - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
+  };
+  const isGridMode = viewMode !== 'list';
+  const gridColumns = getGridColumns(viewMode);
+  const gridItemWidth = getGridItemWidth(viewMode);
 
   const TrashRow = ({ item }: { item: TrashedFile }) => {
     const visual = getFileVisual(item);
@@ -345,14 +363,7 @@ export default function TrashScreen() {
           <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Trash</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Deleted files</Text>
         </View>
-        <Pressable
-          onPress={toggleTheme}
-          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
-          accessibilityRole="button"
-          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-        </Pressable>
+        <ViewModeMenu />
       </View>
 
       <View style={{ flex: 1 }}>
@@ -519,27 +530,75 @@ export default function TrashScreen() {
           )}
 
           {filtered.length > 0 && (
-            <FlatList
-              data={listData}
-              keyExtractor={(item) =>
-                item.type === 'section' ? `section-${item.label}` : item.file.id
-              }
-              scrollEnabled={false}
-              contentContainerStyle={{ paddingBottom: 140 }}
-              renderItem={({ item }) => {
-                if (item.type === 'section') {
+            isGridMode ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                {filtered.map((item) => {
+                  const isSelected = selectedIds.includes(item.id);
+                  const visual = getFileVisual(item);
+                  const VisualIcon = visual.Icon;
+                  const hasThumbnail = item.mimeType?.startsWith('image/') || item.mimeType?.startsWith('video/');
                   return (
-                    <View style={styles.sectionHeaderWrapper}>
-                      <Text style={[styles.sectionHeader, { color: dash.textMuted }]}>
-                        {item.label}
-                      </Text>
-                    </View>
+                    <Pressable
+                      key={item.id}
+                      onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+                      onPress={() => {
+                        if (selectionMode) toggleSelection(item.id);
+                      }}
+                      style={[
+                        styles.iconGridItem,
+                        {
+                          width: gridItemWidth,
+                          backgroundColor: card.bg,
+                          borderColor: isSelected ? dash.accent : 'transparent',
+                          borderWidth: 2,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.iconGridThumb, { backgroundColor: `${visual.color}18` }]}>
+                        {hasThumbnail && item.localPath ? (
+                          <RNImage
+                            source={{ uri: item.localPath }}
+                            style={styles.iconGridThumbImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <VisualIcon size={28} color={visual.color} strokeWidth={2} />
+                        )}
+                        {item.mimeType?.startsWith('video/') && (
+                          <View style={styles.videoBadge}>
+                            <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '700' }}>▶</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.iconGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                      <Text style={[styles.iconGridMeta, { color: dash.textMuted }]} numberOfLines={1}>{visual.label}</Text>
+                    </Pressable>
                   );
+                })}
+              </View>
+            ) : (
+              <FlatList
+                data={listData}
+                keyExtractor={(item) =>
+                  item.type === 'section' ? `section-${item.label}` : item.file.id
                 }
+                scrollEnabled={false}
+                contentContainerStyle={{ paddingBottom: 140 }}
+                renderItem={({ item }) => {
+                  if (item.type === 'section') {
+                    return (
+                      <View style={styles.sectionHeaderWrapper}>
+                        <Text style={[styles.sectionHeader, { color: dash.textMuted }]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                    );
+                  }
 
-                return <TrashRow item={item.file} />;
-              }}
-            />
+                  return <TrashRow item={item.file} />;
+                }}
+              />
+            )
           )}
         </ScrollView>
       </View>
@@ -652,6 +711,16 @@ const styles = StyleSheet.create({
   textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
   textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
   cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  iconGridItem: { borderRadius: 18, padding: 10, alignItems: 'center', marginBottom: 12 },
+  iconGridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8, overflow: 'hidden' },
+  iconGridThumbImage: { width: '100%', height: '100%', borderRadius: 14 },
+  thumbBadge: { position: 'absolute', bottom: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  videoBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
+  iconGridName: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 3 },
+  iconGridMeta: { fontSize: 11, fontWeight: '500', textAlign: 'center', opacity: 0.6 },
+  iconGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   sectionHeaderWrapper: { marginTop: 18, marginBottom: 10 },
   sectionHeader: {

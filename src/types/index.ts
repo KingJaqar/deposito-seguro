@@ -2,7 +2,7 @@
 export type ThemeMode = 'light' | 'dark' | 'amoled';
 export type DisguiseMode = 'default' | 'calculator' | 'notes' | 'utility';
 export type DisguiseIconTheme = 'default' | 'white' | 'orange' | 'red';
-export type GridListView = 'grid' | 'list';
+export type GridListView = 'list' | 'small-icons' | 'medium-icons' | 'large-icons';
 
 export interface AccessKeyMetadata {
   id: string;
