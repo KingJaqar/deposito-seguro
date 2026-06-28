@@ -181,7 +181,7 @@ export const getStrengthBarWidth = (strength: PasswordStrength): string => {
 };
 
 export const PIN_MIN_LENGTH = 6;
-const PIN_MAX_LENGTH = 10;
+const PIN_MAX_LENGTH = 20;
 const PIN_REGEX = /^[0-9]+$/;
 
 export interface PinValidationResult {

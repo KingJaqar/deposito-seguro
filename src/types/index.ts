@@ -64,13 +64,27 @@ export interface FileMetadata {
   deletedAt?: number;
 }
 
+export interface ClipboardItem {
+  mode: 'copy' | 'cut';
+  sourceFolderId: string | null;
+  folderIds: string[];
+  fileIds: string[];
+}
+
+export interface PasteResult {
+  pastedFiles: number;
+  pastedFolders: number;
+}
+
+export interface UndoInfo {
+  folders: { id: string; parentId: string | undefined }[];
+  files: { id: string; folderId: string }[];
+}
+
 export interface VaultState {
   folders: FolderMetadata[];
   files: FileMetadata[];
-  clipboard: {
-    mode: 'copy' | 'cut';
-    sourceFolderId: string | null;
-    folderIds: string[];
-    fileIds: string[];
-  } | null;
+  clipboard: ClipboardItem | null;
+  undoInfo: UndoInfo | null;
+  pasteInProgress: boolean;
 }

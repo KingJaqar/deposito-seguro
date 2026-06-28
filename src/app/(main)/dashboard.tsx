@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import {
   Box,
   Clipboard,
+  ClipboardCheck,
   Cloud,
   Copy,
   Eye,
@@ -19,6 +20,7 @@ import {
   ShieldCheck,
   Smartphone,
   Sun,
+  Undo2,
   Video,
   X,
 } from 'lucide-react-native';
@@ -37,6 +39,7 @@ import {
   View,
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
+import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
@@ -61,12 +64,13 @@ export default function DashboardScreen() {
     disguiseAppName,
   } = useSettingsStore();
   const {
-    folders, files, clipboard,
+    folders, files, clipboard, undoInfo,
     createFolder, hydrateVault, renameFolder, moveFolder,
     deleteFolder, shredFolder,
     shredMultipleFolders, exportFolderFiles, toggleFolderFavorite,
     assignFolderAccessKey, removeFolderAccessKey,
-    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
+    duplicateFolder,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
 
@@ -286,11 +290,15 @@ export default function DashboardScreen() {
       case 'favorite':
         toggleFolderFavorite && toggleFolderFavorite(folder.id);
         break;
+      case 'duplicate':
+        duplicateFolder(folder.id);
+        break;
       case 'paste':
         if (clipboard) {
-          pasteFromClipboard(folder.id).then(() => {
-            clearClipboard();
-            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          pasteFromClipboard(folder.id).then((result) => {
+            if (result.pastedFiles > 0 || result.pastedFolders > 0) {
+              Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
+            }
           }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
         }
         break;
@@ -341,9 +349,9 @@ export default function DashboardScreen() {
   const handlePasteToRoot = async () => {
     if (!clipboard) return;
     try {
-      await pasteFromClipboard('');
-      clearClipboard();
-      Alert.alert('Paste Complete', 'Items pasted successfully.');
+      const result = await pasteFromClipboard('');
+      if (result.pastedFiles === 0 && result.pastedFolders === 0) return;
+      Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
     } catch {
       Alert.alert('Paste Failed', 'Could not paste items.');
     }
@@ -485,6 +493,15 @@ export default function DashboardScreen() {
           </View>
         </Pressable>
 
+        <ClipboardBar
+          onPaste={handlePasteToRoot}
+          onUndo={undoLastCut}
+          backgroundColor={dash.surface}
+          textColor={dash.text}
+          accentColor={dash.accent}
+          mutedColor={dash.textMuted}
+        />
+
         <View
           style={[
             styles.storageCard,
@@ -554,11 +571,17 @@ export default function DashboardScreen() {
                       <Copy size={14} color={dash.text} strokeWidth={2.5} />
                       <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
-                      <Scissors size={14} color={dash.text} strokeWidth={2.5} />
-                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
+                     <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                       <Scissors size={14} color={dash.text} strokeWidth={2.5} />
+                       <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                     </TouchableOpacity>
+                     {clipboard && (
+                       <TouchableOpacity onPress={handlePasteToRoot} style={styles.textBtn}>
+                         <ClipboardCheck size={14} color={dash.accent} strokeWidth={2.5} />
+                         <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>Paste</Text>
+                       </TouchableOpacity>
+                     )}
+                     <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
                       <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
                     </TouchableOpacity>
                   </>
@@ -658,10 +681,11 @@ export default function DashboardScreen() {
               {(() => {
                 const hasPassword = targetFolder.hasAccessKey || targetFolder.accessKeyId;
                 const hasClipboard = !!clipboard;
-                const baseItems = [
+                 const baseItems = [
                   { action: 'rename', label: 'Rename', color: dash.text },
                   { action: 'move', label: 'Move', color: dash.text },
                   { action: 'export', label: 'Export', color: dash.text },
+                  { action: 'duplicate', label: 'Duplicate', color: dash.text },
                   { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },

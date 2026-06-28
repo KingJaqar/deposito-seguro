@@ -135,7 +135,7 @@ export default function DocumentViewerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1 , paddingTop: 50},
   viewport: { flex: 1, padding: 24, justifyContent: 'center', alignItems: 'center' },
   textContainer: { flex: 1, padding: 16 },
   textContent: { fontSize: 16, lineHeight: 24 },

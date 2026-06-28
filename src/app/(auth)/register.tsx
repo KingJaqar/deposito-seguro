@@ -60,7 +60,7 @@ export default function RegisterScreen() {
             value={pin}
             onChangeText={setPin}
             keyboardType="number-pad"
-            maxLength={10}
+            maxLength={20}
           />
 
           <Text style={[styles.label, { color: colors.text }]}>Confirm PIN</Text>
@@ -72,7 +72,7 @@ export default function RegisterScreen() {
             value={confirmPin}
             onChangeText={setConfirmPin}
             keyboardType="number-pad"
-            maxLength={10}
+            maxLength={20}
           />
 
           <Text style={[styles.label, { color: colors.text }]}>Password Security Hint</Text>

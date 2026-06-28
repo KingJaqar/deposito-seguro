@@ -1,11 +1,11 @@
 import { router } from 'expo-router';
-import { useState, useMemo, useCallback } from 'react';
+import { Delete, Lock } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import * as SplashScreen from 'expo-splash-screen';
+import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { useThemeColors } from '../../contexts/ThemeContext';
-import { validatePin, PIN_MIN_LENGTH } from '../../utils/accessKeyValidation';
+import { PIN_MIN_LENGTH, validatePin } from '../../utils/accessKeyValidation';
 
 const CALC_BG = '#000000';
 const CALC_NUM_BG = '#2D2D2D';
@@ -25,15 +25,23 @@ const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
 export default function LoginScreen() {
   const colors = useThemeColors();
   const { height } = useWindowDimensions();
-  const { authenticate, securityHint } = useAuthStore();
+  const { authenticate, securityHint, pinLength } = useAuthStore();
   const { disguiseMode, disguiseIconTheme } = useSettingsStore();
   const [inputBuffer, setInputBuffer] = useState('');
+  const [pin, setPin] = useState('');
   const [calcHistory, setCalcHistory] = useState('');
   const [calcExpression, setCalcExpression] = useState('');
   const [calcMainDisplay, setCalcMainDisplay] = useState('0');
   const [isSecondMode, setIsSecondMode] = useState(false);
   const [showTransitionSplash, setShowTransitionSplash] = useState(false);
+  const pinInputRef = useRef<TextInput>(null);
   const isCalc = disguiseMode === 'calculator';
+
+  useEffect(() => {
+    if (!isCalc) {
+      setTimeout(() => pinInputRef.current?.focus(), 100);
+    }
+  }, [isCalc]);
   const calcTheme = CALC_THEME_COLORS[disguiseIconTheme] || CALC_THEME_COLORS.default;
 
   const { buttonHeight, sciButtonHeight } = useMemo(() => {
@@ -51,21 +59,23 @@ export default function LoginScreen() {
   }, [height]);
 
   const handleStandardAuth = async (rawInput?: string, silent = false) => {
-    const pin = (rawInput ?? inputBuffer).replace(/[^0-9]/g, '');
-    const pinValidation = validatePin(pin);
+    const pinValue = (rawInput ?? (isCalc ? inputBuffer : pin)).replace(/[^0-9]/g, '');
+    const pinValidation = validatePin(pinValue);
     if (!pinValidation.valid) {
       if (!silent) Alert.alert('Invalid PIN', pinValidation.message);
-      setInputBuffer('');
       if (isCalc) {
+        setInputBuffer('');
         setCalcExpression('');
         setCalcMainDisplay('0');
         setCalcHistory('');
         setIsSecondMode(false);
+      } else {
+        setPin('');
       }
       return;
     }
 
-    const success = await authenticate(pin);
+    const success = await authenticate(pinValue);
     if (success) {
       if (isCalc) {
         setShowTransitionSplash(true);
@@ -78,14 +88,35 @@ export default function LoginScreen() {
       }
     } else {
       if (!silent) Alert.alert('Access Denied', 'Invalid signature key payload.');
-      setInputBuffer('');
       if (isCalc) {
+        setInputBuffer('');
         setCalcExpression('');
         setCalcMainDisplay('0');
         setCalcHistory('');
         setIsSecondMode(false);
+      } else {
+        setPin('');
       }
     }
+  };
+
+  const handlePinPress = (digit: string) => {
+    setPin(prev => {
+      if (prev.length >= 20) return prev;
+      return prev + digit;
+    });
+  };
+
+  const handleUnlockPress = () => {
+    handleStandardAuth(pin, false);
+  };
+
+  const handleBackspace = () => {
+    setPin(prev => prev.slice(0, -1));
+  };
+
+  const handleClearAll = () => {
+    setPin('');
   };
 
   const evaluateExpression = (expr: string): string | null => {
@@ -424,30 +455,96 @@ export default function LoginScreen() {
     );
   }
 
+  const T9: Record<string, string> = {
+    '2': 'ABC',
+    '3': 'DEF',
+    '4': 'GHI',
+    '5': 'JKL',
+    '6': 'MNO',
+    '7': 'PQRS',
+    '8': 'TUV',
+    '9': 'WXYZ',
+  };
+
   return (
-    <View style={[styles.stdContainer, { backgroundColor: colors.background }]}>
-      <Text style={[styles.stdTitle, { color: colors.text }]}>Vault Authentication Required</Text>
+    <View style={[styles.stdContainer, { backgroundColor: '#000000' }]}>
+      <View style={styles.logoWrap}>
+        <Image source={require('../../../assets/logo/DepoS_logo.png')} style={styles.logo} resizeMode="contain" />
+      </View>
+      <Text style={styles.appName}>Deposito Seguro</Text>
+
+      <Text style={[styles.stdTitle, { color: '#FFFFFF' }]}>Enter PIN</Text>
+      <Text style={[styles.subtitle, { color: '#8E8E93' }]}>
+        Enter your PIN to unlock the vault
+      </Text>
+
       <TextInput
-        style={[styles.stdInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-        placeholder={`Enter ${PIN_MIN_LENGTH}+ digit PIN`}
-        placeholderTextColor={colors.textMuted}
-        secureTextEntry
-        value={inputBuffer}
-        onChangeText={setInputBuffer}
+        ref={pinInputRef}
+        style={styles.pinInput}
+        placeholder="Enter PIN"
+        placeholderTextColor="rgba(255,255,255,0.3)"
+        value={pin}
+        onChangeText={setPin}
         keyboardType="number-pad"
-        maxLength={10}
+        maxLength={20}
+        secureTextEntry
+        editable={false}
+        showSoftInputOnFocus={false}
+        autoFocus={false}
+        returnKeyType="done"
       />
-      <TouchableOpacity
-        style={[styles.stdSubmit, { backgroundColor: colors.primary }]}
-        onPress={() => handleStandardAuth()}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.stdSubmitText}>Unlock Pipeline</Text>
-      </TouchableOpacity>
 
       {securityHint ? (
-        <Text style={[styles.hintText, { color: colors.textMuted }]}>Hint: {securityHint}</Text>
+        <Text style={[styles.hintText, { color: '#8E8E93' }]}>Hint: {securityHint}</Text>
       ) : null}
+
+      <View style={{ flex: 1 }} />
+
+      <View style={styles.keypadGrid}>
+        {[
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+          ['clearAll', '0', 'backspace'],
+        ].map((row, ri) => (
+          <View key={`row-${ri}`} style={styles.keypadRow}>
+            {row.map((key, ci) => {
+              const btnKey = `btn-${ri}-${ci}`;
+              if (key === 'clearAll') {
+                return (
+                  <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={handleClearAll} activeOpacity={0.7}>
+                    <Text style={styles.keyNum}>C</Text>
+                  </TouchableOpacity>
+                );
+              }
+              if (key === 'backspace') {
+                return (
+                  <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={handleBackspace} activeOpacity={0.7}>
+                    <Delete size={26} color="#FFFFFF" strokeWidth={2.5} />
+                  </TouchableOpacity>
+                );
+              }
+              return (
+                <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
+                  <Text style={styles.keyNum}>{key}</Text>
+                  {T9[key] ? <Text style={styles.keySub}>{T9[key]}</Text> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+
+      <View style={{ height: 16 }} />
+
+      <TouchableOpacity
+        style={[styles.unlockBtn, { backgroundColor: '#F5F0E8' }]}
+        onPress={handleUnlockPress}
+        activeOpacity={0.8}
+      >
+        <Lock size={18} color="#000000" strokeWidth={2.5} />
+        <Text style={styles.unlockBtnText}>Unlock Vault</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -530,12 +627,27 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   calcButton: { justifyContent: 'center', alignItems: 'center', flex: 1 },
   calcButtonText: { fontWeight: '400', includeFontPadding: false },
-  stdContainer: { flex: 1, justifyContent: 'center', padding: 24 },
-  stdTitle: { fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 24 },
-  stdInput: { height: 52, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, fontSize: 16, marginBottom: 16 },
-  stdSubmit: { height: 52, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  stdSubmitText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  hintText: { textAlign: 'center', marginTop: 20, fontStyle: 'italic' },
+  stdContainer: { flex: 1, backgroundColor: '#000000', alignItems: 'center', paddingHorizontal: 24 },
+  logoWrap: { width: 72, height: 72, borderRadius: 20, backgroundColor: '#1C1C1E', alignItems: 'center', justifyContent: 'center', marginTop: 60, marginBottom: 12 },
+  
+  logo: { marginTop: 40, width: 160, height: 140 },
+  
+  appName: {  marginTop: 40, color: '#FFFFFF', fontSize: 36, fontWeight: '800', letterSpacing: -0.2, marginBottom: 24 },
+  
+  stdTitle: { marginTop: 40, fontSize: 28, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' },
+  subtitle: { fontSize: 15, color: '#8E8E93', textAlign: 'center', marginBottom: 20, lineHeight: 20 },
+  hintText: { fontSize: 13, color: '#8E8E93', textAlign: 'center', fontStyle: 'italic', marginBottom: 28 },
+ 
+  pinInput: { width: 400,  height: 52, backgroundColor: '#1C1C1E', borderRadius: 22, paddingHorizontal: 20, color: '#FFFFFF', fontSize: 18, fontWeight: '500', textAlign: 'center', letterSpacing: 4, marginBottom: 16 },
+  keypadGrid: { gap: 12, width: '100%', maxWidth: 320, marginBottom: 8 },
+  keypadRow: { flexDirection: 'row', gap: 12, justifyContent: 'center' },
+ 
+  keypadBtn: { width: 120, height: 108, borderRadius: 22, backgroundColor: '#2D2D2D', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' },
+  keyNum: { color: '#FFFFFF', fontSize: 28, fontWeight: '400', includeFontPadding: false, lineHeight: 32 },
+  keySub: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '500', letterSpacing: 0.5, marginTop: -2, lineHeight: 12 },
+  
+  unlockBtn: {  marginBottom: 70 , height: 80, width: 400,  paddingVertical: 16, borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  unlockBtnText: { color: '#000000', fontWeight: '800', fontSize: 26, letterSpacing: -0.2 },
   transitionSplash: {
     flex: 1,
     backgroundColor: '#2D2D2D',

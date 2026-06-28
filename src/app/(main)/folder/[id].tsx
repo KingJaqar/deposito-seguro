@@ -2,10 +2,11 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Moon, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Sun, Trash2, X } from 'lucide-react-native';
+import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Moon, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Sun, Trash2, Undo2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
+import { ClipboardBar } from '../../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../../components/DestructiveConfirmModal';
 import { AccessKeyPicker } from '../../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
@@ -28,7 +29,9 @@ export default function FolderDetailsScreen() {
     exportFileToDevice, exportFolderFiles, moveFolder, shredFile,
     toggleFolderFavorite, toggleFavorite,
     assignFolderAccessKey, assignFileAccessKey, removeFolderAccessKey, removeFileAccessKey,
-    clipboard, copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
+    clipboard, undoInfo,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
+    duplicateFile, duplicateFolder,
   } = useVaultStore();
   
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
@@ -171,7 +174,6 @@ export default function FolderDetailsScreen() {
     }
     copyToClipboard(selectedFolderIds, selectedFileIds, id as string);
     exitSelectionMode();
-    Alert.alert('Copied', `${totalSelected} item(s) copied to clipboard.`);
   };
 
   const handleBulkCut = () => {
@@ -182,7 +184,6 @@ export default function FolderDetailsScreen() {
     }
     cutToClipboard(selectedFolderIds, selectedFileIds, id as string);
     exitSelectionMode();
-    Alert.alert('Cut', `${totalSelected} item(s) cut to clipboard.`);
   };
 
   const handleFileItemPress = (file: any) => {
@@ -340,16 +341,17 @@ export default function FolderDetailsScreen() {
          });
          setShowUnlockModal(true);
          break;
-        case 'copy':
-          copyToClipboard([], [targetFile.id], id!);
-          Alert.alert('Copied', 'File copied to clipboard.');
-          break;
-        case 'cut':
-          cutToClipboard([], [targetFile.id], id!);
-          Alert.alert('Cut', 'File cut to clipboard.');
-          break;
-    }
-  };
+          case 'copy':
+            copyToClipboard([], [targetFile.id], id!);
+            break;
+          case 'cut':
+            cutToClipboard([], [targetFile.id], id!);
+            break;
+          case 'duplicate':
+            duplicateFile(targetFile.id);
+            break;
+     }
+   };
 
   const confirmRename = () => {
     if (targetFile) {
@@ -371,9 +373,9 @@ export default function FolderDetailsScreen() {
   const handlePaste = async () => {
     if (!clipboard || !id) return;
     try {
-      await pasteFromClipboard(id as string);
-      clearClipboard();
-      Alert.alert('Paste Complete', 'Items pasted successfully.');
+      const result = await pasteFromClipboard(id as string);
+      if (result.pastedFiles === 0 && result.pastedFolders === 0) return;
+      Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
     } catch {
       Alert.alert('Paste Failed', 'Could not paste items.');
     }
@@ -402,11 +404,12 @@ export default function FolderDetailsScreen() {
         break;
        case 'copy':
          copyToClipboard([subfolder.id], [], id as string);
-         Alert.alert('Copied', 'Folder copied to clipboard.');
          break;
        case 'cut':
          cutToClipboard([subfolder.id], [], id as string);
-         Alert.alert('Cut', 'Folder cut to clipboard.');
+         break;
+       case 'duplicate':
+         duplicateFolder(subfolder.id);
          break;
       case 'create-password':
         handleCreateAndAssignPassword(subfolder.id, subfolder.name, 'folder');
@@ -466,11 +469,12 @@ export default function FolderDetailsScreen() {
         break;
       case 'copy':
         copyToClipboard([folderRecord.id], [], id as string);
-        Alert.alert('Copied', 'Folder copied to clipboard.');
         break;
       case 'cut':
         cutToClipboard([folderRecord.id], [], id as string);
-        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
+      case 'duplicate':
+        duplicateFolder(folderRecord.id);
         break;
       case 'create-password':
         handleCreateAndAssignPassword(folderRecord.id, folderRecord.name, 'folder'); break;
@@ -568,6 +572,15 @@ export default function FolderDetailsScreen() {
           </View>
         </View>
 
+        <ClipboardBar
+          onPaste={handlePaste}
+          onUndo={undoLastCut}
+          backgroundColor={surface}
+          textColor={text}
+          accentColor={primary}
+          mutedColor={textMuted}
+        />
+
         {/* Action Capsule Row Layout */}
         <View style={st.actionRow}>
           {!selectionMode ? (
@@ -618,10 +631,11 @@ export default function FolderDetailsScreen() {
             <Text style={st.sectionHeader}>SUBFOLDERS</Text>
             {matchedFolders.map((folder) => {
               const isSelected = selectedFolderIds.includes(folder.id);
+              const isCutPending = clipboard?.mode === 'cut' && clipboard.folderIds.includes(folder.id);
               return (
                 <View 
                   key={folder.id} 
-                  style={[st.folderCard, isSelected && st.folderCardSelected]}
+                  style={[st.folderCard, isSelected && st.folderCardSelected, isCutPending && { opacity: 0.5 }]}
                 >
                   <TouchableOpacity 
                     style={st.folderCardLeft}
@@ -692,10 +706,11 @@ export default function FolderDetailsScreen() {
         ) : (
           matchedFiles.map((file) => {
             const isSelected = selectedFileIds.includes(file.id);
+            const isCutPending = clipboard?.mode === 'cut' && clipboard.fileIds.includes(file.id);
             return (
               <View 
                 key={file.id} 
-                style={[st.fileCard, isSelected && st.fileCardSelected]}
+                style={[st.fileCard, isSelected && st.fileCardSelected, isCutPending && { opacity: 0.5 }]}
               >
 <TouchableOpacity 
                   style={st.fileCardLeft}
@@ -822,6 +837,7 @@ export default function FolderDetailsScreen() {
               ];
               baseItems.splice(3, 0, { action: 'copy', label: 'Copy', color: primary });
               baseItems.splice(4, 0, { action: 'cut', label: 'Cut', color: primary });
+              baseItems.splice(5, 0, { action: 'duplicate', label: 'Duplicate', color: text });
               if (hasPassword) {
                 baseItems.splice(5, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
               } else {
@@ -854,7 +870,7 @@ export default function FolderDetailsScreen() {
               {(() => {
                 const hasPassword = folderRecord.hasAccessKey && folderRecord.accessKeyId;
                 const hasClipboard = !!clipboard;
-                const baseItems = [
+                 const baseItems = [
                   { action: 'rename', label: 'Rename', color: text },
                   { action: 'move', label: 'Move', color: text },
                   { action: 'export', label: 'Export', color: text },
@@ -864,6 +880,15 @@ export default function FolderDetailsScreen() {
                 ];
                 if (hasClipboard) {
                   baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: primary });
+                }
+                baseItems.splice(3, 0, { action: 'duplicate', label: 'Duplicate', color: text });
+                if (hasPassword) {
+                  baseItems.splice(4, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
+                } else {
+                  baseItems.splice(4, 0,
+                    { action: 'register-key', label: 'Assign and Create Access Key', color: primary },
+                    { action: 'assign-key', label: 'Assign Existing Access Key', color: primary }
+                  );
                 }
                 if (hasPassword) {
                   baseItems.splice(3, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
@@ -903,6 +928,7 @@ export default function FolderDetailsScreen() {
                 ];
                 baseItems.splice(3, 0, { action: 'copy', label: 'Copy', color: primary });
                 baseItems.splice(4, 0, { action: 'cut', label: 'Cut', color: primary });
+                baseItems.splice(5, 0, { action: 'duplicate', label: 'Duplicate', color: text });
                 if (hasPassword) {
                   baseItems.splice(5, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {

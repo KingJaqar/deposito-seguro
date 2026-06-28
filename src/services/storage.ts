@@ -82,6 +82,9 @@ export class StorageService {
   }
 
   static async copySandboxFile(sourcePath: string, destPath: string): Promise<void> {
+    if (sourcePath === destPath) {
+      return;
+    }
     if (Platform.OS === 'web') {
       const content = webVaultStorage.get(sourcePath) || webVaultStorage.get(sourcePath.replace('/web-vault/', '')) || sourcePath;
       webVaultStorage.set(destPath, content);

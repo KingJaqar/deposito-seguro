@@ -104,7 +104,7 @@ export default function VideoViewerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, paddingTop: 50 },
   viewport: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   videoElement: { width: '100%', height: 300, borderRadius: 12 },
 });

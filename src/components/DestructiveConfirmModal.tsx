@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Trash2, X } from 'lucide-react-native';
 
 interface DestructiveConfirmState {
@@ -36,8 +36,6 @@ interface Props {
 }
 
 export function DestructiveConfirmModal({ state, onClose }: Props) {
-  const [typed, setTyped] = useState('');
-
   return (
     <Modal visible={state.visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -50,27 +48,13 @@ export function DestructiveConfirmModal({ state, onClose }: Props) {
           <Text style={styles.title}>{state.title}</Text>
           <Text style={styles.message}>{state.message}</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Type DELETE to confirm"
-            placeholderTextColor="rgba(255,255,255,0.4)"
-            value={typed}
-            onChangeText={setTyped}
-            autoFocus
-          />
-
           <View style={styles.row}>
             <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose}>
               <X size={18} color="#fff" strokeWidth={2.5} />
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[
-                styles.btn,
-                styles.confirm,
-                typed !== 'DELETE' && { backgroundColor: 'rgba(239,68,68,0.4)' },
-              ]}
-              disabled={typed !== 'DELETE'}
+              style={[styles.btn, styles.confirm]}
               onPress={() => {
                 onClose();
                 state.onConfirm();
@@ -132,22 +116,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 32,
     lineHeight: 20,
-  },
-  input: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#fff',
-    fontSize: 15,
-    marginBottom: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    textAlign: 'center',
-    letterSpacing: 1,
   },
   row: {
     flexDirection: 'row',

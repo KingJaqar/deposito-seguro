@@ -8,6 +8,7 @@ interface AuthState {
   isConfigured: boolean;
   isAuthenticated: boolean;
   securityHint: string;
+  pinLength: number;
   lastActiveTimestamp: number;
   checkSetup: () => Promise<void>;
   initializeVault: (password: string, hint: string) => Promise<boolean>;
@@ -25,12 +26,14 @@ const SECURE_KEYS = {
   MASTER_PASSWORD_HASH: sanitizeSecureStoreKey('MASTER_PASSWORD_HASH'),
   MASTER_PASSWORD_SALT: sanitizeSecureStoreKey('MASTER_PASSWORD_SALT'),
   SECURITY_HINT: sanitizeSecureStoreKey('SECURITY_HINT'),
+  PIN_LENGTH: sanitizeSecureStoreKey('PIN_LENGTH'),
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   isConfigured: false,
   isAuthenticated: false,
   securityHint: '',
+  pinLength: 6,
   lastActiveTimestamp: Date.now(),
   checkSetup: async () => {
     try {
@@ -40,7 +43,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const hint = isWeb
         ? await AsyncStorage.getItem('SECURITY_HINT')
         : await SecureStore.getItemAsync(SECURE_KEYS.SECURITY_HINT);
-      set({ isConfigured: !!pHash, securityHint: hint || '' });
+      const pinLenRaw = isWeb
+        ? await AsyncStorage.getItem('PIN_LENGTH')
+        : await SecureStore.getItemAsync(SECURE_KEYS.PIN_LENGTH);
+      const pinLen = pinLenRaw ? parseInt(pinLenRaw, 10) : 6;
+      set({ isConfigured: !!pHash, securityHint: hint || '', pinLength: Number.isFinite(pinLen) && pinLen > 0 ? pinLen : 6 });
     } catch (e) {
       console.error('checkSetup error', e);
     }
@@ -53,12 +60,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await AsyncStorage.setItem('MASTER_PASSWORD_HASH', hash);
         await AsyncStorage.setItem('MASTER_PASSWORD_SALT', salt);
         await AsyncStorage.setItem('SECURITY_HINT', hint);
+        await AsyncStorage.setItem('PIN_LENGTH', String(password.length));
       } else {
         await SecureStore.setItemAsync(SECURE_KEYS.MASTER_PASSWORD_HASH, hash);
         await SecureStore.setItemAsync(SECURE_KEYS.MASTER_PASSWORD_SALT, salt);
         await SecureStore.setItemAsync(SECURE_KEYS.SECURITY_HINT, hint);
+        await SecureStore.setItemAsync(SECURE_KEYS.PIN_LENGTH, String(password.length));
       }
-      set({ isConfigured: true, isAuthenticated: true, securityHint: hint, lastActiveTimestamp: Date.now() });
+      set({ isConfigured: true, isAuthenticated: true, securityHint: hint, pinLength: password.length, lastActiveTimestamp: Date.now() });
       return true;
     } catch {
       return false;

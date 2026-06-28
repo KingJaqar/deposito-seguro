@@ -1,9 +1,10 @@
 // File: src/app/(main)/search.tsx
 import { router } from 'expo-router';
-import { FileText, Folder, Image, Lock, Moon, Music, Play, Search, Smartphone, Star, Sun, X } from 'lucide-react-native';
+import { FileText, Folder, Image, Lock, Moon, Music, Play, Search, Smartphone, Star, Sun, Undo2, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
+import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useVaultStore } from '../../store/vaultStore';
@@ -28,7 +29,10 @@ const CATEGORY_FILTERS = [
 
 export default function SearchScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
-  const { files, folders, clipboard, toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault, copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard } = useVaultStore();
+  const { files, folders, clipboard, undoInfo,
+    toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault,
+    duplicateFile, duplicateFolder,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut } = useVaultStore();
 
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
@@ -122,7 +126,6 @@ export default function SearchScreen() {
     const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
     copyToClipboard(selFolderIds, selFileIds, null);
     exitSelectionMode();
-    Alert.alert('Copied', `${selectedIds.length} item(s) copied to clipboard.`);
   };
 
   const handleBulkCut = () => {
@@ -130,7 +133,6 @@ export default function SearchScreen() {
     const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
     cutToClipboard(selFolderIds, selFileIds, null);
     exitSelectionMode();
-    Alert.alert('Cut', `${selectedIds.length} item(s) cut to clipboard.`);
   };
 
   const handleFileNavigate = (file: any) => {
@@ -149,11 +151,12 @@ export default function SearchScreen() {
       case 'favorite': toggleFavorite(file.id); break;
       case 'copy':
         copyToClipboard([], [file.id], null);
-        Alert.alert('Copied', 'File copied to clipboard.');
         break;
       case 'cut':
         cutToClipboard([], [file.id], null);
-        Alert.alert('Cut', 'File cut to clipboard.');
+        break;
+      case 'duplicate':
+        duplicateFile(file.id);
         break;
        case 'delete':
          confirmDestructive(
@@ -179,17 +182,19 @@ export default function SearchScreen() {
       case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
       case 'copy':
         copyToClipboard([folder.id], [], null);
-        Alert.alert('Copied', 'Folder copied to clipboard.');
         break;
       case 'cut':
         cutToClipboard([folder.id], [], null);
-        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
+      case 'duplicate':
+        duplicateFolder(folder.id);
         break;
       case 'paste':
         if (clipboard) {
-          pasteFromClipboard(folder.id).then(() => {
-            clearClipboard();
-            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          pasteFromClipboard(folder.id).then((result) => {
+            if (result.pastedFiles > 0 || result.pastedFolders > 0) {
+              Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
+            }
           }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
         }
         break;
@@ -211,10 +216,22 @@ export default function SearchScreen() {
     }
   };
 
+  const handlePasteToFolder = async () => {
+    if (!clipboard) return;
+    try {
+      const result = await pasteFromClipboard('');
+      if (result.pastedFiles === 0 && result.pastedFolders === 0) return;
+      Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
+    } catch {
+      Alert.alert('Paste Failed', 'Could not paste items.');
+    }
+  };
+
   const SearchTile = ({ item, index, type }: { item: any; index: number; type: 'folder' | 'file' }) => {
     const isSelected = selectedIds.includes(item.id);
     const ft = type === 'file' ? getFileType(item.mimeType, item.name) : null;
     const accentColor = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'][index % 6];
+    const isCutPending = clipboard?.mode === 'cut' && (clipboard.folderIds.includes(item.id) || clipboard.fileIds.includes(item.id));
 
     return (
       <Pressable
@@ -230,7 +247,7 @@ export default function SearchScreen() {
             backgroundColor: dash.surface,
             borderColor: isSelected ? dash.accent : 'transparent',
             borderWidth: 2,
-            opacity: pressed ? 0.7 : 1,
+            opacity: pressed ? 0.7 : (isCutPending ? 0.5 : 1),
           },
         ]}
       >
@@ -318,6 +335,15 @@ export default function SearchScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        <ClipboardBar
+          onPaste={handlePasteToFolder}
+          onUndo={undoLastCut}
+          backgroundColor={dash.surface}
+          textColor={dash.text}
+          accentColor={dash.accent}
+          mutedColor={dash.textMuted}
+        />
 
         <View style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
@@ -495,6 +521,7 @@ export default function SearchScreen() {
                 { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
                 { action: 'copy', label: 'Copy', color: dash.accent },
                 { action: 'cut', label: 'Cut', color: dash.accent },
+                { action: 'duplicate', label: 'Duplicate', color: dash.text },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ].map(item => (
@@ -513,10 +540,11 @@ export default function SearchScreen() {
             <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
-              {[
+               {[
                 { action: 'open', label: 'Open Folder', color: dash.accent },
                 { action: 'copy', label: 'Copy', color: dash.accent },
                 { action: 'cut', label: 'Cut', color: dash.accent },
+                { action: 'duplicate', label: 'Duplicate', color: dash.text },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ].filter(item => {

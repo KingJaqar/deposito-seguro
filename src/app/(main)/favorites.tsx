@@ -1,9 +1,10 @@
 // File: src/app/(main)/favorites.tsx
 import { router } from 'expo-router';
-import { Image, Moon, Music, Plus, Search, Smartphone, Star, Sun, FileText, Play, Folder, Lock, X } from 'lucide-react-native';
+import { Image, Moon, Music, Plus, Search, Smartphone, Star, Sun, Undo2, FileText, Play, Folder, Lock, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
+import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
@@ -37,7 +38,8 @@ export default function FavoritesScreen() {
     toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile,
     assignFileAccessKey, removeFileAccessKey,
     assignFolderAccessKey, removeFolderAccessKey,
-    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
+    duplicateFile, duplicateFolder,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
 
@@ -135,7 +137,6 @@ export default function FavoritesScreen() {
     const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
     copyToClipboard(selFolderIds, selFileIds, null);
     exitSelectionMode();
-    Alert.alert('Copied', `${selectedIds.length} item(s) copied to clipboard.`);
   };
 
   const handleBulkCut = () => {
@@ -143,7 +144,6 @@ export default function FavoritesScreen() {
     const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
     cutToClipboard(selFolderIds, selFileIds, null);
     exitSelectionMode();
-    Alert.alert('Cut', `${selectedIds.length} item(s) cut to clipboard.`);
   };
 
   const handleFileNavigate = (file: any) => {
@@ -241,11 +241,12 @@ export default function FavoritesScreen() {
       case 'unfavorite': toggleFavorite(file.id); break;
       case 'copy':
         copyToClipboard([], [file.id], null);
-        Alert.alert('Copied', 'File copied to clipboard.');
         break;
       case 'cut':
         cutToClipboard([], [file.id], null);
-        Alert.alert('Cut', 'File cut to clipboard.');
+        break;
+      case 'duplicate':
+        duplicateFile(file.id);
         break;
        case 'delete':
          confirmDestructive(
@@ -304,17 +305,19 @@ export default function FavoritesScreen() {
       case 'unfavorite': toggleFavorite(folder.id); break;
       case 'copy':
         copyToClipboard([folder.id], [], null);
-        Alert.alert('Copied', 'Folder copied to clipboard.');
         break;
       case 'cut':
         cutToClipboard([folder.id], [], null);
-        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
+      case 'duplicate':
+        duplicateFolder(folder.id);
         break;
       case 'paste':
         if (clipboard) {
-          pasteFromClipboard(folder.id).then(() => {
-            clearClipboard();
-            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          pasteFromClipboard(folder.id).then((result) => {
+            if (result.pastedFiles > 0 || result.pastedFolders > 0) {
+              Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
+            }
           }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
         }
         break;
@@ -358,12 +361,24 @@ export default function FavoritesScreen() {
     setNewFavFolderName('');
   };
 
+  const handlePasteToFolder = async () => {
+    if (!clipboard) return;
+    try {
+      const result = await pasteFromClipboard('');
+      if (result.pastedFiles === 0 && result.pastedFolders === 0) return;
+      Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
+    } catch {
+      Alert.alert('Paste Failed', 'Could not paste items.');
+    }
+  };
+
   const isEmpty = totalCount === 0 && personalFavFolders.length === 0;
 
   const FavoriteTile = ({ item, index, type }: { item: any; index: number; type: 'folder' | 'file' }) => {
     const isSelected = selectedIds.includes(item.id);
     const ft = type === 'file' ? getFileType(item.mimeType, item.name) : null;
     const accentColor = ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'][index % 6];
+    const isCutPending = clipboard?.mode === 'cut' && (clipboard.folderIds.includes(item.id) || clipboard.fileIds.includes(item.id));
 
     return (
       <TouchableOpacity
@@ -380,6 +395,7 @@ export default function FavoritesScreen() {
             width: FAVORITE_TILE_WIDTH,
             borderColor: isSelected ? dash.accent : 'transparent',
             borderWidth: 2,
+            opacity: isCutPending ? 0.5 : 1,
           },
         ]}
       >
@@ -457,6 +473,15 @@ export default function FavoritesScreen() {
             <Text style={[styles.searchPlaceholder, { color: dash.textMuted }]}>Search favorites...</Text>
           </View>
         </Pressable>
+
+        <ClipboardBar
+          onPaste={handlePasteToFolder}
+          onUndo={undoLastCut}
+          backgroundColor={dash.surface}
+          textColor={dash.text}
+          accentColor={dash.accent}
+          mutedColor={dash.textMuted}
+        />
 
         <View style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
@@ -654,10 +679,11 @@ export default function FavoritesScreen() {
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
               {(() => {
                 const hasPassword = targetItem.hasAccessKey || targetItem.accessKeyId;
-                const baseItems = [
+                 const baseItems = [
                   { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
                   { action: 'copy', label: 'Copy', color: dash.accent },
                   { action: 'cut', label: 'Cut', color: dash.accent },
+                  { action: 'duplicate', label: 'Duplicate', color: dash.text },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
@@ -688,11 +714,12 @@ export default function FavoritesScreen() {
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
               {(() => {
                 const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
-                const baseItems = [
+                 const baseItems = [
                   { action: 'open', label: 'Open Folder', color: dash.accent },
                   { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
                   { action: 'copy', label: 'Copy', color: dash.accent },
                   { action: 'cut', label: 'Cut', color: dash.accent },
+                  { action: 'duplicate', label: 'Duplicate', color: dash.text },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
