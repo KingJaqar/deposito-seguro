@@ -1,7 +1,9 @@
 import { router } from 'expo-router';
 import {
   Box,
+  Clipboard,
   Cloud,
+  Copy,
   Eye,
   EyeOff,
   FileText,
@@ -12,6 +14,7 @@ import {
   MoreVertical,
   Music,
   Plus,
+  Scissors,
   Search,
   ShieldCheck,
   Smartphone,
@@ -55,11 +58,15 @@ const DISPLAY_CAPACITY_GB = 100;
 export default function DashboardScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const {
-    folders, files,
+    disguiseAppName,
+  } = useSettingsStore();
+  const {
+    folders, files, clipboard,
     createFolder, hydrateVault, renameFolder, moveFolder,
     deleteFolder, shredFolder,
     shredMultipleFolders, exportFolderFiles, toggleFolderFavorite,
     assignFolderAccessKey, removeFolderAccessKey,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
 
@@ -75,6 +82,7 @@ export default function DashboardScreen() {
     fabText: colors.fabText ?? '#FFFFFF',
   }), [colors]);
 
+  const displayName = disguiseAppName || 'Deposito Seguro';
   const overlay = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
 
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
@@ -278,6 +286,14 @@ export default function DashboardScreen() {
       case 'favorite':
         toggleFolderFavorite && toggleFolderFavorite(folder.id);
         break;
+      case 'paste':
+        if (clipboard) {
+          pasteFromClipboard(folder.id).then(() => {
+            clearClipboard();
+            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
+        }
+        break;
     }
   };
 
@@ -308,6 +324,29 @@ export default function DashboardScreen() {
       () => shredMultipleFolders(selectedFolderIds),
       'Shred Permanently'
     );
+  };
+
+  const handleBulkCopy = () => {
+    if (selectedFolderIds.length === 0) return;
+    copyToClipboard(selectedFolderIds, [], null);
+    exitSelectionMode();
+  };
+
+  const handleBulkCut = () => {
+    if (selectedFolderIds.length === 0) return;
+    cutToClipboard(selectedFolderIds, [], null);
+    exitSelectionMode();
+  };
+
+  const handlePasteToRoot = async () => {
+    if (!clipboard) return;
+    try {
+      await pasteFromClipboard('');
+      clearClipboard();
+      Alert.alert('Paste Complete', 'Items pasted successfully.');
+    } catch {
+      Alert.alert('Paste Failed', 'Could not paste items.');
+    }
   };
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedFolderIds([]); };
@@ -421,7 +460,7 @@ export default function DashboardScreen() {
       <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         
         <View style={styles.headerTextBlock}>
-          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
+          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>{displayName}</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
         </View>
         <Pressable
@@ -510,9 +549,19 @@ export default function DashboardScreen() {
                   </Text>
                 </TouchableOpacity>
                 {selectedFolderIds.length > 0 && (
-                  <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
-                    <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                      <Copy size={14} color={dash.text} strokeWidth={2.5} />
+                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                      <Scissors size={14} color={dash.text} strokeWidth={2.5} />
+                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
+                      <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
                   <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
@@ -608,6 +657,7 @@ export default function DashboardScreen() {
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetFolder.name}</Text>
               {(() => {
                 const hasPassword = targetFolder.hasAccessKey || targetFolder.accessKeyId;
+                const hasClipboard = !!clipboard;
                 const baseItems = [
                   { action: 'rename', label: 'Rename', color: dash.text },
                   { action: 'move', label: 'Move', color: dash.text },
@@ -616,6 +666,9 @@ export default function DashboardScreen() {
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
+                if (hasClipboard) {
+                  baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: dash.accent });
+                }
                 if (hasPassword) {
                   baseItems.splice(3, 0, { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {

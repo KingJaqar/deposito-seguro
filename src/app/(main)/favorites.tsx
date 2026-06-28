@@ -1,6 +1,6 @@
 // File: src/app/(main)/favorites.tsx
 import { router } from 'expo-router';
-import { Moon, Plus, Search, Star, Sun } from 'lucide-react-native';
+import { Image, Moon, Music, Plus, Search, Smartphone, Star, Sun, FileText, Play, Folder, Lock, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
@@ -33,10 +33,11 @@ const CATEGORY_FILTERS = [
 export default function FavoritesScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const {
-    files, folders,
+    files, folders, clipboard,
     toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile,
     assignFileAccessKey, removeFileAccessKey,
     assignFolderAccessKey, removeFolderAccessKey,
+    copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
 
@@ -82,11 +83,11 @@ export default function FavoritesScreen() {
   useEffect(() => {}, []);
 
   const getFileType = (mimeType: string, name?: string) => {
-    if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: '🖼' };
-    if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: '▶' };
-    if (mimeType?.startsWith('audio/')) return { label: 'Audio', color: '#FBBF24', icon: '♪' };
-    if (name?.endsWith('.apk') || name?.endsWith('.exe')) return { label: 'App', color: '#F472B6', icon: '📱' };
-    return { label: 'File', color: '#60A5FA', icon: '📄' };
+    if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: <Image size={20} color="#A78BFA" strokeWidth={2.2} /> };
+    if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: <Play size={20} color="#FF6B6B" strokeWidth={2.2} /> };
+    if (mimeType?.startsWith('audio/')) return { label: 'Audio', color: '#FBBF24', icon: <Music size={20} color="#FBBF24" strokeWidth={2.2} /> };
+    if (name?.endsWith('.apk') || name?.endsWith('.exe')) return { label: 'App', color: '#F472B6', icon: <Smartphone size={20} color="#F472B6" strokeWidth={2.2} /> };
+    return { label: 'File', color: '#60A5FA', icon: <FileText size={20} color="#60A5FA" strokeWidth={2.2} /> };
   };
 
   const filteredFiles = favoriteFiles.filter(f => {
@@ -128,6 +129,22 @@ export default function FavoritesScreen() {
   };
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
+
+  const handleBulkCopy = () => {
+    const selFolderIds = selectedIds.filter(id => filteredFolders.some(f => f.id === id));
+    const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
+    copyToClipboard(selFolderIds, selFileIds, null);
+    exitSelectionMode();
+    Alert.alert('Copied', `${selectedIds.length} item(s) copied to clipboard.`);
+  };
+
+  const handleBulkCut = () => {
+    const selFolderIds = selectedIds.filter(id => filteredFolders.some(f => f.id === id));
+    const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
+    cutToClipboard(selFolderIds, selFileIds, null);
+    exitSelectionMode();
+    Alert.alert('Cut', `${selectedIds.length} item(s) cut to clipboard.`);
+  };
 
   const handleFileNavigate = (file: any) => {
     // Check if file has password protection
@@ -222,6 +239,14 @@ export default function FavoritesScreen() {
     setShowFileMenu(false);
     switch (action) {
       case 'unfavorite': toggleFavorite(file.id); break;
+      case 'copy':
+        copyToClipboard([], [file.id], null);
+        Alert.alert('Copied', 'File copied to clipboard.');
+        break;
+      case 'cut':
+        cutToClipboard([], [file.id], null);
+        Alert.alert('Cut', 'File cut to clipboard.');
+        break;
        case 'delete':
          confirmDestructive(
            'Move to Trash',
@@ -277,6 +302,22 @@ export default function FavoritesScreen() {
     switch (action) {
       case 'open': handleFolderNavigate(folder); break;
       case 'unfavorite': toggleFavorite(folder.id); break;
+      case 'copy':
+        copyToClipboard([folder.id], [], null);
+        Alert.alert('Copied', 'Folder copied to clipboard.');
+        break;
+      case 'cut':
+        cutToClipboard([folder.id], [], null);
+        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
+      case 'paste':
+        if (clipboard) {
+          pasteFromClipboard(folder.id).then(() => {
+            clearClipboard();
+            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
+        }
+        break;
       case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
        case 'delete':
          confirmDestructive(
@@ -345,9 +386,11 @@ export default function FavoritesScreen() {
         <View style={styles.vaultTopRow}>
           <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
             {type === 'folder' ? (
-              <Star size={20} color={accentColor} strokeWidth={2.2} />
+              <Folder size={20} color={accentColor} strokeWidth={2.2} />
             ) : (
-              <Text style={{ fontSize: 20 }}>{ft?.icon || '📄'}</Text>
+              <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                {ft?.icon || <FileText size={20} color="#60A5FA" strokeWidth={2.2} />}
+              </View>
             )}
           </View>
           {selectionMode ? (
@@ -370,11 +413,12 @@ export default function FavoritesScreen() {
         <View style={styles.vaultBottomBlock}>
           <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
             {item.name}
-            {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+            {item.isEncrypted && item.encryptionKeyId ? <Lock size={14} color={dash.accent} strokeWidth={2} style={{ marginLeft: 6 }} /> : null}
+            {item.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
           </Text>
           <View style={styles.vaultMetaRow}>
             <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>
-              {type === 'folder' ? `${item.isFavorite ? '⭐ Favorite' : 'Folder'}` : `${(item.size / 1024).toFixed(1)} KB`}
+              {type === 'folder' ? (item.isFavorite ? <Star size={12} color="#FBBF24" strokeWidth={2.5} style={{ marginRight: 4 }} /> : <Folder size={12} color={dash.textMuted} strokeWidth={2.5} style={{ marginRight: 4 }} />) : `${(item.size / 1024).toFixed(1)} KB`}
             </Text>
             {type === 'file' && ft && (
               <Text style={[styles.vaultMeta, { color: ft.color }]}>{ft.label}</Text>
@@ -464,6 +508,16 @@ export default function FavoritesScreen() {
                     {filteredFolders.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
                   </Text>
                 </TouchableOpacity>
+                {selectedIds.length > 0 && (
+                  <>
+                    <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
                   <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
                 </TouchableOpacity>
@@ -473,7 +527,7 @@ export default function FavoritesScreen() {
 
           {filteredFolders.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
-              <Text style={{ fontSize: 36, marginBottom: 10 }}>⭐</Text>
+              <Star size={36} color="#FBBF24" strokeWidth={1.5} style={{ marginBottom: 10 }} />
               <Text style={[styles.emptyTitle, { color: dash.text }]}>No Favorite Folders</Text>
               <Text style={[styles.emptyText, { color: dash.textMuted }]}>Long-press any folder and tap the star to favorite it.</Text>
             </View>
@@ -489,47 +543,57 @@ export default function FavoritesScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: dash.text }]}>Favorite Files</Text>
-            {selectionMode ? (
-              <View style={styles.sectionActions}>
-                <TouchableOpacity onPress={() => {
-                  const fileIds = filteredFiles.map(f => f.id);
-                  const allSelected = fileIds.every(id => selectedIds.includes(id));
-                  if (allSelected) {
-                    setSelectedIds(prev => prev.filter(id => !fileIds.includes(id)));
-                  } else {
-                    setSelectedIds(prev => [...prev, ...fileIds.filter(id => !prev.includes(id))]);
-                  }
-                }} style={styles.textBtn}>
-                  <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
-                    {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => {
-                  if (selectedIds.length === 0) return;
-                  confirmDestructive(
-                    'Move to Trash',
-                    `Move ${selectedIds.length} items to trash?`,
-                    () => {
-                      selectedIds.forEach(id => softDeleteFile(id));
-                      exitSelectionMode();
-                    },
-                    'Move to Trash'
-                  );
-                }} style={styles.textBtnDanger}>
-                  <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                  <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <Text style={[styles.seeAll, { color: dash.textMuted }]}>{filteredFiles.length} files</Text>
-            )}
+             {selectionMode ? (
+               <View style={styles.sectionActions}>
+                 <TouchableOpacity onPress={() => {
+                   const fileIds = filteredFiles.map(f => f.id);
+                   const allSelected = fileIds.every(id => selectedIds.includes(id));
+                   if (allSelected) {
+                     setSelectedIds(prev => prev.filter(id => !fileIds.includes(id)));
+                   } else {
+                     setSelectedIds(prev => [...prev, ...fileIds.filter(id => !prev.includes(id))]);
+                   }
+                 }} style={styles.textBtn}>
+                   <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                     {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                   </Text>
+                 </TouchableOpacity>
+                 {selectedIds.length > 0 && (
+                   <>
+                     <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                       <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                       <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={() => {
+                       if (selectedIds.length === 0) return;
+                       confirmDestructive(
+                         'Move to Trash',
+                         `Move ${selectedIds.length} items to trash?`,
+                         () => {
+                           selectedIds.forEach(id => softDeleteFile(id));
+                           exitSelectionMode();
+                         },
+                         'Move to Trash'
+                       );
+                     }} style={styles.textBtnDanger}>
+                       <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
+                     </TouchableOpacity>
+                   </>
+                 )}
+                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                   <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                 </TouchableOpacity>
+               </View>
+             ) : (
+               <Text style={[styles.seeAll, { color: dash.textMuted }]}>{filteredFiles.length} files</Text>
+             )}
           </View>
 
           {filteredFiles.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
-              <Text style={{ fontSize: 36, marginBottom: 10 }}>📁</Text>
+              <Folder size={36} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10 }} />
               <Text style={[styles.emptyTitle, { color: dash.text }]}>No Favorite Files</Text>
               <Text style={[styles.emptyText, { color: dash.textMuted }]}>Long-press any file and tap the star to favorite it.</Text>
             </View>
@@ -592,6 +656,8 @@ export default function FavoritesScreen() {
                 const hasPassword = targetItem.hasAccessKey || targetItem.accessKeyId;
                 const baseItems = [
                   { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
+                  { action: 'copy', label: 'Copy', color: dash.accent },
+                  { action: 'cut', label: 'Cut', color: dash.accent },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
@@ -625,13 +691,18 @@ export default function FavoritesScreen() {
                 const baseItems = [
                   { action: 'open', label: 'Open Folder', color: dash.accent },
                   { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
+                  { action: 'copy', label: 'Copy', color: dash.accent },
+                  { action: 'cut', label: 'Cut', color: dash.accent },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
+                if (clipboard) {
+                  baseItems.splice(4, 0, { action: 'paste', label: 'Paste Here', color: dash.accent });
+                }
                 if (hasPassword) {
-                  baseItems.splice(3, 0, { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
+                  baseItems.splice(5, 0, { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {
-                  baseItems.splice(3, 0,
+                  baseItems.splice(5, 0,
                     { action: 'register-key', label: 'Assign and Create Access Key', color: dash.accent },
                     { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
                   );

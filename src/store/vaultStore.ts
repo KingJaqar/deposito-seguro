@@ -19,11 +19,18 @@ interface VaultStoreActions extends VaultState {
   permanentlyDeleteFiles: (fileIds: string[]) => Promise<void>;
   clearEverythingState: () => void;
   renameFolder: (folderId: string, newName: string) => Promise<void>;
-  moveFolder: (folderId: string, newParentId: string) => Promise<void>;
+  moveFolder: (folderId: string, newParentId: string | undefined) => Promise<void>;
   renameFile: (fileId: string, newName: string) => Promise<void>;
   moveFileToFolder: (fileId: string, targetFolderId: string) => Promise<void>;
   exportFileToDevice: (fileId: string) => Promise<string | null>;
   exportFolderFiles: (folderId: string) => Promise<string[]>;
+  // Clipboard actions
+  copyToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => void;
+  cutToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => void;
+  pasteFromClipboard: (targetFolderId: string) => Promise<void>;
+  clearClipboard: () => void;
+  getFolderDescendants: (folderId: string) => FolderMetadata[];
+  copyFileToFolder: (sourceFile: FileMetadata, targetFolderId: string) => Promise<void>;
   // Access Key methods
   assignFolderAccessKey: (folderId: string, passwordId: string) => Promise<void>;
   assignFileAccessKey: (fileId: string, passwordId: string) => Promise<void>;
@@ -85,6 +92,7 @@ const encryptFileWithKey = async (file: FileMetadata, keyId: string) => {
 export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   folders: [],
   files: [],
+  clipboard: null,
   hydrateVault: async () => {
     try {
       await StorageService.initializeSystemDirectories();
@@ -544,5 +552,168 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       AsyncStorage.setItem('@vault_files', JSON.stringify(remainingFiles)).catch(e => console.error(e));
       return { folders: remainingFolders, files: remainingFiles };
     });
-  }
+  },
+
+  getFolderDescendants: (folderId: string): FolderMetadata[] => {
+    const descendants: FolderMetadata[] = [];
+    const folders = get().folders;
+    const queue = [folderId];
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const children = folders.filter(f => f.parentId === currentId);
+      descendants.push(...children);
+      queue.push(...children.map(c => c.id));
+    }
+    return descendants;
+  },
+
+  copyToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
+    const allFolderIds = new Set<string>(folderIds);
+    const allFileIds = new Set<string>(fileIds);
+    const folders = get().folders;
+    const files = get().files;
+
+    for (const folderId of folderIds) {
+      const descendants = get().getFolderDescendants(folderId);
+      descendants.forEach(d => allFolderIds.add(d.id));
+      descendants.forEach(d => {
+        const folderFiles = files.filter(f => f.folderId === d.id && !f.isTrash);
+        folderFiles.forEach(f => allFileIds.add(f.id));
+      });
+    }
+
+    set({
+      clipboard: {
+        mode: 'copy',
+        sourceFolderId,
+        folderIds: Array.from(allFolderIds),
+        fileIds: Array.from(allFileIds),
+      }
+    });
+  },
+
+  cutToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
+    const allFolderIds = new Set<string>(folderIds);
+    const allFileIds = new Set<string>(fileIds);
+
+    for (const folderId of folderIds) {
+      const descendants = get().getFolderDescendants(folderId);
+      descendants.forEach(d => allFolderIds.add(d.id));
+      descendants.forEach(d => {
+        const folderFiles = get().files.filter(f => f.folderId === d.id && !f.isTrash);
+        folderFiles.forEach(f => allFileIds.add(f.id));
+      });
+    }
+
+    set({
+      clipboard: {
+        mode: 'cut',
+        sourceFolderId,
+        folderIds: Array.from(allFolderIds),
+        fileIds: Array.from(allFileIds),
+      }
+    });
+  },
+
+  clearClipboard: () => set({ clipboard: null }),
+
+  pasteFromClipboard: async (targetFolderId: string) => {
+    const clipboard = get().clipboard;
+    if (!clipboard) return;
+
+    const { folders: srcFolders, files: srcFiles } = get();
+
+    if (clipboard.mode === 'copy') {
+      const folderIdToNewId = new Map<string, string>();
+
+      const createFolderCopy = async (sourceFolder: FolderMetadata, parentId: string | undefined): Promise<string> => {
+        const newId = SecureCrypto.generateUUID();
+        folderIdToNewId.set(sourceFolder.id, newId);
+
+        const newFolder: FolderMetadata = {
+          ...sourceFolder,
+          id: newId,
+          parentId,
+          createdAt: Date.now(),
+        };
+
+        set((state) => {
+          const folders = [...state.folders, newFolder];
+          AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
+          return { folders };
+        });
+
+        const subfolders = srcFolders.filter(f => f.parentId === sourceFolder.id);
+        for (const sub of subfolders) {
+          await createFolderCopy(sub, newId);
+        }
+
+        const folderFiles = srcFiles.filter(f => f.folderId === sourceFolder.id && !f.isTrash);
+        for (const file of folderFiles) {
+          await get().copyFileToFolder(file, newId);
+        }
+
+        return newId;
+      };
+
+      const topLevelFolders = srcFolders.filter(f => clipboard.folderIds.includes(f.id) && !clipboard.folderIds.includes(f.parentId || ''));
+      const topLevelFiles = srcFiles.filter(f => clipboard.fileIds.includes(f.id) && f.folderId === targetFolderId && !f.isTrash);
+      const orphanFiles = srcFiles.filter(f => clipboard.fileIds.includes(f.id) && !clipboard.folderIds.includes(f.folderId) && f.folderId !== targetFolderId);
+
+      for (const file of topLevelFiles) {
+        await get().copyFileToFolder(file, targetFolderId);
+      }
+      for (const file of orphanFiles) {
+        await get().copyFileToFolder(file, targetFolderId);
+      }
+
+      for (const folder of clipboard.folderIds) {
+        const srcFolder = srcFolders.find(f => f.id === folder);
+        if (!srcFolder) continue;
+        if (!srcFolder.parentId || !clipboard.folderIds.includes(srcFolder.parentId)) {
+          await createFolderCopy(srcFolder, targetFolderId);
+        }
+      }
+    } else if (clipboard.mode === 'cut') {
+      for (const fileId of clipboard.fileIds) {
+        await get().moveFileToFolder(fileId, targetFolderId);
+      }
+      for (const folderId of clipboard.folderIds) {
+        await get().moveFolder(folderId, targetFolderId);
+      }
+      get().clearClipboard();
+    }
+  },
+
+  copyFileToFolder: async (sourceFile: FileMetadata, targetFolderId: string) => {
+    const newId = SecureCrypto.generateUUID();
+    const ext = sourceFile.localPath?.includes('.') ? sourceFile.localPath.slice(sourceFile.localPath.lastIndexOf('.')) : '';
+    const newLocalPath = sourceFile.localPath
+      ? `${sourceFile.localPath.replace(ext, '')}_copy_${newId}${ext}`
+      : undefined;
+
+    if (sourceFile.localPath) {
+      try {
+        await StorageService.copySandboxFile(sourceFile.localPath, newLocalPath || sourceFile.localPath);
+      } catch (e) {
+        console.error('Failed to copy sandbox file', e);
+      }
+    }
+
+    const newFile: FileMetadata = {
+      ...sourceFile,
+      id: newId,
+      folderId: targetFolderId,
+      localPath: newLocalPath ?? sourceFile.localPath ?? '',
+      isTrash: false,
+      deletedAt: undefined,
+      importedAt: Date.now(),
+    };
+
+    set((state) => {
+      const files = [...state.files, newFile];
+      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
+      return { files };
+    });
+  },
 }));

@@ -7,6 +7,11 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2D2D2D"
+    },
     "web": {
       "build": {
         "dist": "web-build"
@@ -16,10 +21,32 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.anonymous.depositoseguro",
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Deposito Seguro requires Face ID to open your protected files vault locally.",
         "NSCameraUsageDescription": "Allow Deposito Seguro to access the camera to capture secure photos directly into the isolated sandbox.",
         "NSPhotoLibraryUsageDescription": "Allow Deposito Seguro to import photos into your encrypted local partition.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleIcons": {
+          "CFBundlePrimaryIcon": {
+            "CFBundleIconFiles": ["icon"]
+          },
+          "CFBundleAlternateIcons": {
+            "default": {
+              "CFBundleIconFiles": ["icon"],
+              "UIPrerenderedIcon": false
+            },
+            "calculator-icon-black-white": {
+              "CFBundleIconFiles": ["calculator-icon-black-white"],
+              "UIPrerenderedIcon": false
+            },
+            "calculator-icon-black-orange": {
+              "CFBundleIconFiles": ["calculator-icon-black-orange"],
+              "UIPrerenderedIcon": false
+            },
+            "calculator-icon-black-red": {
+              "CFBundleIconFiles": ["calculator-icon-black-red"],
+              "UIPrerenderedIcon": false
+            }
+          }
+        }
       }
     },
     "android": {
@@ -32,19 +59,11 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "USE_BIOMETRIC",
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "VIBRATE"
       ]
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-local-authentication",
-        {
-          "faceIDPermission": "Allow Deposito Seguro to use Face ID for securing your local information vaults."
-        }
-      ],
       "expo-sharing",
       "expo-video"
     ],

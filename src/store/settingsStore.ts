@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
-import { DisguiseMode, EncryptionKeyMetadata, AccessKeyMetadata, AuthKey, GridListView, ThemeMode } from '../types';
+import { DisguiseMode, DisguiseIconTheme, EncryptionKeyMetadata, AccessKeyMetadata, AuthKey, GridListView, ThemeMode } from '../types';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
 
 interface SettingsState {
@@ -11,7 +11,6 @@ interface SettingsState {
   disguiseMode: DisguiseMode;
   viewMode: GridListView;
   autoLockDuration: number;
-  biometricsEnabled: boolean;
   encryptionDefault: boolean;
   accentColor: string;
   fontSizeMultiplier: number;
@@ -19,6 +18,8 @@ interface SettingsState {
   clipboardClearEnabled: boolean;
   fakeCrashEnabled: boolean;
   showHiddenFiles: boolean;
+  disguiseAppName: string;
+  disguiseIconTheme: DisguiseIconTheme;
   accessKeys: AccessKeyMetadata[];
   encryptionKeys: EncryptionKeyMetadata[];
   authKey: AuthKey | null;
@@ -71,7 +72,6 @@ const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSettin
   'disguiseMode',
   'viewMode',
   'autoLockDuration',
-  'biometricsEnabled',
   'encryptionDefault',
   'accentColor',
   'fontSizeMultiplier',
@@ -79,6 +79,8 @@ const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSettin
   'clipboardClearEnabled',
   'fakeCrashEnabled',
   'showHiddenFiles',
+  'disguiseAppName',
+  'disguiseIconTheme',
   'accessKeys',
   'encryptionKeys',
   'authKey',
@@ -89,7 +91,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   disguiseMode: 'default',
   viewMode: 'grid',
   autoLockDuration: 60000,
-  biometricsEnabled: false,
   encryptionDefault: false,
   accentColor: '#0A84FF',
   fontSizeMultiplier: 1.0,
@@ -97,6 +98,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   clipboardClearEnabled: false,
   fakeCrashEnabled: false,
   showHiddenFiles: false,
+  disguiseAppName: 'Calculator',
+  disguiseIconTheme: 'default',
   accessKeys: [],
   encryptionKeys: [],
   authKey: null,

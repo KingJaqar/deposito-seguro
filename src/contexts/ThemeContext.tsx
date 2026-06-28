@@ -10,11 +10,8 @@ export const CustomThemeProvider = ({ children }: { children: ReactNode }) => {
 
   const activePalette = useMemo(() => {
     let palette = Palette[themeMode as keyof typeof Palette] || Palette.dark;
-    if (disguiseMode !== 'default') {
-      if (disguiseMode === 'calculator') palette = Palette.calculator;
-      else if (disguiseMode === 'notes') palette = Palette.notes;
-      else if (disguiseMode === 'utility') palette = Palette.utility;
-    }
+    if (disguiseMode === 'notes') palette = Palette.notes;
+    else if (disguiseMode === 'utility') palette = Palette.utility;
     return palette;
   }, [themeMode, disguiseMode]);
 

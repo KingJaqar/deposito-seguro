@@ -1,6 +1,7 @@
 // File: src/types/index.ts
 export type ThemeMode = 'light' | 'dark' | 'amoled';
 export type DisguiseMode = 'default' | 'calculator' | 'notes' | 'utility';
+export type DisguiseIconTheme = 'default' | 'white' | 'orange' | 'red';
 export type GridListView = 'grid' | 'list';
 
 export interface AccessKeyMetadata {
@@ -66,4 +67,10 @@ export interface FileMetadata {
 export interface VaultState {
   folders: FolderMetadata[];
   files: FileMetadata[];
+  clipboard: {
+    mode: 'copy' | 'cut';
+    sourceFolderId: string | null;
+    folderIds: string[];
+    fileIds: string[];
+  } | null;
 }

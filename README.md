@@ -88,7 +88,6 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
     ├── hooks/
     │   └── useFileSystemQuery.ts            # Local hierarchy path metadata collection query hook
     ├── security/
-    │   ├── biometrics.ts                    # Native iOS FaceID / Android Biometric hardware platform bridge
     │   └── crypto.ts                        # 5,000-cycle local iteration security hashing engine
     ├── services/
     │   ├── backup.ts                        # Non-cloud local manifest backup file stream matrix

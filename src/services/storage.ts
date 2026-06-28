@@ -81,6 +81,15 @@ export class StorageService {
     return webVaultStorage.get(filename) || webVaultStorage.get(`/web-vault/${filename}`) || null;
   }
 
+  static async copySandboxFile(sourcePath: string, destPath: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      const content = webVaultStorage.get(sourcePath) || webVaultStorage.get(sourcePath.replace('/web-vault/', '')) || sourcePath;
+      webVaultStorage.set(destPath, content);
+      return;
+    }
+    await FileSystem.copyAsync({ from: sourcePath, to: destPath });
+  }
+
   static async getStorageQuotaInfo() {
     return {
       used: 1024 * 1024 * 42, 

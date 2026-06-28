@@ -2,7 +2,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { Eye, EyeOff, FileText, Lock, Moon, ShieldCheck, Sun, Trash2, X } from 'lucide-react-native';
+import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Moon, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Sun, Trash2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
@@ -28,6 +28,7 @@ export default function FolderDetailsScreen() {
     exportFileToDevice, exportFolderFiles, moveFolder, shredFile,
     toggleFolderFavorite, toggleFavorite,
     assignFolderAccessKey, assignFileAccessKey, removeFolderAccessKey, removeFileAccessKey,
+    clipboard, copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard,
   } = useVaultStore();
   
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
@@ -160,6 +161,28 @@ export default function FolderDetailsScreen() {
       },
       'Move to Trash'
     );
+  };
+
+  const handleBulkCopy = () => {
+    const totalSelected = selectedFileIds.length + selectedFolderIds.length;
+    if (totalSelected === 0) {
+      Alert.alert('Selection Empty', 'Select elements first before copying.');
+      return;
+    }
+    copyToClipboard(selectedFolderIds, selectedFileIds, id as string);
+    exitSelectionMode();
+    Alert.alert('Copied', `${totalSelected} item(s) copied to clipboard.`);
+  };
+
+  const handleBulkCut = () => {
+    const totalSelected = selectedFileIds.length + selectedFolderIds.length;
+    if (totalSelected === 0) {
+      Alert.alert('Selection Empty', 'Select elements first before cutting.');
+      return;
+    }
+    cutToClipboard(selectedFolderIds, selectedFileIds, id as string);
+    exitSelectionMode();
+    Alert.alert('Cut', `${totalSelected} item(s) cut to clipboard.`);
   };
 
   const handleFileItemPress = (file: any) => {
@@ -299,24 +322,32 @@ export default function FolderDetailsScreen() {
       case 'create-password':
         handleCreateAndAssignPassword(targetFile.id, targetFile.name, 'file');
         break;
-      case 'assign-password':
-        if (accessKeys.length === 0) {
-          Alert.alert('No Access Keys', 'Create a access key in Settings first.');
-        } else {
-          setPasswordPickerTarget({ type: 'file', id: targetFile.id, name: targetFile.name });
-          setShowPasswordPicker(true);
-        }
-        break;
-      case 'remove-password':
-        // Require password verification before removal
-        setPendingPasswordRemoval({
-          type: 'file',
-          id: targetFile.id,
-          name: targetFile.name,
-          accessKeyId: targetFile.accessKeyId
-        });
-        setShowUnlockModal(true);
-        break;
+       case 'assign-password':
+         if (accessKeys.length === 0) {
+           Alert.alert('No Access Keys', 'Create a access key in Settings first.');
+         } else {
+           setPasswordPickerTarget({ type: 'file', id: targetFile.id, name: targetFile.name });
+           setShowPasswordPicker(true);
+         }
+         break;
+       case 'remove-password':
+         // Require password verification before removal
+         setPendingPasswordRemoval({
+           type: 'file',
+           id: targetFile.id,
+           name: targetFile.name,
+           accessKeyId: targetFile.accessKeyId
+         });
+         setShowUnlockModal(true);
+         break;
+        case 'copy':
+          copyToClipboard([], [targetFile.id], id!);
+          Alert.alert('Copied', 'File copied to clipboard.');
+          break;
+        case 'cut':
+          cutToClipboard([], [targetFile.id], id!);
+          Alert.alert('Cut', 'File cut to clipboard.');
+          break;
     }
   };
 
@@ -335,6 +366,17 @@ export default function FolderDetailsScreen() {
     if (targetFolder) moveFolder(targetFolder.id, targetParentId);
     else if (targetFile) moveFileToFolder(targetFile.id, targetParentId);
     setShowMoveModal(false);
+  };
+
+  const handlePaste = async () => {
+    if (!clipboard || !id) return;
+    try {
+      await pasteFromClipboard(id as string);
+      clearClipboard();
+      Alert.alert('Paste Complete', 'Items pasted successfully.');
+    } catch {
+      Alert.alert('Paste Failed', 'Could not paste items.');
+    }
   };
 
   const handleSubfolderAction = (action: string) => {
@@ -358,6 +400,14 @@ export default function FolderDetailsScreen() {
           else Alert.alert('Nothing to Export', 'This vault has no files to export.');
         }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
         break;
+       case 'copy':
+         copyToClipboard([subfolder.id], [], id as string);
+         Alert.alert('Copied', 'Folder copied to clipboard.');
+         break;
+       case 'cut':
+         cutToClipboard([subfolder.id], [], id as string);
+         Alert.alert('Cut', 'Folder cut to clipboard.');
+         break;
       case 'create-password':
         handleCreateAndAssignPassword(subfolder.id, subfolder.name, 'folder');
         break;
@@ -414,6 +464,14 @@ export default function FolderDetailsScreen() {
           else Alert.alert('Nothing to Export', 'This vault has no files to export.');
         }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
         break;
+      case 'copy':
+        copyToClipboard([folderRecord.id], [], id as string);
+        Alert.alert('Copied', 'Folder copied to clipboard.');
+        break;
+      case 'cut':
+        cutToClipboard([folderRecord.id], [], id as string);
+        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
       case 'create-password':
         handleCreateAndAssignPassword(folderRecord.id, folderRecord.name, 'folder'); break;
       case 'assign-password':
@@ -425,7 +483,6 @@ export default function FolderDetailsScreen() {
         }
         break;
       case 'remove-password':
-        // Require password verification before removal
         if (folderRecord.accessKeyId) {
           setPendingPasswordRemoval({
             type: 'folder',
@@ -513,32 +570,46 @@ export default function FolderDetailsScreen() {
 
         {/* Action Capsule Row Layout */}
         <View style={st.actionRow}>
-          <TouchableOpacity style={st.addFileButton} onPress={executeImportPayload}>
-            <Text style={st.addFileText}>+ Add File</Text>
-          </TouchableOpacity>
+          {!selectionMode ? (
+            <>
+              <TouchableOpacity style={st.addFileButton} onPress={executeImportPayload}>
+                <Text style={st.addFileText}>+ Add File</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
-            <Text style={st.pillIconText}>📁</Text>
-          </TouchableOpacity>
+              <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
+                <Folder size={20} color={text} strokeWidth={2} />
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[st.outlinedSelectButton, selectionMode && st.activeSelectButton]} 
-            onPress={() => {
-              if (selectionMode) {
-                exitSelectionMode();
-              } else {
-                setSelectionMode(true);
-              }
-            }}
-          >
-            <Text style={[st.selectButtonText, selectionMode && st.activeSelectButtonText]}>
-              {selectionMode ? '✓ Selected' : '☑ Select'}
-            </Text>
-          </TouchableOpacity>
+              {!!clipboard && (
+                <TouchableOpacity style={[st.iconActionPill, { backgroundColor: primary }]} onPress={handlePaste}>
+                  <Clipboard size={18} color="#FFF" strokeWidth={2} />
+                </TouchableOpacity>
+              )}
 
-          <TouchableOpacity style={st.purgeButton} onPress={handleBulkSoftDelete}>
-            <Text style={st.purgeButtonText}>Purge</Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={[st.outlinedSelectButton]} 
+                onPress={() => setSelectionMode(true)}
+              >
+                <Text style={st.selectButtonText}>☑ Select</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={st.purgeButton} onPress={handleBulkSoftDelete}>
+                <Text style={st.purgeButtonText}>Purge</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity onPress={handleBulkCopy} style={st.iconActionPill}>
+                <Copy size={18} color={text} strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleBulkCut} style={st.iconActionPill}>
+                <Scissors size={18} color={text} strokeWidth={2.5} />
+              </TouchableOpacity>
+                <TouchableOpacity onPress={exitSelectionMode} style={[st.outlinedSelectButton, st.activeSelectButton]}>
+                  <Text style={[st.selectButtonText, st.activeSelectButtonText]}>✓ Selected</Text>
+                </TouchableOpacity>
+              </>
+          )}
         </View>
 
         {/* Subfolders Grid Section */}
@@ -578,13 +649,14 @@ export default function FolderDetailsScreen() {
                     }}
                     activeOpacity={0.7}
                   >
-                    <View style={st.folderIconContainer}>
-                      <Text style={st.cardIconText}>📁</Text>
-                    </View>
+                     <View style={st.folderIconContainer}>
+                       <Folder size={24} color={text} strokeWidth={2} />
+                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={st.folderTitleText} numberOfLines={1}>{folder.name}</Text>
-                        {folder.hasAccessKey && folder.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                         <Text style={st.folderTitleText} numberOfLines={1}>{folder.name}</Text>
+                         {folder.hasAccessKey && folder.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                         {folder.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                       </View>
                       <Text style={st.folderMetaText}>Directory Folder</Text>
                     </View>
@@ -630,15 +702,18 @@ export default function FolderDetailsScreen() {
                   onPress={() => handleFileItemPress(file)}
                   activeOpacity={0.7}
                 >
-                  <View style={st.fileIconContainer}>
-                    <Text style={st.cardIconText}>
-                      {file.mimeType?.startsWith('image/') ? '🖼️' : '📄'}
-                    </Text>
-                  </View>
+                   <View style={st.fileIconContainer}>
+                     {file.mimeType?.startsWith('image/') ? (
+                       <Image size={24} color={text} strokeWidth={2} />
+                     ) : (
+                       <FileText size={24} color={text} strokeWidth={2} />
+                     )}
+                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
-                      {file.hasAccessKey && file.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                       <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
+                       {file.hasAccessKey && file.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
+                       {file.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                     </View>
                     <Text style={st.fileMetaText}>{(file.size / 1024).toFixed(1)} KB</Text>
                   </View>
@@ -745,10 +820,12 @@ export default function FolderDetailsScreen() {
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ];
+              baseItems.splice(3, 0, { action: 'copy', label: 'Copy', color: primary });
+              baseItems.splice(4, 0, { action: 'cut', label: 'Cut', color: primary });
               if (hasPassword) {
-                baseItems.splice(3, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
+                baseItems.splice(5, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
               } else {
-                baseItems.splice(3, 0,
+                baseItems.splice(5, 0,
                   { action: 'create-password', label: 'Assign and Create Access Key', color: primary },
                   { action: 'assign-password', label: 'Assign Existing Access Key', color: primary }
                 );
@@ -776,6 +853,7 @@ export default function FolderDetailsScreen() {
               <Text style={[{ color: text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{folderRecord.name}</Text>
               {(() => {
                 const hasPassword = folderRecord.hasAccessKey && folderRecord.accessKeyId;
+                const hasClipboard = !!clipboard;
                 const baseItems = [
                   { action: 'rename', label: 'Rename', color: text },
                   { action: 'move', label: 'Move', color: text },
@@ -784,6 +862,9 @@ export default function FolderDetailsScreen() {
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
+                if (hasClipboard) {
+                  baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: primary });
+                }
                 if (hasPassword) {
                   baseItems.splice(3, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {
@@ -820,10 +901,12 @@ export default function FolderDetailsScreen() {
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
+                baseItems.splice(3, 0, { action: 'copy', label: 'Copy', color: primary });
+                baseItems.splice(4, 0, { action: 'cut', label: 'Cut', color: primary });
                 if (hasPassword) {
-                  baseItems.splice(3, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
+                  baseItems.splice(5, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {
-                  baseItems.splice(3, 0,
+                  baseItems.splice(5, 0,
                     { action: 'create-password', label: 'Assign and Create Access Key', color: primary },
                     { action: 'assign-password', label: 'Assign Existing Access Key', color: primary }
                   );
@@ -858,7 +941,7 @@ export default function FolderDetailsScreen() {
                     setShowMoveModal(false);
                   }}
                 >
-                  <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>📁 {f.name}</Text>
+                   <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>{f.name}</Text>
                 </TouchableOpacity>
               ))}
             </View>

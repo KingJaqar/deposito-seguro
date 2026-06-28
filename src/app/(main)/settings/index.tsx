@@ -1,9 +1,11 @@
 // File: src/app/(main)/settings/index.tsx
 import { router } from 'expo-router';
-import { Moon, Search, Sun } from 'lucide-react-native';
-import { useState } from 'react';
-import { Alert, Dimensions, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Moon, Search, Sun, Calculator, Pencil, Circle, Lock, Key, Palette } from 'lucide-react-native';
+import { ReactNode, useState } from 'react';
+import { Alert, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
+import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAuthModal';
+import { setDisguiseIcon } from '../../../utils/disguiseIcon';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { BackupService } from '../../../services/backup';
 import { useSettingsStore } from '../../../store/settingsStore';
@@ -17,7 +19,7 @@ interface SettingItem {
   id: string;
   title: string;
   description?: string;
-  icon: string;
+  icon: ReactNode;
   type: 'toggle' | 'link';
   value?: boolean;
   onValueChange?: (value: boolean) => void;
@@ -26,7 +28,7 @@ interface SettingItem {
 
 export default function SettingsCenterScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
-  const { themeMode, disguiseMode, biometricsEnabled, updateSetting } = useSettingsStore();
+  const { themeMode, disguiseMode, updateSetting } = useSettingsStore();
 
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
@@ -41,6 +43,19 @@ export default function SettingsCenterScreen() {
   };
 
   const [query, setQuery] = useState('');
+  const [showAccessKeyAuthModal, setShowAccessKeyAuthModal] = useState(false);
+  const [showDisplayNameModal, setShowDisplayNameModal] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [disguiseIconTheme, setDisguiseIconTheme] = useState(useSettingsStore.getState().disguiseIconTheme);
+
+  const handleAccessKeysPress = () => {
+    setShowAccessKeyAuthModal(true);
+  };
+
+  const handleAccessKeyAuthSuccess = () => {
+    setShowAccessKeyAuthModal(false);
+    router.push('/(main)/settings/access-keys');
+  };
 
   const handleExport = async () => {
     const path = await BackupService.exportCompleteBackupArchive();
@@ -59,12 +74,31 @@ export default function SettingsCenterScreen() {
           id: 'calculator',
           title: 'Calculator Spoofing',
           description: 'Disguise app as calculator',
-          icon: '🧮',
+          icon: <Calculator size={22} strokeWidth={2} color={dash.accent} />,
           type: 'toggle' as const,
           value: disguiseMode === 'calculator',
-          onValueChange: (val: boolean) => updateSetting('disguiseMode', val ? 'calculator' : 'default'),
+          onValueChange: (val: boolean) => {
+            updateSetting('disguiseMode', val ? 'calculator' : 'default');
+            if (val) {
+              const currentName = useSettingsStore.getState().disguiseAppName;
+              if (!currentName || currentName === 'Deposito Seguro') {
+                updateSetting('disguiseAppName', 'Calculator');
+              }
+            }
+          },
         },
-      ] as SettingItem[],
+        disguiseMode === 'calculator' && {
+          id: 'calculator-app-name',
+          title: 'Display Name',
+          description: 'App name shown on home screen',
+          icon: <Pencil size={22} strokeWidth={2} color={dash.accent} />,
+          type: 'link' as const,
+          onPress: () => {
+            setDisplayNameInput(useSettingsStore.getState().disguiseAppName || '');
+            setShowDisplayNameModal(true);
+          },
+        } as SettingItem,
+      ].filter(Boolean) as SettingItem[],
     },
     {
       title: 'Visual Configurations',
@@ -73,7 +107,7 @@ export default function SettingsCenterScreen() {
           id: 'theme',
           title: isDark ? 'Dark Mode' : 'Light Mode',
           description: isDark ? 'AMOLED black theme' : 'Light cream theme',
-          icon: isDark ? '🌙' : '☀️',
+          icon: isDark ? <Moon size={22} strokeWidth={2} color={dash.accent} /> : <Sun size={22} strokeWidth={2} color={dash.accent} />,
           type: 'toggle' as const,
           value: isDark,
           onValueChange: () => toggleTheme(),
@@ -82,24 +116,10 @@ export default function SettingsCenterScreen() {
           id: 'amoled',
           title: 'High Contrast AMOLED',
           description: 'Pure black for OLED displays',
-          icon: '⚫',
+          icon: <Circle size={22} strokeWidth={2} fill={dash.accent} color={dash.accent} />,
           type: 'toggle' as const,
           value: themeMode === 'amoled',
           onValueChange: (val: boolean) => updateSetting('themeMode', val ? 'amoled' : 'dark'),
-        },
-      ] as SettingItem[],
-    },
-    {
-      title: 'Hardware Biometrics',
-      items: [
-        {
-          id: 'biometrics',
-          title: 'Require Biometric Challenge',
-          description: 'Use fingerprint or face recognition',
-          icon: '🔐',
-          type: 'toggle' as const,
-          value: biometricsEnabled,
-          onValueChange: (val: boolean) => updateSetting('biometricsEnabled', val),
         },
       ] as SettingItem[],
     },
@@ -110,9 +130,9 @@ export default function SettingsCenterScreen() {
           id: 'passwords',
           title: 'Access Keys',
           description: 'Create, view, and manage access keys',
-          icon: '🔒',
+          icon: <Lock size={22} strokeWidth={2} color={dash.accent} />,
           type: 'link' as const,
-          onPress: () => router.push('/(main)/settings/access-keys'),
+          onPress: handleAccessKeysPress,
         },
       ] as SettingItem[],
     },
@@ -123,7 +143,7 @@ export default function SettingsCenterScreen() {
           id: 'auth-key',
           title: 'Authentication Key',
           description: 'Manage your vault authentication key',
-          icon: '🔑',
+          icon: <Key size={22} strokeWidth={2} color={dash.accent} />,
           type: 'link' as const,
           onPress: () => router.push('/(main)/settings/auth-key'),
         },
@@ -153,7 +173,7 @@ export default function SettingsCenterScreen() {
       >
         <View style={styles.settingContent}>
           <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15` }]}>
-            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+            {item.icon}
           </View>
           <View style={styles.settingInfo}>
             <Text style={[styles.settingTitle, { color: dash.text }]}>{item.title}</Text>
@@ -216,6 +236,49 @@ export default function SettingsCenterScreen() {
               {section.items.map((item) => (
                 <SettingCard key={item.id} item={item} />
               ))}
+              {section.title === 'Identity Disguise Shield' && disguiseMode === 'calculator' && (
+                <View style={[styles.iconPickerCard, { backgroundColor: dash.surface, borderColor: dash.border }]}>
+                  <View style={styles.settingContent}>
+                    <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15` }]}>
+                      <Palette size={22} strokeWidth={2} color={dash.accent} />
+                    </View>
+                    <View style={styles.settingInfo}>
+                      <Text style={[styles.settingTitle, { color: dash.text }]}>Icon Theme</Text>
+                      <Text style={[styles.settingDescription, { color: dash.textMuted }]}>Home screen icon color</Text>
+                    </View>
+                  </View>
+                  <View style={styles.iconGrid}>
+                    {[
+                      { id: 'default', label: 'Default', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-white.png') },
+                      { id: 'white', label: 'White', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-white.png') },
+                      { id: 'orange', label: 'Orange', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-orange.png') },
+                      { id: 'red', label: 'Red', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-red.png') },
+                    ].map((theme) => (
+                      <TouchableOpacity
+                        key={theme.id}
+                        style={[
+                          styles.iconOption,
+                          { backgroundColor: dash.surfaceHover, borderColor: disguiseIconTheme === theme.id ? dash.accent : dash.border },
+                          disguiseIconTheme === theme.id && styles.iconOptionSelected,
+                        ]}
+                        onPress={async () => {
+                          setDisguiseIconTheme(theme.id as any);
+                          updateSetting('disguiseIconTheme', theme.id as any);
+                          await setDisguiseIcon(theme.id);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Image
+                          source={theme.source}
+                          style={styles.iconOptionImage}
+                          resizeMode="contain"
+                        />
+                        <Text style={[styles.iconOptionText, { color: dash.textMuted }]}>{theme.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           </View>
         ))}
@@ -241,6 +304,48 @@ export default function SettingsCenterScreen() {
       </ScrollView>
 
       <AnimatedTabBar />
+      <AccessKeyScreenAuthModal
+        visible={showAccessKeyAuthModal}
+        onClose={() => setShowAccessKeyAuthModal(false)}
+        onSuccess={handleAccessKeyAuthSuccess}
+      />
+
+      <Modal visible={showDisplayNameModal} transparent animationType="fade" onRequestClose={() => setShowDisplayNameModal(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowDisplayNameModal(false)} activeOpacity={1} />
+          <View style={[styles.modalCard, { backgroundColor: dash.surface }]}>
+            <Text style={[styles.modalTitle, { color: dash.text }]}>App Display Name</Text>
+            <Text style={[styles.modalSubtitle, { color: dash.textMuted }]}>
+              Enter the name to show on the home screen (leave empty to use default)
+            </Text>
+            <TextInput
+              style={[styles.modalInput, { color: dash.text, borderColor: dash.border, backgroundColor: dash.bg }]}
+              value={displayNameInput}
+              onChangeText={setDisplayNameInput}
+              placeholder="Deposito Seguro"
+              placeholderTextColor={dash.textMuted}
+              autoFocus
+            />
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { backgroundColor: dash.surfaceHover }]}
+                onPress={() => setShowDisplayNameModal(false)}
+              >
+                <Text style={[styles.modalCancelText, { color: dash.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  updateSetting('disguiseAppName', displayNameInput.trim());
+                  setShowDisplayNameModal(false);
+                }}
+              >
+                <Text style={styles.modalSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -335,5 +440,109 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    padding: 24,
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  modalInput: {
+    width: '100%',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  modalSaveBtn: {
+    flex: 1.2,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modalSaveText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  iconPickerCard: {
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+  },
+  iconGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12,
+  },
+  iconOption: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    gap: 4,
+  },
+  iconOptionSelected: {
+    borderWidth: 2,
+  },
+  iconOptionImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+  },
+  iconOptionText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

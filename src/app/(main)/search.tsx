@@ -1,6 +1,6 @@
 // File: src/app/(main)/search.tsx
 import { router } from 'expo-router';
-import { Moon, Search, Sun } from 'lucide-react-native';
+import { FileText, Folder, Image, Lock, Moon, Music, Play, Search, Smartphone, Star, Sun, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
@@ -28,7 +28,7 @@ const CATEGORY_FILTERS = [
 
 export default function SearchScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
-  const { files, folders, toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault } = useVaultStore();
+  const { files, folders, clipboard, toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault, copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard } = useVaultStore();
 
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
@@ -101,11 +101,11 @@ export default function SearchScreen() {
   });
 
   const getFileType = (mimeType: string, name?: string) => {
-    if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: '🖼' };
-    if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: '▶' };
-    if (mimeType?.startsWith('audio/')) return { label: 'Audio', color: '#FBBF24', icon: '♪' };
-    if (name?.endsWith('.apk') || name?.endsWith('.exe')) return { label: 'App', color: '#F472B6', icon: '📱' };
-    return { label: 'File', color: '#60A5FA', icon: '📄' };
+    if (mimeType?.startsWith('image/')) return { label: 'Image', color: '#A78BFA', icon: <Image size={20} color="#A78BFA" strokeWidth={2.2} /> };
+    if (mimeType?.startsWith('video/')) return { label: 'Video', color: '#FF6B6B', icon: <Play size={20} color="#FF6B6B" strokeWidth={2.2} /> };
+    if (mimeType?.startsWith('audio/')) return { label: 'Audio', color: '#FBBF24', icon: <Music size={20} color="#FBBF24" strokeWidth={2.2} /> };
+    if (name?.endsWith('.apk') || name?.endsWith('.exe')) return { label: 'App', color: '#F472B6', icon: <Smartphone size={20} color="#F472B6" strokeWidth={2.2} /> };
+    return { label: 'File', color: '#60A5FA', icon: <FileText size={20} color="#60A5FA" strokeWidth={2.2} /> };
   };
 
   const totalResults = filteredFolders.length + filteredFiles.length;
@@ -116,6 +116,22 @@ export default function SearchScreen() {
   };
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
+
+  const handleBulkCopy = () => {
+    const selFolderIds = selectedIds.filter(id => filteredFolders.some(f => f.id === id));
+    const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
+    copyToClipboard(selFolderIds, selFileIds, null);
+    exitSelectionMode();
+    Alert.alert('Copied', `${selectedIds.length} item(s) copied to clipboard.`);
+  };
+
+  const handleBulkCut = () => {
+    const selFolderIds = selectedIds.filter(id => filteredFolders.some(f => f.id === id));
+    const selFileIds = selectedIds.filter(id => filteredFiles.some(f => f.id === id));
+    cutToClipboard(selFolderIds, selFileIds, null);
+    exitSelectionMode();
+    Alert.alert('Cut', `${selectedIds.length} item(s) cut to clipboard.`);
+  };
 
   const handleFileNavigate = (file: any) => {
     if (file.mimeType?.startsWith('image/')) {
@@ -131,6 +147,14 @@ export default function SearchScreen() {
     setShowFileMenu(false);
     switch (action) {
       case 'favorite': toggleFavorite(file.id); break;
+      case 'copy':
+        copyToClipboard([], [file.id], null);
+        Alert.alert('Copied', 'File copied to clipboard.');
+        break;
+      case 'cut':
+        cutToClipboard([], [file.id], null);
+        Alert.alert('Cut', 'File cut to clipboard.');
+        break;
        case 'delete':
          confirmDestructive(
            'Move to Trash',
@@ -153,6 +177,22 @@ export default function SearchScreen() {
     setShowFolderMenu(false);
     switch (action) {
       case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
+      case 'copy':
+        copyToClipboard([folder.id], [], null);
+        Alert.alert('Copied', 'Folder copied to clipboard.');
+        break;
+      case 'cut':
+        cutToClipboard([folder.id], [], null);
+        Alert.alert('Cut', 'Folder cut to clipboard.');
+        break;
+      case 'paste':
+        if (clipboard) {
+          pasteFromClipboard(folder.id).then(() => {
+            clearClipboard();
+            Alert.alert('Paste Complete', 'Items pasted successfully.');
+          }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
+        }
+        break;
        case 'delete':
          confirmDestructive(
            'Move to Trash',
@@ -197,9 +237,11 @@ export default function SearchScreen() {
         <View style={styles.vaultTopRow}>
           <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
             {type === 'folder' ? (
-              <Text style={{ fontSize: 20 }}>📁</Text>
+              <Folder size={20} color={accentColor} strokeWidth={2.2} />
             ) : (
-              <Text style={{ fontSize: 20 }}>{ft?.icon || '📄'}</Text>
+              <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                {ft?.icon || <FileText size={20} color="#60A5FA" strokeWidth={2.2} />}
+              </View>
             )}
           </View>
           {selectionMode ? (
@@ -222,7 +264,8 @@ export default function SearchScreen() {
         <View style={styles.vaultBottomBlock}>
           <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>
             {item.name}
-            {item.isEncrypted && item.encryptionKeyId ? ' 🔒' : ''}
+            {item.isEncrypted && item.encryptionKeyId ? <Lock size={14} color={dash.accent} strokeWidth={2} style={{ marginLeft: 6 }} /> : null}
+            {item.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
           </Text>
           <View style={styles.vaultMetaRow}>
             <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>
@@ -271,7 +314,7 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={{ color: dash.textMuted, fontSize: 16 }}>✕</Text>
+              <X size={16} color={dash.textMuted} strokeWidth={2} />
             </TouchableOpacity>
           )}
         </View>
@@ -319,7 +362,7 @@ export default function SearchScreen() {
 
         {!showResults && (
           <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
-            <Text style={{ fontSize: 36, marginBottom: 10 }}>🔍</Text>
+            <Search size={36} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.4 }} />
             <Text style={[styles.emptyTitle, { color: dash.text }]}>Search Your Vault</Text>
             <Text style={[styles.emptyText, { color: dash.textMuted }]}>Type a file name or keyword to find files and folders.</Text>
           </View>
@@ -344,6 +387,16 @@ export default function SearchScreen() {
                       {filteredFolders.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
                     </Text>
                   </TouchableOpacity>
+                  {selectedIds.length > 0 && (
+                    <>
+                      <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                   <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
                     <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
                   </TouchableOpacity>
@@ -377,20 +430,30 @@ export default function SearchScreen() {
                       {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {
-                    if (selectedIds.length === 0) return;
-                    confirmDestructive(
-                      'Move to Trash',
-                      `Move ${selectedIds.length} items to trash?`,
-                      () => {
-                        selectedIds.forEach(id => softDeleteFile(id));
-                        exitSelectionMode();
-                      },
-                      'Move to Trash'
-                    );
-                  }} style={styles.textBtnDanger}>
-                    <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
-                  </TouchableOpacity>
+                  {selectedIds.length > 0 && (
+                    <>
+                      <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => {
+                        if (selectedIds.length === 0) return;
+                        confirmDestructive(
+                          'Move to Trash',
+                          `Move ${selectedIds.length} items to trash?`,
+                          () => {
+                            selectedIds.forEach(id => softDeleteFile(id));
+                            exitSelectionMode();
+                          },
+                          'Move to Trash'
+                        );
+                      }} style={styles.textBtnDanger}>
+                        <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                   <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
                     <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
                   </TouchableOpacity>
@@ -409,7 +472,7 @@ export default function SearchScreen() {
 
         {showResults && totalResults === 0 && (
           <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
-            <Text style={{ fontSize: 38, marginBottom: 10, opacity: 0.3 }}>🔍</Text>
+            <Search size={38} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.3 }} />
             <Text style={[styles.emptyTitle, { color: dash.text }]}>No results found</Text>
             <Text style={[styles.emptyText, { color: dash.textMuted }]}>Try a different search term</Text>
           </View>
@@ -430,6 +493,8 @@ export default function SearchScreen() {
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
               {[
                 { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+                { action: 'copy', label: 'Copy', color: dash.accent },
+                { action: 'cut', label: 'Cut', color: dash.accent },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
               ].map(item => (
@@ -450,13 +515,23 @@ export default function SearchScreen() {
               <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
               {[
                 { action: 'open', label: 'Open Folder', color: dash.accent },
+                { action: 'copy', label: 'Copy', color: dash.accent },
+                { action: 'cut', label: 'Cut', color: dash.accent },
                 { action: 'delete', label: 'Move to Trash', color: colors.error },
                 { action: 'shred', label: 'Shred Permanently', color: colors.error },
-              ].map(item => (
+              ].filter(item => {
+                if (item.action === 'paste') return !!clipboard;
+                return true;
+              }).map(item => (
                 <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetItem, item.action)}>
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
+              {clipboard && (
+                <TouchableOpacity style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetItem, 'paste')}>
+                  <Text style={[styles.actionSheetLabel, { color: dash.accent }]}>Paste Here</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </TouchableOpacity>
         </Modal>
