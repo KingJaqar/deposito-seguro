@@ -59,7 +59,7 @@ const VAULT_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
 const DISPLAY_CAPACITY_GB = 100;
 
 export default function DashboardScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const {
     disguiseAppName,
   } = useSettingsStore();
@@ -85,7 +85,9 @@ export default function DashboardScreen() {
     border: colors.dashboardBorder ?? colors.border,
     fabBg: colors.fabBg ?? colors.primary,
     fabText: colors.fabText ?? '#FFFFFF',
-  }), [colors]);
+    cloudBg: isDark ? '#E5E7EB' : '#E8F0FE',
+    cloudText: '#0F172A',
+  }), [colors, isDark]);
 
   const displayName = disguiseAppName || 'Deposito Seguro';
 
@@ -532,7 +534,7 @@ export default function DashboardScreen() {
       <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         
         <View style={styles.headerTextBlock}>
-          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>{displayName}</Text>
+          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
           <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
         </View>
         <ViewModeMenu />
@@ -562,13 +564,13 @@ export default function DashboardScreen() {
         <View
           style={[
             styles.storageCard,
-            { backgroundColor: dash.accent },
+            { backgroundColor: dash.cloudBg },
           ]}
         >
           <View style={styles.storageTopRow}>
             <View style={styles.storageLabelRow}>
-              <Cloud size={18} color={dash.text} />
-              <Text style={[styles.storageLabel, { color: dash.text }]}>
+              <Cloud size={18} color={dash.cloudText} />
+              <Text style={[styles.storageLabel, { color: dash.cloudText }]}>
                 Cloud Storage
               </Text>
             </View>
@@ -578,8 +580,8 @@ export default function DashboardScreen() {
           </View>
 
           <View style={styles.storageValueRow}>
-            <Text style={[styles.storageValue, { color: dash.text }]}>{displayStorageValue}</Text>
-            <Text style={[styles.storageUnit, { color: dash.text }]}> {displayStorageUnit}</Text>
+            <Text style={[styles.storageValue, { color: dash.cloudText }]}>{displayStorageValue}</Text>
+            <Text style={[styles.storageUnit, { color: dash.cloudText }]}> {displayStorageUnit}</Text>
           </View>
 
           <View style={[styles.progressTrack, { backgroundColor: dash.surfaceHover }]}>
@@ -591,8 +593,8 @@ export default function DashboardScreen() {
             />
           </View>
           <View style={styles.progressLabelsRow}>
-            <Text style={[styles.progressLabel, { color: dash.text }]}>0 GB</Text>
-            <Text style={[styles.progressLabel, { color: dash.text }]}>
+            <Text style={[styles.progressLabel, { color: dash.cloudText }]}>0 GB</Text>
+            <Text style={[styles.progressLabel, { color: dash.cloudText }]}>
               {DISPLAY_CAPACITY_GB} GB
             </Text>
           </View>
@@ -806,7 +808,7 @@ export default function DashboardScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pms.content}>
               <Text style={[pms.title, { color: dash.text }]}>Access Key Registration</Text>
               
-              <View style={[pms.targetRow, { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
+              <View style={[pms.targetRow, { backgroundColor: dash.bg, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
                 <FileText size={16} color={dash.textMuted} strokeWidth={2} />
                 <Text style={[pms.targetChipText, { color: dash.textMuted }]}>for {createPasswordTarget?.name}</Text>
               </View>
@@ -814,7 +816,7 @@ export default function DashboardScreen() {
               <View style={{ marginBottom: 20 }}>
                 <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Password Label</Text>
                 <TextInput
-                  style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text }]}
+                  style={[pms.input, { backgroundColor: dash.bg, color: dash.text }]}
                   placeholder="e.g. Personal Vault Password"
                   placeholderTextColor={dash.textMuted}
                   value={newPasswordLabel}
@@ -825,12 +827,12 @@ export default function DashboardScreen() {
               <View style={{ marginBottom: 24 }}>
                 <View style={pms.labelRow}>
                   <Text style={[pms.label, { color: dash.text, marginBottom: 0 }]}>Description</Text>
-                  <View style={[pms.optionalBadge, { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1 }]}>
+                  <View style={[pms.optionalBadge, { backgroundColor: dash.bg, borderColor: dash.border, borderWidth: 1 }]}>
                     <Text style={[pms.optionalBadgeText, { color: dash.textMuted }]}>optional</Text>
                   </View>
                 </View>
                 <TextInput
-                  style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, minHeight: 100, textAlignVertical: 'top' }]}
+                  style={[pms.input, { backgroundColor: dash.bg, color: dash.text, minHeight: 100, textAlignVertical: 'top' }]}
                   placeholder="What is this password used for?"
                   placeholderTextColor={dash.textMuted}
                   value={newPasswordDescription}
@@ -848,8 +850,8 @@ export default function DashboardScreen() {
               <View style={{ marginBottom: 20 }}>
                 <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Create Password</Text>
                 <View style={{ position: 'relative' }}>
-                  <TextInput
-                    style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, paddingRight: 50 }]}
+                   <TextInput
+                    style={[pms.input, { backgroundColor: dash.bg, color: dash.text, paddingRight: 50 }]}
                     placeholder="Enter a strong password"
                     placeholderTextColor={dash.textMuted}
                     value={newPassword}
@@ -887,8 +889,8 @@ export default function DashboardScreen() {
               <View style={{ marginBottom: 20 }}>
                 <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Confirm Password</Text>
                 <View style={{ position: 'relative' }}>
-                  <TextInput
-                    style={[pms.input, { backgroundColor: 'rgba(255,255,255,0.05)', color: dash.text, paddingRight: 50 }]}
+                   <TextInput
+                    style={[pms.input, { backgroundColor: dash.bg, color: dash.text, paddingRight: 50 }]}
                     placeholder="Confirm your password"
                     placeholderTextColor={dash.textMuted}
                     value={newConfirmPassword}
@@ -908,7 +910,7 @@ export default function DashboardScreen() {
               </View>
 
               <View style={pms.actions}>
-                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[pms.cancelBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[pms.cancelBtn, { backgroundColor: dash.bg }]}>
                   <X size={18} color={dash.text} strokeWidth={2.5} />
                   <Text style={[pms.cancelText, { color: dash.text }]}>Cancel</Text>
                 </TouchableOpacity>

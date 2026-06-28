@@ -130,7 +130,7 @@ function getFileVisual(item: TrashedFile) {
 }
 
 export default function TrashScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
 
@@ -146,17 +146,13 @@ export default function TrashScreen() {
     fabText: colors.fabText ?? '#FFFFFF',
   };
 
-  // Card-row specific tokens. These intentionally sit a touch darker/lighter
-  // than `dash.surface` (independent of the dashboard tokens above) so the
-  // trash list reads as its own distinct surface, matching the target design
-  // without altering any other screen that consumes `dash.surface`.
   const card = {
-    bg: '#18181B',
-    divider: 'rgba(245, 239, 224, 0.08)',
-    restoreBg: '#202030',
-    restoreText: '#7C82E8',
-    deleteBg: '#2C1E20',
-    deleteText: '#E4786F',
+    bg: isDark ? '#18181B' : '#FFFFFF',
+    divider: isDark ? 'rgba(245, 239, 224, 0.08)' : 'rgba(15, 23, 42, 0.08)',
+    restoreBg: isDark ? '#202030' : '#E8E8FF',
+    restoreText: isDark ? '#7C82E8' : '#5162FF',
+    deleteBg: isDark ? '#2C1E20' : '#FEE2E2',
+    deleteText: isDark ? '#E4786F' : '#DC2626',
   };
 
   const [search, setSearch] = useState('');

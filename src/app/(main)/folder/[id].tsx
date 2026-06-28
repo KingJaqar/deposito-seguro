@@ -1113,7 +1113,7 @@ export default function FolderDetailsScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.pmsContent}>
               <Text style={[st.pmsTitle, { color: text }]}>Access Key Registration</Text>
               
-              <View style={[st.pmsTargetRow, { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
+              <View style={[st.pmsTargetRow, { backgroundColor: bg, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
                 <FileText size={16} color={textMuted} strokeWidth={2} />
                 <Text style={[st.pmsTargetChipText, { color: textMuted }]}>for {createPasswordTarget?.name}</Text>
               </View>
@@ -1121,7 +1121,7 @@ export default function FolderDetailsScreen() {
               <View style={{ marginBottom: 20 }}>
                 <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Password Label</Text>
                 <TextInput
-                  style={[st.pmsInput, { backgroundColor: 'rgba(255,255,255,0.05)', color: text }]}
+                  style={[st.pmsInput, { backgroundColor: bg, color: text }]}
                   placeholder="e.g. Personal Vault Password"
                   placeholderTextColor={textMuted}
                   value={newPasswordLabel}
@@ -1132,12 +1132,12 @@ export default function FolderDetailsScreen() {
               <View style={{ marginBottom: 24 }}>
                 <View style={st.pmsLabelRow}>
                   <Text style={[st.pmsLabel, { color: text, marginBottom: 0 }]}>Description</Text>
-                  <View style={[st.pmsOptionalBadge, { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1 }]}>
+                  <View style={[st.pmsOptionalBadge, { backgroundColor: bg, borderColor: border, borderWidth: 1 }]}>
                     <Text style={[st.pmsOptionalBadgeText, { color: textMuted }]}>optional</Text>
                   </View>
                 </View>
                 <TextInput
-                  style={[st.pmsInput, { backgroundColor: 'rgba(255,255,255,0.05)', color: text, minHeight: 100, textAlignVertical: 'top' }]}
+                  style={[st.pmsInput, { backgroundColor: bg, color: text, minHeight: 100, textAlignVertical: 'top' }]}
                   placeholder="What is this password used for?"
                   placeholderTextColor={textMuted}
                   value={newPasswordDescription}
@@ -1156,7 +1156,7 @@ export default function FolderDetailsScreen() {
                 <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Create Password</Text>
                 <View style={{ position: 'relative' }}>
                   <TextInput
-                    style={[st.pmsInput, { backgroundColor: 'rgba(255,255,255,0.05)', color: text, paddingRight: 50 }]}
+                    style={[st.pmsInput, { backgroundColor: bg, color: text, paddingRight: 50 }]}
                     placeholder="Enter a strong password"
                     placeholderTextColor={textMuted}
                     value={newPassword}
@@ -1194,8 +1194,8 @@ export default function FolderDetailsScreen() {
               <View style={{ marginBottom: 20 }}>
                 <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Confirm Password</Text>
                 <View style={{ position: 'relative' }}>
-                  <TextInput
-                    style={[st.pmsInput, { backgroundColor: 'rgba(255,255,255,0.05)', color: text, paddingRight: 50 }]}
+                   <TextInput
+                    style={[st.pmsInput, { backgroundColor: bg, color: text, paddingRight: 50 }]}
                     placeholder="Confirm your password"
                     placeholderTextColor={textMuted}
                     value={newConfirmPassword}
@@ -1215,7 +1215,7 @@ export default function FolderDetailsScreen() {
               </View>
 
               <View style={st.pmsActions}>
-                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[st.pmsCancelBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[st.pmsCancelBtn, { backgroundColor: bg }]}>
                   <X size={18} color={text} strokeWidth={2.5} />
                   <Text style={[st.pmsCancelText, { color: text }]}>Cancel</Text>
                 </TouchableOpacity>

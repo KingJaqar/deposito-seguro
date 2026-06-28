@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
-import { useThemeColors } from '../../../contexts/ThemeContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { useSettingsStore } from '../../../store/settingsStore';
 
 function OptionRow({
@@ -10,12 +10,14 @@ function OptionRow({
   active,
   onPress,
   colors,
+  isDark,
 }: {
   label: string;
   sublabel?: string;
   active: boolean;
   onPress: () => void;
   colors: any;
+  isDark: boolean;
 }) {
   return (
     <TouchableOpacity
@@ -31,21 +33,21 @@ function OptionRow({
               : 'transparent',
             borderColor: active
               ? colors.primary
-              : 'rgba(255,255,255,0.07)',
+              : isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
           },
         ]}
       >
         <View style={optStyles.texts}>
           <Text style={[optStyles.label, { color: colors.text }]}>{label}</Text>
           {sublabel ? (
-            <Text style={[optStyles.sublabel, { color: 'rgba(255,255,255,0.35)' }]}>{sublabel}</Text>
+            <Text style={[optStyles.sublabel, { color: colors.textMuted }]}>{sublabel}</Text>
           ) : null}
         </View>
         <View
           style={[
             optStyles.radio,
             {
-              borderColor: active ? colors.primary : 'rgba(255,255,255,0.2)',
+              borderColor: active ? colors.primary : isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.12)',
               backgroundColor: active ? colors.primary : 'transparent',
             },
           ]}
@@ -80,9 +82,9 @@ const optStyles = StyleSheet.create({
   radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
 });
 
-function SectionTitle({ title }: { title: string }) {
+function SectionTitle({ title, color }: { title: string; color: string }) {
   return (
-    <Text style={sTitle.t}>{title}</Text>
+    <Text style={[sTitle.t, { color }]}>{title}</Text>
   );
 }
 const sTitle = StyleSheet.create({
@@ -90,7 +92,6 @@ const sTitle = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.9,
-    color: 'rgba(255,255,255,0.38)',
     textTransform: 'uppercase',
     marginBottom: 12,
     marginTop: 24,
@@ -99,7 +100,7 @@ const sTitle = StyleSheet.create({
 });
 
 export default function CustomizationSettingsScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark } = useTheme();
   const { themeMode, viewMode, updateSetting } = useSettingsStore();
 
   const themeOptions: { id: typeof themeMode; label: string; sub: string }[] = [
@@ -113,7 +114,7 @@ export default function CustomizationSettingsScreen() {
       <VaultHeader title="Appearance" showBack />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        <SectionTitle title="Color Theme" />
+        <SectionTitle title="Color Theme" color={colors.textMuted} />
         {themeOptions.map(opt => (
           <OptionRow
             key={opt.id}
@@ -122,16 +123,18 @@ export default function CustomizationSettingsScreen() {
             active={themeMode === opt.id}
             onPress={() => updateSetting('themeMode', opt.id)}
             colors={colors}
+            isDark={isDark}
           />
         ))}
 
-        <SectionTitle title="Directory Layout" />
+        <SectionTitle title="Directory Layout" color={colors.textMuted} />
         <OptionRow
           label="☰ List View"
           sublabel="Files displayed as rows"
           active={viewMode === 'list'}
           onPress={() => updateSetting('viewMode', 'list')}
           colors={colors}
+          isDark={isDark}
         />
         <OptionRow
           label="⊞ Large Icons"
@@ -139,6 +142,7 @@ export default function CustomizationSettingsScreen() {
           active={viewMode === 'large-icons'}
           onPress={() => updateSetting('viewMode', 'large-icons')}
           colors={colors}
+          isDark={isDark}
         />
         <OptionRow
           label="⊟ Medium Icons"
@@ -146,6 +150,7 @@ export default function CustomizationSettingsScreen() {
           active={viewMode === 'medium-icons'}
           onPress={() => updateSetting('viewMode', 'medium-icons')}
           colors={colors}
+          isDark={isDark}
         />
         <OptionRow
           label="▦ Small Icons"
@@ -153,6 +158,7 @@ export default function CustomizationSettingsScreen() {
           active={viewMode === 'small-icons'}
           onPress={() => updateSetting('viewMode', 'small-icons')}
           colors={colors}
+          isDark={isDark}
         />
 
       </ScrollView>

@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
 import { Delete, Lock } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { useThemeColors } from '../../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { PIN_MIN_LENGTH, validatePin } from '../../utils/accessKeyValidation';
@@ -23,27 +23,8 @@ const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
 };
 
 export default function LoginScreen() {
-  const colors = useThemeColors();
+  const { colors, isDark } = useTheme();
   const { height } = useWindowDimensions();
-  const { authenticate, securityHint, pinLength } = useAuthStore();
-  const { disguiseMode, disguiseIconTheme } = useSettingsStore();
-  const [inputBuffer, setInputBuffer] = useState('');
-  const [pin, setPin] = useState('');
-  const [calcHistory, setCalcHistory] = useState('');
-  const [calcExpression, setCalcExpression] = useState('');
-  const [calcMainDisplay, setCalcMainDisplay] = useState('0');
-  const [isSecondMode, setIsSecondMode] = useState(false);
-  const [showTransitionSplash, setShowTransitionSplash] = useState(false);
-  const pinInputRef = useRef<TextInput>(null);
-  const isCalc = disguiseMode === 'calculator';
-
-  useEffect(() => {
-    if (!isCalc) {
-      setTimeout(() => pinInputRef.current?.focus(), 100);
-    }
-  }, [isCalc]);
-  const calcTheme = CALC_THEME_COLORS[disguiseIconTheme] || CALC_THEME_COLORS.default;
-
   const { buttonHeight, sciButtonHeight } = useMemo(() => {
     const ROW_MARGIN = 8;
     const BOTTOM_PADDING = 20;
@@ -57,6 +38,32 @@ export default function LoginScreen() {
     const sciHeight = mainHeight * SCI_RATIO;
     return { buttonHeight: mainHeight, sciButtonHeight: sciHeight };
   }, [height]);
+
+  const { authenticate, securityHint } = useAuthStore();
+  const { disguiseMode, disguiseIconTheme } = useSettingsStore();
+  const [inputBuffer, setInputBuffer] = useState('');
+  const [pin, setPin] = useState('');
+  const [calcHistory, setCalcHistory] = useState('');
+  const [calcExpression, setCalcExpression] = useState('');
+  const [calcMainDisplay, setCalcMainDisplay] = useState('0');
+  const [isSecondMode, setIsSecondMode] = useState(false);
+  const [showTransitionSplash, setShowTransitionSplash] = useState(false);
+  const pinInputRef = useRef<TextInput>(null);
+  const isCalc = disguiseMode === 'calculator';
+  const calcTheme = CALC_THEME_COLORS[disguiseIconTheme] || CALC_THEME_COLORS.default;
+
+  const stdTheme = {
+    bg: isDark ? '#000000' : colors.background,
+    text: isDark ? '#FFFFFF' : colors.text,
+    muted: isDark ? '#8E8E93' : colors.textMuted,
+    surface: isDark ? '#1C1C1E' : colors.surface,
+    keypad: isDark ? '#2D2D2D' : colors.surfaceElevated,
+    keyText: isDark ? '#FFFFFF' : colors.text,
+    keySub: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
+    unlockBg: isDark ? '#F5F0E8' : colors.primary,
+    unlockText: isDark ? '#000000' : '#FFFFFF',
+    inputPlaceholder: isDark ? 'rgba(255,255,255,0.3)' : colors.textMuted,
+  };
 
   const handleStandardAuth = async (rawInput?: string, silent = false) => {
     const pinValue = (rawInput ?? (isCalc ? inputBuffer : pin)).replace(/[^0-9]/g, '');
@@ -467,22 +474,22 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={[styles.stdContainer, { backgroundColor: '#000000' }]}>
-      <View style={styles.logoWrap}>
+    <View style={[styles.stdContainer, { backgroundColor: stdTheme.bg }]}>
+      <View style={[styles.logoWrap, { backgroundColor: isDark ? '#1C1C1E' : colors.surfaceElevated }]}>
         <Image source={require('../../../assets/logo/DepoS_logo.png')} style={styles.logo} resizeMode="contain" />
       </View>
-      <Text style={styles.appName}>Deposito Seguro</Text>
+      <Text style={[styles.appName, { color: stdTheme.text }]}>Deposito Seguro</Text>
 
-      <Text style={[styles.stdTitle, { color: '#FFFFFF' }]}>Enter PIN</Text>
-      <Text style={[styles.subtitle, { color: '#8E8E93' }]}>
+      <Text style={[styles.stdTitle, { color: stdTheme.text }]}>Enter PIN</Text>
+      <Text style={[styles.subtitle, { color: stdTheme.muted }]}>
         Enter your PIN to unlock the vault
       </Text>
 
       <TextInput
         ref={pinInputRef}
-        style={styles.pinInput}
+        style={[styles.pinInput, { backgroundColor: stdTheme.surface, color: stdTheme.text }]}
         placeholder="Enter PIN"
-        placeholderTextColor="rgba(255,255,255,0.3)"
+        placeholderTextColor={stdTheme.inputPlaceholder}
         value={pin}
         onChangeText={setPin}
         keyboardType="number-pad"
@@ -495,7 +502,7 @@ export default function LoginScreen() {
       />
 
       {securityHint ? (
-        <Text style={[styles.hintText, { color: '#8E8E93' }]}>Hint: {securityHint}</Text>
+        <Text style={[styles.hintText, { color: stdTheme.muted }]}>Hint: {securityHint}</Text>
       ) : null}
 
       <View style={{ flex: 1 }} />
@@ -512,22 +519,22 @@ export default function LoginScreen() {
               const btnKey = `btn-${ri}-${ci}`;
               if (key === 'clearAll') {
                 return (
-                  <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={handleClearAll} activeOpacity={0.7}>
-                    <Text style={styles.keyNum}>C</Text>
+                  <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleClearAll} activeOpacity={0.7}>
+                    <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>C</Text>
                   </TouchableOpacity>
                 );
               }
               if (key === 'backspace') {
                 return (
-                  <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={handleBackspace} activeOpacity={0.7}>
-                    <Delete size={26} color="#FFFFFF" strokeWidth={2.5} />
+                  <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleBackspace} activeOpacity={0.7}>
+                    <Delete size={26} color={stdTheme.keyText} strokeWidth={2.5} />
                   </TouchableOpacity>
                 );
               }
               return (
-                <TouchableOpacity key={btnKey} style={styles.keypadBtn} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
-                  <Text style={styles.keyNum}>{key}</Text>
-                  {T9[key] ? <Text style={styles.keySub}>{T9[key]}</Text> : null}
+                <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
+                  <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>{key}</Text>
+                  {T9[key] ? <Text style={[styles.keySub, { color: stdTheme.keySub }]}>{T9[key]}</Text> : null}
                 </TouchableOpacity>
               );
             })}
@@ -538,12 +545,12 @@ export default function LoginScreen() {
       <View style={{ height: 16 }} />
 
       <TouchableOpacity
-        style={[styles.unlockBtn, { backgroundColor: '#F5F0E8' }]}
+        style={[styles.unlockBtn, { backgroundColor: stdTheme.unlockBg }]}
         onPress={handleUnlockPress}
         activeOpacity={0.8}
       >
-        <Lock size={18} color="#000000" strokeWidth={2.5} />
-        <Text style={styles.unlockBtnText}>Unlock Vault</Text>
+        <Lock size={18} color={stdTheme.unlockText} strokeWidth={2.5} />
+        <Text style={[styles.unlockBtnText, { color: stdTheme.unlockText }]}>Unlock Vault</Text>
       </TouchableOpacity>
     </View>
   );

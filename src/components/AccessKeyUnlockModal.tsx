@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Eye, EyeOff, Key, Lock, X } from 'lucide-react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { LOCKOUT_DURATION_MS, MAX_PASSWORD_ATTEMPTS, useLockoutStore } from '../store/lockoutStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { AccessKeyMetadata } from '../types';
@@ -25,7 +25,7 @@ export function AccessKeyUnlockModal({
   onClose,
   onUnlock,
 }: AccessKeyUnlockModalProps) {
-  const colors = useThemeColors();
+  const { isDark } = useTheme();
   const accessKeys = useSettingsStore((state: { accessKeys: AccessKeyMetadata[] }) => state.accessKeys);
   const { recordFailedAttempt, resetAttempts, isLockedOut, getRemainingLockoutTime } = useLockoutStore();
   const [password, setPassword] = useState('');
@@ -81,26 +81,49 @@ export function AccessKeyUnlockModal({
     onClose();
   };
 
+  const theme = {
+    card: isDark ? '#1A1A1A' : '#FFFFFF',
+    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+    ring: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+    circle: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    title: isDark ? '#FFFFFF' : '#0F172A',
+    subtitle: isDark ? '#8E8E93' : '#64748B',
+    icon: isDark ? '#8E8E93' : '#64748B',
+    idBox: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+    idBoxBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
+    idText: isDark ? '#FFFFFF' : '#0F172A',
+    hint: isDark ? '#8E8E93' : '#64748B',
+    input: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+    inputBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+    inputText: isDark ? '#FFFFFF' : '#0F172A',
+    placeholder: isDark ? '#8E8E93' : '#64748B',
+    eye: isDark ? '#FFFFFF' : '#0F172A',
+    cancelBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    cancelText: isDark ? '#FFFFFF' : '#0F172A',
+    unlockBg: isDark ? '#F5F0E8' : '#5162FF',
+    unlockText: isDark ? '#000000' : '#FFFFFF',
+  };
+
   return (
     <Modal transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
-        <View style={[styles.card, { backgroundColor: '#1A1A1A' }]}>
-          <View style={styles.iconRing}>
-            <View style={styles.iconCircle}>
-              <Lock size={32} color="#8E8E93" strokeWidth={1.5} />
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.iconRing, { backgroundColor: theme.ring }]}>
+            <View style={[styles.iconCircle, { backgroundColor: theme.circle }]}>
+              <Lock size={32} color={theme.icon} strokeWidth={1.5} />
             </View>
           </View>
 
-          <Text style={styles.title}>Password Required</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: theme.title }]}>Password Required</Text>
+          <Text style={[styles.subtitle, { color: theme.subtitle }]}>
             Enter the access key password to access this {targetType}
           </Text>
 
-          <View style={styles.idBox}>
-            <Text style={styles.idText}>{targetId}</Text>
+          <View style={[styles.idBox, { backgroundColor: theme.idBox, borderColor: theme.idBoxBorder }]}>
+            <Text style={[styles.idText, { color: theme.idText }]}>{targetId}</Text>
             {targetPassword && (
-              <Text style={styles.hintText}>
+              <Text style={[styles.hintText, { color: theme.hint }]}>
                 Hint: {targetPassword.label}
                 {targetPassword.description ? ` - ${targetPassword.description}` : ''}
               </Text>
@@ -108,15 +131,15 @@ export function AccessKeyUnlockModal({
           </View>
 
           <View style={styles.labelRow}>
-            <Key size={14} color="#8E8E93" strokeWidth={2} />
-            <Text style={styles.inputLabel}>ENTER PASSWORD</Text>
+            <Key size={14} color={theme.icon} strokeWidth={2} />
+            <Text style={[styles.inputLabel, { color: theme.icon }]}>ENTER PASSWORD</Text>
           </View>
 
           <View style={styles.inputWrap}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: theme.input, borderColor: theme.inputBorder, color: theme.inputText }]}
               placeholder="Enter password"
-              placeholderTextColor="#8E8E93"
+              placeholderTextColor={theme.placeholder}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -127,22 +150,22 @@ export function AccessKeyUnlockModal({
               onPress={() => setShowPassword(!showPassword)}
             >
               {showPassword ? (
-                <EyeOff size={18} color="#8E8E93" strokeWidth={2} />
+                <EyeOff size={18} color={theme.icon} strokeWidth={2} />
               ) : (
-                <Eye size={18} color="#8E8E93" strokeWidth={2} />
+                <Eye size={18} color={theme.icon} strokeWidth={2} />
               )}
-              <Text style={styles.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
+              <Text style={[styles.eyeText, { color: theme.icon }]}>{showPassword ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
-              <X size={18} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.cancelText}>Cancel</Text>
+            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.cancelBg }]} onPress={handleClose}>
+              <X size={18} color={theme.cancelText} strokeWidth={2.5} />
+              <Text style={[styles.cancelText, { color: theme.cancelText }]}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.unlockBtn} onPress={handleUnlock}>
-              <Lock size={18} color="#000000" strokeWidth={2.5} />
-              <Text style={styles.unlockText}>Unlock</Text>
+            <TouchableOpacity style={[styles.unlockBtn, { backgroundColor: theme.unlockBg }]} onPress={handleUnlock}>
+              <Lock size={18} color={theme.unlockText} strokeWidth={2.5} />
+              <Text style={[styles.unlockText, { color: theme.unlockText }]}>Unlock</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -174,13 +197,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
   iconRing: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
@@ -189,47 +210,40 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#FFFFFF',
     letterSpacing: -0.3,
     marginBottom: 6,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
   },
   idBox: {
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 20,
     alignItems: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
   },
   idText: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#FFFFFF',
     letterSpacing: 2,
     marginBottom: 4,
     textAlign: 'center',
   },
   hintText: {
     fontSize: 13,
-    color: '#8E8E93',
     textAlign: 'center',
     fontStyle: 'italic',
   },
@@ -244,7 +258,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.8,
-    color: '#8E8E93',
     textTransform: 'uppercase',
   },
   inputWrap: {
@@ -254,13 +267,12 @@ const styles = StyleSheet.create({
   },
   input: {
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: '#FFFFFF',
     fontSize: 15,
     paddingRight: 80,
+    borderWidth: 1,
   },
   eyeBtn: {
     position: 'absolute',
@@ -274,7 +286,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   eyeText: {
-    color: '#8E8E93',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -291,10 +302,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   cancelText: {
-    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 15,
   },
@@ -306,10 +315,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    backgroundColor: '#F5F0E8',
   },
   unlockText: {
-    color: '#000000',
     fontWeight: '800',
     fontSize: 15,
   },
