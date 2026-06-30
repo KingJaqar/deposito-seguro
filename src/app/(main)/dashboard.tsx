@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import {
   Box,
-  Clipboard,
   ClipboardCheck,
   Cloud,
   Copy,
@@ -25,17 +24,17 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
-  Image,
   Modal,
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../components/ClipboardBar';
@@ -49,17 +48,11 @@ import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { getPasswordStrength, getPasswordValidationMessages, validatePassword } from '../../utils/accessKeyValidation';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SCREEN_PADDING = 24;
-const CATEGORY_GAP = 12;
-const VAULT_GAP = 16;
-const CATEGORY_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - CATEGORY_GAP * 2) / 3;
-const VAULT_TILE_WIDTH = (SCREEN_WIDTH - SCREEN_PADDING * 2 - VAULT_GAP) / 2;
-
 const DISPLAY_CAPACITY_GB = 100;
 
 export default function DashboardScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, space, font, screenPadding, headerPaddingTop, bottomTabSpacing, isTablet, responsiveSize, gridColumns, gridItemWidth } = useTheme();
+  const { width } = useWindowDimensions();
   const {
     disguiseAppName,
   } = useSettingsStore();
@@ -384,18 +377,21 @@ export default function DashboardScreen() {
 
   const exitSelectionMode = () => { setSelectionMode(false); setSelectedFolderIds([]); };
 
-  const CategoryTile = useCallback(({ item, index }: { item: typeof categoryData[number]; index: number }) => (
-    <Pressable
-      onPress={() => router.push('/(main)/search')}
-      style={[styles.categoryTile, { backgroundColor: dash.surface, width: CATEGORY_TILE_WIDTH }]}
-    >
-      <View style={[styles.categoryIconChip, { backgroundColor: `${item.color}1A` }]}>
-        <item.Icon size={20} color={item.color} strokeWidth={2.2} />
-      </View>
-      <Text style={[styles.categoryLabel, { color: dash.text }]} numberOfLines={1}>{item.label}</Text>
-      <Text style={[styles.categoryCount, { color: dash.textMuted }]}>{item.count} files</Text>
-    </Pressable>
-  ), [dash.surface, dash.text, dash.textMuted]);
+  const CategoryTile = useCallback(({ item, index, width }: { item: typeof categoryData[number]; index: number; width: number }) => {
+    const filterLabel = item.key === 'docs' ? 'Documents' : item.label;
+    return (
+      <Pressable
+        onPress={() => router.push({ pathname: '/(main)/search', params: { filter: filterLabel } })}
+        style={[styles.categoryTile, { backgroundColor: dash.surface, paddingVertical: space(4), paddingHorizontal: space(2), borderRadius: space(2), alignItems: 'center', width }]}
+      >
+        <View style={[styles.categoryIconChip, { backgroundColor: `${item.color}1A`, marginBottom: space(2), width: responsiveSize(40, 48, 52), height: responsiveSize(40, 48, 52), borderRadius: responsiveSize(12, 14, 16) }]}>
+          <item.Icon size={responsiveSize(20, 22, 24)} color={item.color} strokeWidth={2.2} />
+        </View>
+        <Text style={[styles.categoryLabel, { color: dash.text, fontSize: font(13), marginBottom: space(1) }]} numberOfLines={1}>{item.label}</Text>
+        <Text style={[styles.categoryCount, { color: dash.textMuted, fontSize: font(11) }]}>{item.count} files</Text>
+      </Pressable>
+    );
+  }, [dash.surface, dash.text, dash.textMuted, isTablet, space, font, responsiveSize]);
 
   const VaultTile = useCallback(({ item, index, gridWidth }: { item: any; index: number; gridWidth?: number }) => {
     const stats = folderStatsMap[item.id] || { count: 0, size: 0 };
@@ -404,7 +400,7 @@ export default function DashboardScreen() {
     const sizeLabel = folderMB >= 1024 ? `${(folderMB / 1024).toFixed(1)} GB` : `${folderMB.toFixed(0)} MB`;
     const isSelected = selectedFolderIds.includes(item.id);
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
-    const width = gridWidth ?? VAULT_TILE_WIDTH;
+    const width = gridWidth ?? 160;
 
     return (
       <Pressable
@@ -417,21 +413,23 @@ export default function DashboardScreen() {
             width,
             borderColor: isSelected ? dash.accent : 'transparent',
             borderWidth: 2,
+            padding: space(4),
+            minHeight: responsiveSize(150, 170, 190),
           },
         ]}
       >
         <View style={styles.vaultTopRow}>
-          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26` }]}>
-            <Folder size={20} color={accentColor} strokeWidth={2.2} />
+          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26`, width: responsiveSize(40, 48, 52), height: responsiveSize(40, 48, 52), borderRadius: responsiveSize(20, 24, 26) }]}>
+            <Folder size={responsiveSize(20, 22, 24)} color={accentColor} strokeWidth={2.2} />
             {(item.hasAccessKey || item.accessKeyId) && (
-              <View style={[styles.lockBadge, { backgroundColor: dash.accent }]}>
-                <Lock size={10} color="#FFFFFF" strokeWidth={3} />
+              <View style={{ position: 'absolute', bottom: -2, right: -2, width: responsiveSize(16, 18, 20), height: responsiveSize(16, 18, 20), borderRadius: responsiveSize(8, 9, 10), alignItems: 'center', justifyContent: 'center', backgroundColor: dash.accent }}>
+                <Lock size={responsiveSize(10, 12, 14)} color="#FFFFFF" strokeWidth={3} />
               </View>
             )}
           </View>
           {selectionMode ? (
             <View style={styles.checkBox}>
-              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
+              <View style={{ width: responsiveSize(20, 24, 28), height: responsiveSize(20, 24, 28), borderRadius: responsiveSize(6, 8, 9), borderWidth: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }}>
                 {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
               </View>
             </View>
@@ -441,88 +439,100 @@ export default function DashboardScreen() {
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
             >
-              <MoreVertical size={18} color={dash.textMuted} />
+              <MoreVertical size={responsiveSize(18, 20, 22)} color={dash.textMuted} />
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.vaultBottomBlock}>
+        <View style={[styles.vaultBottomBlock, { marginTop: space(3) }]}>
           <View style={styles.vaultNameRow}>
-            <Text style={[styles.vaultName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+            <Text style={[styles.vaultName, { color: dash.text, fontSize: font(15) }]} numberOfLines={1}>{item.name}</Text>
             <View style={styles.vaultNameIcons}>
-              {(item.hasAccessKey || item.accessKeyId) && <Lock size={14} color={dash.accent} />}
-              {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: 12 }}>🔐</Text> : null}
-              {item.isFavorite ? <ShieldCheck size={14} color="#FBBF24" /> : null}
+              {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(14, 16, 18)} color={dash.accent} />}
+              {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: responsiveSize(12, 14, 16) }}>🔐</Text> : null}
+              {item.isFavorite ? <ShieldCheck size={responsiveSize(14, 16, 18)} color="#FBBF24" /> : null}
             </View>
           </View>
           <View style={styles.vaultMetaRow}>
-            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{folderFileCount} files</Text>
-            <Text style={[styles.vaultMeta, { color: dash.textMuted }]}>{sizeLabel}</Text>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(12) }]}>{folderFileCount} files</Text>
+            <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(12) }]}>{sizeLabel}</Text>
           </View>
         </View>
       </Pressable>
     );
-  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette, handleVaultPress]);
+  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette, handleVaultPress, responsiveSize]);
 
-  const VAULT_GAP = 12;
-  const getVaultColumns = (mode: string) => {
-    if (mode === 'list') return 1;
-    if (mode === 'small-icons') return 5;
-    if (mode === 'medium-icons') return 3;
-    return 2;
-  };
-  const getVaultItemWidth = (mode: string) => {
+   const vaultGap = space(6);
+   const categoryGap = space(6);
+   const categoryColumns = gridColumns('small-icons', 100);
+   const categoryItemWidth = gridItemWidth(categoryColumns, categoryGap, screenPadding);
+   const getVaultColumns = useCallback((mode: string) => {
+     const w = width - screenPadding * 2;
+     if (mode === 'list') return 1;
+     if (w > 900 || isTablet) return mode === 'small-icons' ? 5 : mode === 'medium-icons' ? 4 : 2;
+     return mode === 'small-icons' ? 4 : mode === 'medium-icons' ? 3 : 2;
+   }, [width, screenPadding, isTablet]);
+
+  const getVaultItemWidth = useCallback((mode: string) => {
     const cols = getVaultColumns(mode);
-    const gap = VAULT_GAP;
-    return (SCREEN_WIDTH - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
-  };
+    const gap = vaultGap;
+    return Math.max(140, (width - screenPadding * 2 - gap * (cols - 1)) / cols);
+  }, [width, screenPadding, vaultGap, getVaultColumns]);
 
   const renderVaultGrid = (folders: any[], accentOffset = 0) => {
     const itemWidth = getVaultItemWidth(viewMode);
-    const isGrid = viewMode !== 'list';
-    const gap = viewMode === 'list' ? 0 : VAULT_GAP;
 
     return (
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: vaultGap }}>
         {folders.map((item, i) => {
-          const accentColor = vaultAccentPalette[(i + accentOffset) % vaultAccentPalette.length];
-          if (isGrid) {
+          const width = itemWidth;
+          if (viewMode === 'list') {
             return (
-              <Pressable
-                key={item.id}
-                onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
-                onPress={() => handleVaultPress(item)}
-                style={[
-                  styles.vaultGridTile,
-                  {
-                    width: itemWidth,
-                    backgroundColor: dash.surface,
-                    borderColor: selectedFolderIds.includes(item.id) ? dash.accent : 'transparent',
-                    borderWidth: 2,
-                  },
-                ]}
-              >
-                <View style={[styles.vaultGridIcon, { backgroundColor: `${accentColor}26` }]}>
-                  <Folder size={28} color={accentColor} strokeWidth={2} />
-                  {(item.hasAccessKey || item.accessKeyId) && (
-                    <View style={[styles.lockBadge, { backgroundColor: dash.accent }]}>
-                      <Lock size={10} color="#FFFFFF" strokeWidth={3} />
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.vaultGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
-                <View style={styles.vaultGridIconsRow}>
-                  {(item.hasAccessKey || item.accessKeyId) && <Lock size={12} color={dash.accent} />}
-                  {item.isFavorite && <ShieldCheck size={12} color="#FBBF24" />}
-                </View>
-              </Pressable>
+               <View key={item.id} style={{ width }}>
+                <VaultTile item={item} index={i + accentOffset} gridWidth={width} />
+              </View>
             );
           }
 
+          const accentColor = vaultAccentPalette[(i + accentOffset) % vaultAccentPalette.length];
           return (
-            <View key={item.id} style={{ width: '100%', marginBottom: 12 }}>
-              <VaultTile item={item} index={i + accentOffset} />
-            </View>
+            <Pressable
+              key={item.id}
+              onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
+              onPress={() => handleVaultPress(item)}
+              style={[
+                styles.vaultGridTile,
+                {
+                  width: itemWidth,
+                  backgroundColor: dash.surface,
+                  borderColor: selectedFolderIds.includes(item.id) ? dash.accent : 'transparent',
+                  borderWidth: 2,
+                  minHeight: responsiveSize(110, 130, 150),
+                },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+                style={styles.gridMenuIcon}
+              >
+                <Text style={styles.gridMenuDots}>•••</Text>
+              </TouchableOpacity>
+              <View style={{ width: responsiveSize(44, 52, 60), height: responsiveSize(44, 52, 60), borderRadius: responsiveSize(16, 18, 20), alignItems: 'center', justifyContent: 'center', marginBottom: 10, position: 'relative', backgroundColor: `${accentColor}26` }}>
+                <Folder size={responsiveSize(24, 28, 32)} color={accentColor} strokeWidth={2} />
+                {(item.hasAccessKey || item.accessKeyId) && (
+                  <View style={{ position: 'absolute', bottom: -2, right: -2, width: responsiveSize(14, 16, 18), height: responsiveSize(14, 16, 18), borderRadius: responsiveSize(7, 8, 9), alignItems: 'center', justifyContent: 'center', backgroundColor: dash.accent }}>
+                    <Lock size={responsiveSize(8, 10, 12)} color="#FFFFFF" strokeWidth={3} />
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.vaultGridName, { color: dash.text, fontSize: font(13) }]} numberOfLines={1}>{item.name}</Text>
+              <View style={styles.vaultGridIconsRow}>
+                {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(10, 12, 14)} color={dash.accent} />}
+                {item.isFavorite && <ShieldCheck size={responsiveSize(10, 12, 14)} color="#FBBF24" />}
+              </View>
+            </Pressable>
           );
         })}
       </View>
@@ -530,25 +540,25 @@ export default function DashboardScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
-        
+    <SafeAreaView style={[styles.root, { backgroundColor: dash.bg }]}>
+      <View style={[styles.headerRow, { backgroundColor: dash.bg, paddingTop: headerPaddingTop, paddingHorizontal: screenPadding }]}>
         <View style={styles.headerTextBlock}>
-          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Deposito Seguro</Text>
-          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Your secure storage vault</Text>
+          <Text style={[styles.headerTitle, { color: dash.text, fontSize: font(24) }]} numberOfLines={1}>Deposito Seguro</Text>
+          <Text style={[styles.headerTagline, { color: dash.textMuted, fontSize: font(13) }]} numberOfLines={1}>Your secure storage vault</Text>
         </View>
         <ViewModeMenu />
       </View>
 
       <ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={styles.scrollBody}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing + responsiveSize(90, 100, 110) }]}
         showsVerticalScrollIndicator={false}
       >
         <Pressable onPress={() => router.push('/(main)/search')}>
-          <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
+          <View style={[styles.searchBar, { backgroundColor: dash.surface, paddingHorizontal: space(4), paddingVertical: space(3), marginBottom: space(8) }]}>
             <Search size={18} color={dash.textMuted} />
-            <Text style={[styles.searchPlaceholder, { color: dash.textMuted }]}>Search files, vaults...</Text>
+            <Text style={[styles.searchPlaceholder, { color: dash.textMuted, fontSize: font(14) }]}>Search files, vaults...</Text>
           </View>
         </Pressable>
 
@@ -564,24 +574,24 @@ export default function DashboardScreen() {
         <View
           style={[
             styles.storageCard,
-            { backgroundColor: dash.cloudBg },
+            { backgroundColor: dash.cloudBg, borderRadius: space(2), padding: space(5), marginBottom: space(8) },
           ]}
         >
           <View style={styles.storageTopRow}>
             <View style={styles.storageLabelRow}>
               <Cloud size={18} color={dash.cloudText} />
-              <Text style={[styles.storageLabel, { color: dash.cloudText }]}>
+              <Text style={[styles.storageLabel, { color: dash.cloudText, fontSize: font(13) }]}>
                 Cloud Storage
               </Text>
             </View>
             <View style={[styles.usedPill, { backgroundColor: dash.surface }]}>
-              <Text style={[styles.usedPillText, { color: dash.text }]}>{percentUsed}% Used</Text>
+              <Text style={[styles.usedPillText, { color: dash.text, fontSize: font(12) }]}>{percentUsed}% Used</Text>
             </View>
           </View>
 
           <View style={styles.storageValueRow}>
-            <Text style={[styles.storageValue, { color: dash.cloudText }]}>{displayStorageValue}</Text>
-            <Text style={[styles.storageUnit, { color: dash.cloudText }]}> {displayStorageUnit}</Text>
+            <Text style={[styles.storageValue, { color: dash.cloudText, fontSize: font(30) }]}>{displayStorageValue}</Text>
+            <Text style={[styles.storageUnit, { color: dash.cloudText, fontSize: font(16) }]}> {displayStorageUnit}</Text>
           </View>
 
           <View style={[styles.progressTrack, { backgroundColor: dash.surfaceHover }]}>
@@ -593,34 +603,34 @@ export default function DashboardScreen() {
             />
           </View>
           <View style={styles.progressLabelsRow}>
-            <Text style={[styles.progressLabel, { color: dash.cloudText }]}>0 GB</Text>
-            <Text style={[styles.progressLabel, { color: dash.cloudText }]}>
+            <Text style={[styles.progressLabel, { color: dash.cloudText, fontSize: font(12) }]}>0 GB</Text>
+            <Text style={[styles.progressLabel, { color: dash.cloudText, fontSize: font(12) }]}>
               {DISPLAY_CAPACITY_GB} GB
             </Text>
           </View>
         </View>
 
-        <View style={styles.section}>
+        <View style={[styles.section, { marginBottom: space(8) }]}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: dash.text }]}>Categories</Text>
+            <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(18) }]}>Categories</Text>
             <TouchableOpacity onPress={() => router.push('/(main)/search')}>
-              <Text style={[styles.seeAll, { color: dash.textMuted }]}>See all</Text>
+              <Text style={[styles.seeAll, { color: dash.textMuted, fontSize: font(13) }]}>See all</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.categoryGrid}>
+          <View style={[styles.categoryGrid, { gap: categoryGap }]}>
             {categoryData.map((item, i) => (
-              <CategoryTile key={item.key} item={item} index={i} />
+              <CategoryTile key={item.key} item={item} index={i} width={categoryItemWidth} />
             ))}
           </View>
         </View>
 
-        <View style={styles.section}>
+        <View style={[styles.section, { marginBottom: space(8) }]}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: dash.text }]}>My Vaults</Text>
+            <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(18) }]}>My Vaults</Text>
             {selectionMode ? (
               <View style={styles.sectionActions}>
                 <TouchableOpacity onPress={handleSelectAllFolders} style={styles.textBtn}>
-                  <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
+                  <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>
                     {selectedFolderIds.length === folders.length ? 'Deselect All' : 'Select All'}
                   </Text>
                 </TouchableOpacity>
@@ -628,54 +638,54 @@ export default function DashboardScreen() {
                   <>
                     <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
                       <Copy size={14} color={dash.text} strokeWidth={2.5} />
-                      <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                      <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Copy</Text>
                     </TouchableOpacity>
                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
                        <Scissors size={14} color={dash.text} strokeWidth={2.5} />
-                       <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                       <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Cut</Text>
                      </TouchableOpacity>
                      {clipboard && (
                        <TouchableOpacity onPress={handlePasteToRoot} style={styles.textBtn}>
                          <ClipboardCheck size={14} color={dash.accent} strokeWidth={2.5} />
-                         <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>Paste</Text>
+                         <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>Paste</Text>
                        </TouchableOpacity>
                      )}
                      <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
-                      <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
+                      <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Shred</Text>
                      </TouchableOpacity>
                   </>
                 )}
                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                  <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
+                  <Text style={{ color: dash.textMuted, fontSize: font(13), fontWeight: '700' }}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity onPress={() => router.push('/(main)/favorites')}>
-                <Text style={[styles.seeAll, { color: dash.textMuted }]}>See all</Text>
+                <Text style={[styles.seeAll, { color: dash.textMuted, fontSize: font(13) }]}>See all</Text>
               </TouchableOpacity>
             )}
           </View>
 
           {folders.length === 0 ? (
-            <View style={[styles.emptyCard, { backgroundColor: dash.surface }]}>
-              <Text style={{ fontSize: 48, marginBottom: 12 }}>🏦</Text>
-              <Text style={[styles.emptyTitle, { color: dash.text }]}>No Vaults Yet</Text>
-              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Create your first secure vault to get started</Text>
+            <View style={[styles.emptyCard, { backgroundColor: dash.surface, borderRadius: space(2), paddingVertical: space(10), paddingHorizontal: space(5) }]}>
+              <Text style={{ fontSize: responsiveSize(36, 42, 48), marginBottom: space(3) }}>🏦</Text>
+              <Text style={[styles.emptyTitle, { color: dash.text, fontSize: font(18) }]}>No Vaults Yet</Text>
+              <Text style={[styles.emptyText, { color: dash.textMuted, fontSize: font(14) }]}>Create your first secure vault to get started</Text>
               <TouchableOpacity onPress={handleDirectoryProvisioning} style={[styles.emptyBtn, { backgroundColor: dash.fabBg }]}>
-                <Text style={{ color: dash.fabText, fontWeight: '700', fontSize: 14 }}>Create First Vault</Text>
+                <Text style={{ color: dash.fabText, fontWeight: '700', fontSize: font(14) }}>Create First Vault</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <View>
               {rootFolders.length > 0 && (
-                <View style={styles.vaultSection}>
-                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>ROOT VAULTS</Text>
+                <View style={[styles.vaultSection, { marginBottom: space(6) }]}>
+                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted, marginBottom: space(2) }]}>ROOT VAULTS</Text>
                   {renderVaultGrid(rootFolders, 0)}
                 </View>
               )}
               {subFolders.length > 0 && (
-                <View style={styles.vaultSection}>
-                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted }]}>SUBFOLDERS</Text>
+                <View style={[styles.vaultSection, { marginBottom: space(6) }]}>
+                  <Text style={[styles.vaultSectionLabel, { color: dash.textMuted, marginBottom: space(2) }]}>SUBFOLDERS</Text>
                   {renderVaultGrid(subFolders, rootFolders.length)}
                 </View>
               )}
@@ -688,11 +698,11 @@ export default function DashboardScreen() {
 
       <Pressable
         onPress={handleDirectoryProvisioning}
-        style={[styles.fab, { backgroundColor: dash.fabBg }]}
+        style={[styles.fab, { backgroundColor: dash.fabBg, width: responsiveSize(56, 64, 72), height: responsiveSize(56, 64, 72), borderRadius: responsiveSize(28, 32, 36), bottom: bottomTabSpacing + responsiveSize(16, 20, 24), right: screenPadding }]}
         accessibilityRole="button"
         accessibilityLabel="Create new vault"
       >
-        <Plus size={26} color={dash.fabText} strokeWidth={2.4} />
+        <Plus size={responsiveSize(24, 26, 28)} color={dash.fabText} strokeWidth={2.4} />
       </Pressable>
 
       <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
@@ -728,7 +738,7 @@ export default function DashboardScreen() {
           <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
             <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetFolder.name}</Text>
+              <Text style={[styles.actionSheetTitle, { color: dash.text, paddingHorizontal: space(5), paddingVertical: space(4) }]}>{targetFolder.name}</Text>
               {(() => {
                 const hasPassword = targetFolder.hasAccessKey || targetFolder.accessKeyId;
                 const hasClipboard = !!clipboard;
@@ -754,7 +764,7 @@ export default function DashboardScreen() {
                 }
                 return baseItems;
               })().map(item => (
-                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetFolder, item.action)}>
+                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border, paddingHorizontal: space(5), paddingVertical: space(4) }]} onPress={() => handleFolderAction(targetFolder, item.action)}>
                   <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
@@ -929,7 +939,7 @@ export default function DashboardScreen() {
       {showRenameModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+            <View style={[modalS.sheet, { backgroundColor: dash.surface, paddingHorizontal: space(5), paddingVertical: space(6), paddingBottom: 32 }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[modalS.title, { color: dash.text }]}>Rename Vault</Text>
               <TextInput
@@ -954,7 +964,7 @@ export default function DashboardScreen() {
       {showMoveModal && (
         <Modal transparent animationType="fade">
           <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: dash.surface }]}>
+            <View style={[modalS.sheet, { backgroundColor: dash.surface, paddingHorizontal: space(5), paddingVertical: space(6), paddingBottom: 32 }]}>
               <View style={[modalS.handle, { backgroundColor: dash.border }]} />
               <Text style={[modalS.title, { color: dash.text }]}>Move Vault</Text>
               {moveDestinations.length === 0 ? (
@@ -963,7 +973,7 @@ export default function DashboardScreen() {
                 </Text>
               ) : (
                 moveDestinations.map(f => (
-                  <TouchableOpacity key={f.id} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => confirmMove(f.id)}>
+                  <TouchableOpacity key={f.id} style={[styles.actionSheetItem, { borderBottomColor: dash.border, paddingHorizontal: space(5), paddingVertical: space(4) }]} onPress={() => confirmMove(f.id)}>
                     <Text style={[styles.actionSheetLabel, { color: dash.text }]}>📁  {f.name}</Text>
                   </TouchableOpacity>
                 ))
@@ -972,25 +982,23 @@ export default function DashboardScreen() {
           </View>
         </Modal>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8, paddingBottom: 140 },
+  scrollBody: { paddingTop: 8 },
 
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 0,
-    paddingTop: 50,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4},
-  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
+  headerTitle: { fontWeight: '800', letterSpacing: -0.4 },
+  headerTagline: { fontWeight: '500', marginTop: 4 },
   themeToggle: {
     width: 40,
     height: 40,
@@ -1004,71 +1012,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 32,
   },
-  searchPlaceholder: { fontSize: 14, fontWeight: '500' },
+  searchPlaceholder: { fontWeight: '500' },
 
-  storageCard: { borderRadius: 24, padding: 24, marginBottom: 32 },
+  storageCard: { marginBottom: 32 },
   storageTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   storageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  storageLabel: { fontSize: 13, fontWeight: '600' },
+  storageLabel: { fontWeight: '600' },
   usedPill: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  usedPillText: { fontSize: 12, fontWeight: '700' },
+  usedPillText: { fontWeight: '700' },
   storageValueRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 18 },
-  storageValue: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
-  storageUnit: { fontSize: 16, fontWeight: '700' },
+  storageValue: { fontWeight: '800', letterSpacing: -0.5 },
+  storageUnit: { fontWeight: '700' },
   progressTrack: { height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
   progressFill: { height: '100%', borderRadius: 3 },
   progressLabelsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { fontSize: 12, fontWeight: '500' },
+  progressLabel: { fontWeight: '500' },
 
   section: { marginBottom: 32 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
-  seeAll: { fontSize: 13, fontWeight: '600' },
-  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
-  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  sectionTitle: { fontWeight: '700', letterSpacing: -0.3 },
+  seeAll: { fontWeight: '600' },
+  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
+  textBtn: { paddingHorizontal: 12, paddingVertical: 8 },
+  textBtnDanger: { paddingHorizontal: 12, paddingVertical: 8 },
+  cancelBtn: { paddingHorizontal: 12, paddingVertical: 8 },
 
   vaultSection: { marginBottom: 24 },
-  vaultSectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 },
+  vaultSectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
 
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: CATEGORY_GAP },
-  categoryTile: { borderRadius: 16, paddingVertical: 18, paddingHorizontal: 10, alignItems: 'center' },
-  categoryIconChip: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  categoryLabel: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
-  categoryCount: { fontSize: 11, fontWeight: '600' },
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  categoryTile: { alignItems: 'center' },
+  categoryIconChip: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  categoryLabel: { fontWeight: '700', marginBottom: 3 },
+  categoryCount: { fontWeight: '600' },
 
-  vaultGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: VAULT_GAP },
-  vaultTile: { borderRadius: 24, padding: 18, minHeight: 150, justifyContent: 'space-between' },
-  vaultGridTile: { borderRadius: 20, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
-  vaultGridIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  vaultGridName: { fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 4 },
+  vaultGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  vaultTile: { borderRadius: 24, justifyContent: 'space-between' },
+  vaultGridTile: { borderRadius: 20, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 120, position: 'relative' },
+  vaultGridIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10, position: 'relative' },
+  vaultGridName: { fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 4, flexShrink: 1 },
   vaultGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   vaultTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   vaultIconChip: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   lockBadge: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  gridMenuIcon: { position: 'absolute', top: 4, left: 4, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.35)', zIndex: 10 },
+  gridMenuDots: { color: '#FFFFFF', fontSize: 12, fontWeight: '700', lineHeight: 14 },
   vaultBottomBlock: { marginTop: 14 },
   vaultNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  vaultNameIcons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  vaultName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 6 },
+  vaultNameIcons: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+  vaultName: { fontWeight: '700', letterSpacing: -0.2, marginBottom: 6, flexShrink: 1 },
   vaultMetaRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  vaultMeta: { fontSize: 12, fontWeight: '600' },
+  vaultMeta: { fontWeight: '600' },
   checkBox: { marginLeft: 4 },
   checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 
-  emptyCard: { borderRadius: 24, alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  emptyText: { fontSize: 14, textAlign: 'center', marginBottom: 12 },
+  emptyCard: { borderRadius: 24, alignItems: 'center' },
+  emptyTitle: { fontWeight: '700', marginBottom: 4 },
+  emptyText: { textAlign: 'center', marginBottom: 12 },
   emptyBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
 
   fab: {
     position: 'absolute',
-    right: SCREEN_PADDING,
-    bottom: 100,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -1090,7 +1095,7 @@ const styles = StyleSheet.create({
 const modalS = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
   handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 32 },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   title: { fontSize: 20, fontWeight: '700', marginBottom: 16, letterSpacing: -0.3 },
   input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16, fontSize: 15 },
   btnRow: { flexDirection: 'row', gap: 12 },

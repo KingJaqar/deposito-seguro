@@ -3,6 +3,8 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Pdf from 'react-native-pdf';
+
 import { VaultHeader } from '../../../components/VaultHeader';
 import { useThemeColors } from '../../../contexts/ThemeContext';
 import { StorageService } from '../../../services/storage';
@@ -79,7 +81,8 @@ export default function DocumentViewerScreen() {
     }
   };
 
-  const isText = fileMeta?.mimeType.startsWith('text/');
+  const isText = fileMeta?.mimeType?.startsWith('text/') ?? false;
+  const isPdf = fileMeta?.mimeType === 'application/pdf' || fileMeta?.name?.toLowerCase().endsWith('.pdf');
 
   if (isText && fileContent) {
     return (

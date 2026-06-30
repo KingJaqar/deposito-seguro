@@ -1,12 +1,9 @@
-// File: src/components/ViewModeMenu.tsx
 import { useState } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
-import { Dimensions, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LayoutGrid, List, PanelTop, Monitor } from 'lucide-react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { List, LayoutGrid, PanelTop, Monitor } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const MENU_WIDTH = Math.min(SCREEN_WIDTH * 0.55, 220);
+import { AnimatedActionSheet } from './AnimatedActionSheet';
 
 type ViewOption = {
   key: 'list' | 'small-icons' | 'medium-icons' | 'large-icons';
@@ -23,7 +20,7 @@ const OPTIONS: ViewOption[] = [
 ];
 
 export const ViewModeMenu = () => {
-  const { colors } = useTheme();
+  const { isDark, space, font, radius, isTablet, responsiveSize } = useTheme();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const [visible, setVisible] = useState(false);
@@ -33,111 +30,129 @@ export const ViewModeMenu = () => {
     setVisible(false);
   };
 
+  const triggerSize = responsiveSize(40, 48, 52);
+
   const currentOption = OPTIONS.find((o) => o.key === viewMode) ?? OPTIONS[0];
+  const CurrentIcon = currentOption.Icon;
+
+  const softBlue = '#4A90D9';
+  const rowBorder = isDark ? '#333333' : '#E5E5E5';
+  const textPrimary = isDark ? '#FFFFFF' : '#111111';
+  const textSecondary = isDark ? '#999999' : '#666666';
+  const chipActive = softBlue;
+  const chipInactive = isDark ? '#2A2A2A' : '#F5F5F5';
+  const iconActive = '#FFFFFF';
+  const iconInactive = isDark ? '#FFFFFF' : '#111111';
 
   return (
     <View>
       <TouchableOpacity
         onPress={() => setVisible(true)}
-        style={[styles.trigger, { backgroundColor: colors.dashboardSurfaceHover ?? colors.surfaceElevated }]}
+        style={[
+          styles.trigger,
+          { backgroundColor: chipInactive, width: triggerSize, height: triggerSize, borderRadius: triggerSize / 2 },
+        ]}
         accessibilityRole="button"
         accessibilityLabel="Change view mode"
       >
-        <currentOption.Icon size={18} color={colors.text} strokeWidth={2} />
+        <CurrentIcon size={18} color={iconInactive} strokeWidth={2} />
       </TouchableOpacity>
 
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
-        <TouchableOpacity style={styles.overlay} onPress={() => setVisible(false)} activeOpacity={1}>
-          <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
-            <View style={[styles.handle, { backgroundColor: colors.border }]} />
-            <Text style={[styles.menuTitle, { color: colors.text }]}>View Options</Text>
-
-            {OPTIONS.map((opt) => {
-              const isSelected = viewMode === opt.key;
-              const IconComp = opt.Icon;
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  onPress={() => handleSelect(opt.key)}
-                  style={[
-                    styles.optionRow,
-                    { backgroundColor: isSelected ? `${colors.primary}15` : 'transparent' },
-                  ]}
-                >
-                  <View style={[styles.optionIcon, { backgroundColor: isSelected ? `${colors.primary}25` : `${colors.text}12` }]}>
-                    <IconComp size={18} color={isSelected ? colors.primary : colors.text} strokeWidth={2} />
-                  </View>
-                  <View style={styles.optionTextBlock}>
-                    <Text style={[styles.optionLabel, { color: isSelected ? colors.primary : colors.text }]}>
-                      {opt.label}
-                    </Text>
-                    <Text style={[styles.optionDesc, { color: colors.textMuted }]}>{opt.description}</Text>
-                  </View>
-                  {isSelected && (
-                    <View style={[styles.checkDot, { backgroundColor: colors.primary }]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      <AnimatedActionSheet
+        visible={visible}
+        onClose={() => setVisible(false)}
+        title="View Options"
+        closeOnSwipeDown
+      >
+        {OPTIONS.map((opt) => {
+          const isSelected = viewMode === opt.key;
+          const IconComp = opt.Icon;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              onPress={() => handleSelect(opt.key)}
+              style={[
+                styles.optionRow,
+                {
+                  backgroundColor: isSelected ? `${softBlue}15` : 'transparent',
+                  borderBottomColor: rowBorder,
+                  paddingVertical: space(4),
+                  paddingHorizontal: space(6),
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
+              accessibilityLabel={opt.label}
+            >
+              <View
+                style={[
+                  styles.optionIcon,
+                  {
+                    backgroundColor: isSelected ? chipActive : chipInactive,
+                    width: space(10),
+                    height: space(10),
+                    borderRadius: radius(5),
+                  },
+                ]}
+              >
+                <IconComp
+                  size={18}
+                  color={isSelected ? iconActive : iconInactive}
+                  strokeWidth={2}
+                />
+              </View>
+              <View style={styles.optionTextBlock}>
+                 <Text
+                   style={[
+                     styles.optionLabel,
+                     { color: isSelected ? softBlue : textPrimary, fontSize: font(16) },
+                   ]}
+                   numberOfLines={1}
+                 >
+                   {opt.label}
+                 </Text>
+                 <Text
+                   style={[
+                     styles.optionDesc,
+                     { color: textSecondary, fontSize: font(13) },
+                   ]}
+                   numberOfLines={1}
+                 >
+                   {opt.description}
+                 </Text>
+              </View>
+              {isSelected && (
+                <View style={[styles.checkDot, { backgroundColor: softBlue }]} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </AnimatedActionSheet>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   trigger: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingBottom: 120,
-    paddingHorizontal: 40,
-  },
-  menuCard: {
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    alignItems: 'stretch',
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
-  menuTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 12,
-    paddingHorizontal: 4,
   },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 4,
+    gap: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   optionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  optionTextBlock: { flex: 1 },
-  optionLabel: { fontSize: 15, fontWeight: '600' },
-  optionDesc: { fontSize: 12, fontWeight: '500', marginTop: 2 },
-  checkDot: { width: 8, height: 8, borderRadius: 4 },
+  optionTextBlock: {
+    flex: 1,
+    flexShrink: 1,
+  },
+  optionLabel: { fontWeight: '600' },
+  optionDesc: { fontWeight: '500', marginTop: 2 },
+  checkDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
 });

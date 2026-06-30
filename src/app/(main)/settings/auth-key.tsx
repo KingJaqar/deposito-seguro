@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, Key, Lock, ShieldCheck } from 'lucide-react-native';
 import { router } from 'expo-router';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
@@ -8,7 +9,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { validatePin } from '../../../utils/accessKeyValidation';
 
 export default function AuthKeyScreen() {
-  const { isDark } = useTheme();
+  const { isDark, colors, space, screenPadding, bottomTabSpacing, headerPaddingTop, font, isTablet, clampSize } = useTheme();
   const { isConfigured, securityHint, authenticate, initializeVault, updateSecurityHint, deleteSecurityHint } = useAuthStore();
 
   const [isVerified, setIsVerified] = useState(false);
@@ -115,24 +116,24 @@ export default function AuthKeyScreen() {
 
   if (!isConfigured) {
     return (
-      <View style={[styles.root, { backgroundColor: isDark ? '#000000' : '#F5EFE0' }]}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.root, { backgroundColor: isDark ? '#000000' : '#F5EFE0' }]}>
+        <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Text style={[styles.backIcon, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>←</Text>
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Authentication Key</Text>
+          <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(22) }]}>Authentication Key</Text>
         </View>
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]}>
           <View style={[styles.emptyCard, { backgroundColor: isDark ? '#141428' : '#FFFFFF' }]}>
             <Text style={{ fontSize: 48, marginBottom: 12 }}>🔑</Text>
-            <Text style={[styles.emptyTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Vault Not Initialized</Text>
-            <Text style={[styles.emptyText, { color: isDark ? '#8E8EA0' : '#64748B' }]}>
+            <Text style={[styles.emptyTitle, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(18) }]}>Vault Not Initialized</Text>
+            <Text style={[styles.emptyText, { color: isDark ? '#8E8EA0' : '#64748B', fontSize: font(13) }]}>
               Please complete the initial vault setup to manage your authentication key.
             </Text>
           </View>
         </View>
         <AnimatedTabBar />
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -151,19 +152,19 @@ export default function AuthKeyScreen() {
       ? { bg: BLACK, card: GREY_DARK, border: GREY_MID, divider: GREY_MID, iconCircle: GREY_MID, iconTint: GREY_TEXT, title: WHITE, subtitle: GREY_TEXT, label: GREY_TEXT, inputBg: BLACK, inputBorder: GREY_MID, inputText: WHITE, placeholder: GREY_TEXT, eye: WHITE, btnBg: WHITE, btnText: BLACK, btnIcon: BLACK, hintBoxBg: BLACK, hintBoxBorder: GREY_MID, hintText: WHITE, editBorder: GREY_MID, editText: WHITE, delBg: RED, delText: WHITE }
       : { bg: CREAM, card: WHITE, border: GREY_LIGHT, divider: GREY_LIGHT, iconCircle: GREY_LIGHT, iconTint: GREY_TEXT, title: BLACK, subtitle: GREY_TEXT, label: GREY_TEXT, inputBg: WHITE, inputBorder: GREY_LIGHT, inputText: BLACK, placeholder: GREY_TEXT, eye: BLACK, btnBg: BLUE, btnText: WHITE, btnIcon: WHITE, hintBoxBg: WHITE, hintBoxBorder: GREY_LIGHT, hintText: BLACK, editBorder: GREY_LIGHT, editText: BLACK, delBg: RED, delText: WHITE };
 
-    const INPUT_H = 52;
-    const LABEL_H = 18;
+    const INPUT_H = clampSize(48, 56);
+    const LABEL_H = clampSize(16, 20);
 
     return (
-      <View style={[styles.root, { backgroundColor: c.bg }]}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.root, { backgroundColor: c.bg }]}>
+        <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={[styles.backIcon, { color: c.title }]}>←</Text>
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: c.title }]}>Authentication Key</Text>
+          <Text style={[styles.headerTitle, { color: c.title, fontSize: font(22) }]}>Authentication Key</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false}>
           <View style={[styles.verifyCard, { backgroundColor: c.card, borderColor: c.border }]}>
             <View style={styles.lockIconWrap}>
               <View style={[styles.lockIconCircle, { backgroundColor: c.iconCircle }]}>
@@ -171,28 +172,26 @@ export default function AuthKeyScreen() {
               </View>
             </View>
 
-            <View style={{ height: 104, justifyContent: 'center', width: '100%' }}>
-              <Text style={[styles.verifyTitle, { color: c.title }]} numberOfLines={2}>
+            <View style={{ justifyContent: 'center', width: '100%' }}>
+              <Text style={[styles.verifyTitle, { color: c.title, fontSize: font(20) }]} numberOfLines={2}>
                 Security Verification Required
               </Text>
-              <Text style={[styles.verifySubtitle, { color: c.subtitle }]} numberOfLines={2}>
+              <Text style={[styles.verifySubtitle, { color: c.subtitle, fontSize: font(13) }]} numberOfLines={2}>
                 Enter your current authentication key to access{'\n'}the management screen.
               </Text>
             </View>
 
-            <View style={{ width: '100%', height: LABEL_H + INPUT_H + 10, justifyContent: 'space-between' }}>
-              <View style={{ height: LABEL_H }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Lock size={13} color={c.label} strokeWidth={2} />
-                  <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: c.label }} numberOfLines={1}>
-                    CURRENT AUTHENTICATION KEY
-                  </Text>
-                </View>
+            <View style={{ width: '100%', justifyContent: 'space-between' }}>
+              <View style={{ minHeight: LABEL_H, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Lock size={13} color={c.label} strokeWidth={2} />
+                <Text style={{ fontSize: font(11), fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: c.label, flexShrink: 1 }} numberOfLines={1}>
+                  CURRENT AUTHENTICATION KEY
+                </Text>
               </View>
 
-              <View style={{ height: INPUT_H, position: 'relative' }}>
+              <View style={{ minHeight: INPUT_H, flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
-                  style={{ width: '100%', height: INPUT_H, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: c.inputText, backgroundColor: c.inputBg, borderWidth: 1, borderColor: c.inputBorder, paddingRight: 90 }}
+                  style={{ flex: 1, minHeight: INPUT_H, borderRadius: 14, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), color: c.inputText, backgroundColor: c.inputBg, borderWidth: 1, borderColor: c.inputBorder, paddingRight: space(10) }}
                   value={verifyPassword}
                   onChangeText={setVerifyPassword}
                   placeholder="Enter current authentication key"
@@ -200,152 +199,148 @@ export default function AuthKeyScreen() {
                   secureTextEntry={!showVerifyPassword}
                   autoFocus
                 />
-                <TouchableOpacity
-                  style={{ position: 'absolute', right: 12, top: '50%', marginTop: -18, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, height: 36 }}
-                  onPress={() => setShowVerifyPassword(!showVerifyPassword)}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: c.eye }} numberOfLines={1}>{showVerifyPassword ? 'Hide' : 'Show'}</Text>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 }} onPress={() => setShowVerifyPassword(!showVerifyPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                  <Text style={{ fontSize: font(12), fontWeight: '600', color: c.eye }} numberOfLines={1}>{showVerifyPassword ? 'Hide' : 'Show'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={{ height: 52, width: '100%', marginTop: 24 }}>
+            <View style={{ width: '100%', marginTop: space(6) }}>
               <TouchableOpacity
                 onPress={handleVerify}
-                style={[styles.verifyButton, { opacity: isVerifying ? 0.65 : 1, backgroundColor: c.btnBg, height: 52 }]}
+                style={[styles.verifyButton, { opacity: isVerifying ? 0.65 : 1, backgroundColor: c.btnBg, minHeight: INPUT_H }]}
                 disabled={isVerifying}
                 activeOpacity={0.78}
               >
                 <ShieldCheck size={18} color={c.btnIcon} strokeWidth={2.5} />
-                <Text style={[styles.verifyButtonText, { color: c.btnText }]}>{isVerifying ? 'Verifying…' : 'Verify'}</Text>
+                <Text style={[styles.verifyButtonText, { color: c.btnText, fontSize: font(15) }]}>{isVerifying ? 'Verifying…' : 'Verify'}</Text>
               </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
 
         <AnimatedTabBar />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: isDark ? '#000000' : '#F5EFE0' }]}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.root, { backgroundColor: isDark ? '#000000' : '#F5EFE0' }]}>
+      <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={[styles.backIcon, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>←</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Authentication Key</Text>
+        <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(22) }]}>Authentication Key</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.description, { color: isDark ? '#8E8EA0' : '#64748B' }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.description, { color: isDark ? '#8E8EA0' : '#64748B', fontSize: font(13) }]}>
           Manage your vault authentication key. This key is required to access protected folders and files.
         </Text>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#141428' : '#FFFFFF', borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}>
           <View style={styles.sectionHeaderRow}>
             <ShieldCheck size={16} color={isDark ? '#8E8EA0' : '#64748B'} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Update Authentication Key</Text>
+            <Text style={[styles.sectionTitle, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(13) }]}>Update Authentication Key</Text>
           </View>
 
           <View style={{ width: '100%' }}>
-            <View style={{ height: 70, justifyContent: 'space-between' }}>
-              <View style={{ height: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ minHeight: 70, justifyContent: 'space-between' }}>
+              <View style={{ minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Lock size={13} color={isDark ? '#8E8EA0' : '#64748B'} strokeWidth={2} />
-                <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B' }} numberOfLines={1}>
+                <Text style={{ fontSize: font(11), fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B', flexShrink: 1 }} numberOfLines={1}>
                   CURRENT AUTHENTICATION KEY
                 </Text>
               </View>
-              <View style={{ height: 52, position: 'relative' }}>
+              <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
-                  style={{ width: '100%', height: 52, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: 80 }}
+                  style={{ flex: 1, minHeight: 52, borderRadius: 14, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: space(10) }}
                   value={currentPassword}
                   onChangeText={setCurrentPassword}
                   placeholder="Enter current authentication key"
                   placeholderTextColor={isDark ? '#8E8EA0' : '#64748B'}
                   secureTextEntry={!showCurrentPassword}
                 />
-                <TouchableOpacity style={{ position: 'absolute', right: 10, top: '50%', marginTop: -16, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 }} onPress={() => setShowCurrentPassword(!showCurrentPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 }} onPress={() => setShowCurrentPassword(!showCurrentPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Eye size={14} color={isDark ? '#FFFFFF' : '#0F172A'} strokeWidth={2} />
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showCurrentPassword ? 'Hide' : 'Show'}</Text>
+                  <Text style={{ fontSize: font(12), fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showCurrentPassword ? 'Hide' : 'Show'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#2A2A35' : '#E2E8F0', marginVertical: 16 }} />
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#2A2A35' : '#E2E8F0', marginVertical: space(4) }} />
 
-            <View style={{ height: 70, justifyContent: 'space-between' }}>
-              <View style={{ height: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ minHeight: 70, justifyContent: 'space-between' }}>
+              <View style={{ minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Key size={13} color={isDark ? '#8E8EA0' : '#64748B'} strokeWidth={2} />
-                <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B' }} numberOfLines={1}>
+                <Text style={{ fontSize: font(11), fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B', flexShrink: 1 }} numberOfLines={1}>
                   NEW AUTHENTICATION KEY
                 </Text>
               </View>
-              <View style={{ height: 52, position: 'relative' }}>
+              <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
-                  style={{ width: '100%', height: 52, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: 80 }}
+                  style={{ flex: 1, minHeight: 52, borderRadius: 14, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: space(10) }}
                   value={newPassword}
                   onChangeText={setNewPassword}
                   placeholder="Enter new authentication key"
                   placeholderTextColor={isDark ? '#8E8EA0' : '#64748B'}
                   secureTextEntry={!showNewPassword}
                 />
-                <TouchableOpacity style={{ position: 'absolute', right: 10, top: '50%', marginTop: -16, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 }} onPress={() => setShowNewPassword(!showNewPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 }} onPress={() => setShowNewPassword(!showNewPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Eye size={14} color={isDark ? '#FFFFFF' : '#0F172A'} strokeWidth={2} />
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showNewPassword ? 'Hide' : 'Show'}</Text>
+                  <Text style={{ fontSize: font(12), fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showNewPassword ? 'Hide' : 'Show'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#2A2A35' : '#E2E8F0', marginVertical: 16 }} />
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: isDark ? '#2A2A35' : '#E2E8F0', marginVertical: space(4) }} />
 
-            <View style={{ height: 70, justifyContent: 'space-between' }}>
-              <View style={{ height: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ minHeight: 70, justifyContent: 'space-between' }}>
+              <View style={{ minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Key size={13} color={isDark ? '#8E8EA0' : '#64748B'} strokeWidth={2} />
-                <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B' }} numberOfLines={1}>
+                <Text style={{ fontSize: font(11), fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isDark ? '#8E8EA0' : '#64748B', flexShrink: 1 }} numberOfLines={1}>
                   CONFIRM NEW AUTHENTICATION KEY
                 </Text>
               </View>
-              <View style={{ height: 52, position: 'relative' }}>
+              <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
-                  style={{ width: '100%', height: 52, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: 80 }}
+                  style={{ flex: 1, minHeight: 52, borderRadius: 14, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', borderWidth: 1, borderColor: isDark ? '#2A2A35' : '#E2E8F0', paddingRight: space(10) }}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   placeholder="Confirm new authentication key"
                   placeholderTextColor={isDark ? '#8E8EA0' : '#64748B'}
                   secureTextEntry={!showConfirmPassword}
                 />
-                <TouchableOpacity style={{ position: 'absolute', right: 10, top: '50%', marginTop: -16, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 }} onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 }} onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Eye size={14} color={isDark ? '#FFFFFF' : '#0F172A'} strokeWidth={2} />
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
+                  <Text style={{ fontSize: font(12), fontWeight: '600', color: isDark ? '#FFFFFF' : '#0F172A' }} numberOfLines={1}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
 
-          <View style={{ height: 52, width: '100%', marginTop: 24 }}>
+          <View style={{ minHeight: 52, width: '100%', marginTop: space(6) }}>
             <TouchableOpacity
               onPress={handleChangeAuthKey}
-              style={[styles.primaryBtn, { opacity: isChanging ? 0.7 : 1, backgroundColor: isDark ? '#FFFFFF' : '#5162FF', height: 52 }]}
+              style={[styles.primaryBtn, { opacity: isChanging ? 0.7 : 1, backgroundColor: isDark ? '#FFFFFF' : '#5162FF', minHeight: 52 }]}
               disabled={isChanging}
               activeOpacity={0.78}
             >
               <ShieldCheck size={18} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={2.5} />
-              <Text style={[styles.primaryBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>{isChanging ? 'Updating...' : 'Change Authentication Key'}</Text>
+              <Text style={[styles.primaryBtnText, { color: isDark ? '#000000' : '#FFFFFF', fontSize: font(15) }]}>{isChanging ? 'Updating...' : 'Change Authentication Key'}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#141428' : '#FFFFFF', borderColor: isDark ? '#2A2A35' : '#E2E8F0', marginTop: 20 }]}>
+        <View style={[styles.card, { backgroundColor: isDark ? '#141428' : '#FFFFFF', borderColor: isDark ? '#2A2A35' : '#E2E8F0', marginTop: space(4) }]}>
           <View style={styles.sectionHeaderRow}>
             <Key size={16} color={isDark ? '#8E8EA0' : '#64748B'} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Authentication Key Hint</Text>
+            <Text style={[styles.sectionTitle, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(13) }]}>Authentication Key Hint</Text>
           </View>
 
           {currentHint ? (
             <View style={[styles.hintBox, { backgroundColor: isDark ? '#000000' : '#FFFFFF', borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}>
-              <Text style={[styles.hintText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>{currentHint}</Text>
+              <Text style={[styles.hintText, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(14) }]}>{currentHint}</Text>
               <View style={styles.hintActions}>
                 <TouchableOpacity
                   onPress={() => {
@@ -354,29 +349,29 @@ export default function AuthKeyScreen() {
                   }}
                   style={[styles.hintBtn, { borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}
                 >
-                  <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Edit</Text>
+                  <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(12) }]}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={handleDeleteHint} style={[styles.hintBtn, { backgroundColor: '#EF4444' }]}>
-                  <Text style={[styles.hintBtnText, { color: '#FFFFFF' }]}>Delete</Text>
+                  <Text style={[styles.hintBtnText, { color: '#FFFFFF', fontSize: font(12) }]}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <View style={[styles.hintBox, { backgroundColor: isDark ? '#000000' : '#FFFFFF', borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}>
-              <Text style={[styles.hintText, { color: isDark ? '#8E8EA0' : '#64748B' }]}>No hint set</Text>
+              <Text style={[styles.hintText, { color: isDark ? '#8E8EA0' : '#64748B', fontSize: font(14) }]}>No hint set</Text>
               <TouchableOpacity
                 onPress={() => setEditingHint(true)}
                 style={[styles.hintBtn, { borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}
               >
-                <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Add Hint</Text>
+                <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(12) }]}>Add Hint</Text>
               </TouchableOpacity>
             </View>
           )}
 
           {editingHint && (
-            <View style={[styles.editHintBox, { borderColor: isDark ? '#2A2A35' : '#E2E8F0', marginTop: 12 }]}>
+            <View style={[styles.editHintBox, { borderColor: isDark ? '#2A2A35' : '#E2E8F0', marginTop: space(3) }]}>
               <TextInput
-                style={[styles.hintInput, { color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}
+                style={[styles.hintInput, { color: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? '#000000' : '#FFFFFF', paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15) }]}
                 value={hintText}
                 onChangeText={setHintText}
                 placeholder="Enter a hint for your authentication key"
@@ -390,21 +385,21 @@ export default function AuthKeyScreen() {
                   }}
                   style={[styles.hintBtn, { borderColor: isDark ? '#2A2A35' : '#E2E8F0' }]}
                 >
-                  <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Cancel</Text>
+                  <Text style={[styles.hintBtnText, { color: isDark ? '#FFFFFF' : '#0F172A', fontSize: font(12) }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={handleSaveHint} style={[styles.hintBtn, { backgroundColor: isDark ? '#FFFFFF' : '#5162FF' }]}>
-                  <Text style={[styles.hintBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Save</Text>
+                  <Text style={[styles.hintBtnText, { color: isDark ? '#000000' : '#FFFFFF', fontSize: font(12) }]}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={{ height: bottomTabSpacing }} />
       </ScrollView>
 
       <AnimatedTabBar />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -413,22 +408,19 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
     paddingBottom: 16,
   },
   backBtn: { padding: 6, marginRight: 4 },
-  backIcon: { fontSize: 22, fontWeight: '600' },
-  headerTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.5, marginLeft: 12 },
-  content: { paddingHorizontal: 20, paddingBottom: 110, paddingTop: 4 },
-  description: { fontSize: 13, lineHeight: 18, marginBottom: 16, marginTop: 4 },
+  backIcon: { fontWeight: '600' },
+  headerTitle: { fontWeight: '700', letterSpacing: -0.5, marginLeft: 12 },
+  content: { paddingTop: 4 },
+  description: { lineHeight: 18, marginBottom: 16, marginTop: 2 },
 
   card: {
     borderRadius: 20,
-    padding: 20,
     marginBottom: 16,
   },
-  sectionTitle: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5, marginBottom: 16 },
+  sectionTitle: { fontWeight: '800', letterSpacing: 0.5, marginBottom: 16 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
   divider: { height: StyleSheet.hairlineWidth, width: '100%' },
   primaryBtn: {
@@ -436,96 +428,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 24,
-    paddingVertical: 14,
     borderRadius: 14,
   },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtnText: { fontWeight: '800' },
   hintBox: {
     borderRadius: 14,
-    padding: 14,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
-  hintText: { flex: 1, fontSize: 14 },
+  hintText: { flex: 1 },
   hintActions: { flexDirection: 'row', gap: 8 },
   hintBtn: {
     borderRadius: 10,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hintBtnText: { fontSize: 12, fontWeight: '700' },
+  hintBtnText: { fontWeight: '700' },
   editHintBox: {
     marginTop: 12,
     borderRadius: 14,
-    padding: 14,
     borderWidth: 1,
     gap: 12,
   },
   hintInput: {
     width: '100%',
     borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
   },
   editHintActions: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
   emptyCard: {
     borderRadius: 24,
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
   },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginTop: 10, marginBottom: 4 },
-  emptyText: { fontSize: 13, textAlign: 'center', marginTop: 6, paddingHorizontal: 24 },
+  emptyTitle: { fontWeight: '700', marginTop: 4, marginBottom: 2 },
+  emptyText: { textAlign: 'center', marginTop: 2 },
 
   verifyCard: {
-    backgroundColor: '#141428',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
     borderRadius: 20,
-    paddingVertical: 44,
-    paddingHorizontal: 28,
     alignItems: 'center',
-    minHeight: 480,
-    justifyContent: 'space-between',
   },
   lockIconWrap: { marginBottom: 20 },
   lockIconCircle: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#1E1E33',
     alignItems: 'center',
     justifyContent: 'center',
   },
   verifyTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: -0.3,
-    marginTop: 20,
-    marginBottom: 8,
-    height: 56,
   },
   verifySubtitle: {
-    color: '#8E8EA0',
-    fontSize: 13,
-    fontWeight: '500',
     textAlign: 'center',
     lineHeight: 18,
-    marginBottom: 32,
-    height: 54,
   },
   inputWrapper: {
-    position: 'relative',
     width: '100%',
     minHeight: 52,
   },
@@ -535,15 +498,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     width: '100%',
-    minHeight: 52,
-    paddingVertical: 16,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
   },
   verifyButtonText: {
-    fontSize: 15,
     fontWeight: '800',
-    color: '#000000',
     letterSpacing: -0.2,
   },
 });

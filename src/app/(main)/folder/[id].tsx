@@ -4,7 +4,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Trash2, Undo2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, Dimensions, Image as RNImage, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, Image as RNImage } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../../components/DestructiveConfirmModal';
@@ -21,7 +22,7 @@ import { getPasswordStrength, getPasswordValidationMessages, validatePassword } 
 
 export default function FolderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { colors } = useTheme();
+  const { colors, space, font, screenPadding, headerPaddingTop, bottomTabSpacing, isTablet, responsiveSize, gridColumns, gridItemWidth } = useTheme();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   
   // Bind authentic existing global context operations
@@ -75,21 +76,11 @@ export default function FolderDetailsScreen() {
   const folderRecord = folders.find(f => f.id === id);
   const folderName = folderRecord ? folderRecord.name : 'Vault Root';
 
-  const SCREEN_WIDTH = Dimensions.get('window').width;
-  const getGridColumns = (mode: string) => {
-    if (mode === 'list') return 1;
-    if (mode === 'small-icons') return 5;
-    if (mode === 'medium-icons') return 3;
-    return 2;
-  };
-  const getGridItemWidth = (mode: string) => {
-    const cols = getGridColumns(mode);
-    const gap = 12;
-    return (SCREEN_WIDTH - 32 - gap * (cols - 1)) / cols;
-  };
+  const { width } = useWindowDimensions();
+  const gridGap = space(6);
   const isGridMode = viewMode !== 'list';
-  const gridColumns = getGridColumns(viewMode);
-  const gridItemWidth = getGridItemWidth(viewMode);
+  const gridColumnsCount = gridColumns(viewMode);
+  const gridItemWidthValue = gridItemWidth(gridColumnsCount, gridGap, screenPadding);
 
   // Calculate real-time metric counters
   const totalSizeKB = useMemo(() => {
@@ -539,7 +530,7 @@ export default function FolderDetailsScreen() {
 
   const themeMode = useSettingsStore((s: any) => s.themeMode);
   const isDark = themeMode !== 'light';
-  const st = useStyles(colors, isDark);
+  const st = useStyles(colors, isDark, { space, font, responsiveSize, isTablet, headerPaddingTop, bottomTabSpacing });
   const surface = colors.dashboardSurface ?? colors.surface;
   const border = colors.dashboardBorder ?? colors.border;
   const text = colors.dashboardText ?? colors.text;
@@ -550,14 +541,14 @@ export default function FolderDetailsScreen() {
   const textMuted = colors.textMuted;
 
   return (
-    <View style={st.root}>
+    <SafeAreaView style={st.root}>
               {/* Immersive Dark Mode Top Header */}
         <View style={st.topHeader}>
           <TouchableOpacity onPress={() => router.back()} style={st.backButton}>
             <Text style={st.headerIconText}>←</Text>
           </TouchableOpacity>
           <Text style={st.headerTitle} numberOfLines={1}>{folderName}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(4) }}>
             <ViewModeMenu />
             <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={st.menuButton}>
               <Text style={st.headerIconText}>•••</Text>
@@ -607,15 +598,15 @@ export default function FolderDetailsScreen() {
                 <Text style={st.addFileText}>+ Add File</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
-                <Folder size={20} color={text} strokeWidth={2} />
-              </TouchableOpacity>
+               <TouchableOpacity style={st.iconActionPill} onPress={handleCreateNestedFolder}>
+                 <Folder size={responsiveSize(20, 22, 24)} color={text} strokeWidth={2} />
+               </TouchableOpacity>
 
-              {!!clipboard && (
-                <TouchableOpacity style={[st.iconActionPill, { backgroundColor: primary }]} onPress={handlePaste}>
-                  <Clipboard size={18} color="#FFF" strokeWidth={2} />
-                </TouchableOpacity>
-              )}
+               {!!clipboard && (
+                 <TouchableOpacity style={[st.iconActionPill, { backgroundColor: primary }]} onPress={handlePaste}>
+                   <Clipboard size={responsiveSize(16, 18, 20)} color="#FFF" strokeWidth={2} />
+                 </TouchableOpacity>
+               )}
 
               <TouchableOpacity 
                 style={[st.outlinedSelectButton]} 
@@ -648,7 +639,7 @@ export default function FolderDetailsScreen() {
           <>
             <Text style={st.sectionHeader}>SUBFOLDERS</Text>
             {isGridMode ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: gridGap }}>
                 {matchedFolders.map((folder) => {
                   const isSelected = selectedFolderIds.includes(folder.id);
                   const isCutPending = clipboard?.mode === 'cut' && clipboard.folderIds.includes(folder.id);
@@ -681,7 +672,7 @@ export default function FolderDetailsScreen() {
                       style={[
                         st.iconGridItem,
                         {
-                          width: gridItemWidth,
+                          width: gridItemWidthValue,
                           borderColor: isSelected ? primary : 'transparent',
                           opacity: isCutPending ? 0.5 : 1,
                           backgroundColor: surface,
@@ -779,9 +770,13 @@ export default function FolderDetailsScreen() {
         {/* Files Grid Section */}
         <Text style={st.sectionHeader}>FILES</Text>
         {matchedFiles.length === 0 ? (
-          <Text style={st.emptyText}>This directory workspace is empty</Text>
+          <View style={st.emptyStateContainer}>
+            <Folder size={48} color={textMuted} strokeWidth={1.5} />
+            <Text style={st.emptyStateTitle}>This directory workspace is empty</Text>
+            <Text style={st.emptyStateSubtitle}>Add files or create subfolders to get started</Text>
+          </View>
         ) : isGridMode ? (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: gridGap }}>
             {matchedFiles.map((file) => {
               const isSelected = selectedFileIds.includes(file.id);
               const isCutPending = clipboard?.mode === 'cut' && clipboard.fileIds.includes(file.id);
@@ -795,7 +790,7 @@ export default function FolderDetailsScreen() {
                   style={[
                     st.iconGridItem,
                     {
-                      width: gridItemWidth,
+                      width: gridItemWidthValue,
                       backgroundColor: surface,
                       borderColor: isSelected ? primary : 'transparent',
                       borderWidth: 2,
@@ -904,41 +899,41 @@ export default function FolderDetailsScreen() {
       {/* Create Subfolder Modal */}
       <Modal visible={showCreateFolderModal} transparent animationType="fade" onRequestClose={() => setShowCreateFolderModal(false)}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View style={[{
-            width: '85%',
-            maxWidth: 360,
-            borderRadius: 24,
-            padding: 24,
-            alignItems: 'center',
-            backgroundColor: colors.surface,
-          }]}>
-            <Text style={[{
-              fontSize: 20,
-              fontWeight: '700',
-              marginBottom: 20,
-              letterSpacing: -0.3,
-              color: colors.text,
-            }]}>Create Subfolder</Text>
-            <TextInput
-              style={[{
-                width: '100%',
-                borderWidth: 1,
-                borderRadius: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                marginBottom: 20,
-                fontSize: 15,
-                borderColor: colors.border,
-                color: colors.text,
-                backgroundColor: `${colors.border}40`,
-              }]}
+           <View style={[{
+             width: '85%',
+             maxWidth: isTablet ? 480 : 360,
+             borderRadius: 24,
+             padding: 24,
+             alignItems: 'center',
+             backgroundColor: colors.surface,
+           }]}>
+             <Text style={[{
+               fontSize: font(20),
+               fontWeight: '700',
+               marginBottom: space(5),
+               letterSpacing: -0.3,
+               color: colors.text,
+             }]}>Create Subfolder</Text>
+             <TextInput
+               style={[{
+                 width: '100%',
+                 borderWidth: 1,
+                 borderRadius: space(3),
+                 paddingHorizontal: space(4),
+                 paddingVertical: space(3),
+                 marginBottom: space(5),
+                 fontSize: font(15),
+                 borderColor: colors.border,
+                 color: colors.text,
+                 backgroundColor: `${colors.border}40`,
+               }]}
               placeholder="Folder name"
               placeholderTextColor={colors.textMuted}
               value={newFolderName}
               onChangeText={setNewFolderName}
               autoFocus
             />
-            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+            <View style={{ flexDirection: 'row', gap: space(3), width: '100%' }}>
               <TouchableOpacity onPress={() => { setShowCreateFolderModal(false); setNewFolderName(''); }} style={[st.modalCancelBtn, { borderColor: colors.border, borderWidth: 1 }]}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancel</Text>
               </TouchableOpacity>
@@ -950,12 +945,11 @@ export default function FolderDetailsScreen() {
         </View>
       </Modal>
 
-      {/* File Actions Modal */}
       <Modal visible={showFileMenu} transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
         <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
-          <View style={[{ backgroundColor: surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
-            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: border, alignSelf: 'center', marginBottom: 16 }} />
-            <Text style={[{ color: text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{targetFile?.name || 'File Actions'}</Text>
+          <View style={[st.fileMenuContent, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+            <View style={st.fileMenuHandle} />
+            <Text style={[st.fileMenuTitle, { color: text }]}>{targetFile?.name || 'File Actions'}</Text>
             {(() => {
               const hasPassword = targetFile?.hasAccessKey && targetFile?.accessKeyId;
               const baseItems = [
@@ -981,10 +975,10 @@ export default function FolderDetailsScreen() {
             })().map((item) => (
               <TouchableOpacity
                 key={item.action}
-                style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border }]}
+                style={st.fileMenuItem}
                 onPress={() => handleFileAction(item.action)}
               >
-                <Text style={[{ fontSize: 15, fontWeight: '500', color: item.color }]}>{item.label}</Text>
+                <Text style={[st.fileMenuItemText, { color: item.color }]}>{item.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -995,9 +989,9 @@ export default function FolderDetailsScreen() {
       {showFolderMenu && folderRecord && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
           <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <View style={[{ backgroundColor: surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
-              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: border, alignSelf: 'center', marginBottom: 16 }} />
-              <Text style={[{ color: text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{folderRecord.name}</Text>
+             <View style={[st.fileMenuContent, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+               <View style={st.fileMenuHandle} />
+               <Text style={[st.fileMenuTitle, { color: text }]}>{folderRecord.name}</Text>
               {(() => {
                 const hasPassword = folderRecord.hasAccessKey && folderRecord.accessKeyId;
                 const hasClipboard = !!clipboard;
@@ -1031,8 +1025,8 @@ export default function FolderDetailsScreen() {
                 }
                 return baseItems;
               })().map(item => (
-                <TouchableOpacity key={item.action} style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border }]} onPress={() => handleFolderAction(item.action)}>
-                  <Text style={[{ fontSize: 15, fontWeight: '500', color: item.color }]}>{item.label}</Text>
+                <TouchableOpacity key={item.action} style={st.fileMenuItem} onPress={() => handleFolderAction(item.action)}>
+                  <Text style={[st.fileMenuItemText, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1044,9 +1038,9 @@ export default function FolderDetailsScreen() {
       {showSubfolderMenu && targetSubfolder && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowSubfolderMenu(false)}>
           <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowSubfolderMenu(false)} activeOpacity={1}>
-            <View style={[{ backgroundColor: surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
-              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: border, alignSelf: 'center', marginBottom: 16 }} />
-              <Text style={[{ color: text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>{targetSubfolder.name}</Text>
+             <View style={[st.fileMenuContent, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+               <View style={st.fileMenuHandle} />
+               <Text style={[st.fileMenuTitle, { color: text }]}>{targetSubfolder.name}</Text>
               {(() => {
                 const hasPassword = targetSubfolder.hasAccessKey && targetSubfolder.accessKeyId;
                 const baseItems = [
@@ -1070,8 +1064,8 @@ export default function FolderDetailsScreen() {
                 }
                 return baseItems;
               })().map(item => (
-                <TouchableOpacity key={item.action} style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border }]} onPress={() => handleSubfolderAction(item.action)}>
-                  <Text style={[{ fontSize: 15, fontWeight: '500', color: item.color }]}>{item.label}</Text>
+                <TouchableOpacity key={item.action} style={st.fileMenuItem} onPress={() => handleSubfolderAction(item.action)}>
+                  <Text style={[st.fileMenuItemText, { color: item.color }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1082,27 +1076,27 @@ export default function FolderDetailsScreen() {
       {/* Move Modal */}
       {showMoveModal && (
         <Modal transparent animationType="fade">
-          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-            <View style={[{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 }]}>
-              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 16 }} />
-              <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 }]}>
-                {targetFolder ? 'Move Folder' : 'Move File'}
-              </Text>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
+             <View style={[st.fileMenuContent, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+               <View style={st.fileMenuHandle} />
+               <Text style={[st.fileMenuTitle, { color: text }]}>
+                 {targetFolder ? 'Move Folder' : 'Move File'}
+               </Text>
               {folders.filter(f => f.id !== (targetFolder?.id || targetFile?.folderId)).map(f => (
                 <TouchableOpacity
                   key={f.id}
-                  style={[{ paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                  style={st.fileMenuItem}
                   onPress={() => {
                     if (targetFolder) moveFolder(targetFolder.id, f.id);
                     else if (targetFile) moveFileToFolder(targetFile.id, f.id);
                     setShowMoveModal(false);
                   }}
                 >
-                   <Text style={[{ fontSize: 15, fontWeight: '500', color: colors.text }]}>{f.name}</Text>
+                   <Text style={[st.fileMenuItemText, { color: text }]}>{f.name}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       )}
 
@@ -1171,7 +1165,7 @@ export default function FolderDetailsScreen() {
                   </TouchableOpacity>
                 </View>
                 {newPassword.length > 0 && (
-                  <View style={{ marginTop: 10, gap: 6 }}>
+                  <View style={{ marginTop: space(2), gap: space(1) }}>
                     <View style={{ height: 4, borderRadius: 2, backgroundColor: border, overflow: 'hidden' }}>
                       <View style={{ height: '100%', borderRadius: 2, backgroundColor: newStrengthColor, width: newStrengthWidth }} />
                     </View>
@@ -1278,11 +1272,11 @@ export default function FolderDetailsScreen() {
           }}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
-const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) => {
+const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolean, theme: { space: ReturnType<typeof useTheme>['space']; font: ReturnType<typeof useTheme>['font']; responsiveSize: ReturnType<typeof useTheme>['responsiveSize']; isTablet: boolean; headerPaddingTop: number; bottomTabSpacing: number }) => {
   const bg = colors.background;
   const surface = colors.dashboardSurface ?? colors.surface;
   const iconBg = colors.vaultIconBg || colors.surface;
@@ -1293,114 +1287,122 @@ const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolea
   const error = colors.error;
   const border = colors.dashboardBorder ?? colors.border;
   const overlay = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
+  const s = theme.space;
+  const f = theme.font;
+  const rs = theme.responsiveSize;
+  const tab = theme.isTablet;
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: bg },
-    topHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, paddingTop: 50 },
+    topHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, paddingTop: theme.headerPaddingTop },
     backButton: { padding: 6 },
     menuButton: { padding: 6 },
     themeToggle: { padding: 6 },
     headerIconText: { color: text, fontSize: 22, fontWeight: '600' },
     headerTitle: { color: text, fontSize: 22, fontWeight: '700', textAlign: 'center', flex: 1, paddingHorizontal: 12 },
-    scrollContainer: { paddingHorizontal: 16, paddingBottom: 130 },
-    metricsDeck: { flexDirection: 'row', backgroundColor: surface, borderRadius: 20, paddingVertical: 20, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'space-around', marginTop: 10, marginBottom: 24 },
+    scrollContainer: { paddingHorizontal: 16, paddingBottom: theme.bottomTabSpacing + s(6) },
+    metricsDeck: { flexDirection: 'row', backgroundColor: surface, borderRadius: tab ? 24 : 20, paddingVertical: s(5), paddingHorizontal: s(3), alignItems: 'center', justifyContent: 'space-around', marginTop: s(2), marginBottom: s(6) },
     metricItem: { alignItems: 'center', flex: 1 },
-    metricValue: { color: text, fontSize: 18, fontWeight: '800' },
-    metricLabel: { color: muted, fontSize: 11, fontWeight: '500', marginTop: 4 },
-    metricDivider: { width: 1, height: 32, backgroundColor: border, opacity: 0.6 },
-    actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 28, justifyContent: 'space-between' },
-    addFileButton: { backgroundColor: colors.vaultAddFileBg || primary, borderRadius: 100, paddingVertical: 14, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-    addFileText: { color: '#FFF', fontWeight: '700', fontSize: 15 },
-    iconActionPill: { backgroundColor: iconBg, width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+    metricValue: { color: text, fontSize: f(18), fontWeight: '800' },
+    metricLabel: { color: muted, fontSize: f(11), fontWeight: '500', marginTop: s(1) },
+    metricDivider: { width: 1, height: s(8), backgroundColor: border, opacity: 0.6 },
+    actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: s(7), justifyContent: 'center', flexWrap: 'wrap' },
+    addFileButton: { backgroundColor: colors.vaultAddFileBg || primary, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(6), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+    addFileText: { color: '#FFF', fontWeight: '700', fontSize: f(15) },
+    iconActionPill: { backgroundColor: iconBg, width: rs(44, 52, 56), height: rs(44, 52, 56), borderRadius: rs(22, 26, 28), alignItems: 'center', justifyContent: 'center' },
     pillIconText: { fontSize: 18 },
-    outlinedSelectButton: { borderWidth: 1, borderColor: border, borderRadius: 100, paddingVertical: 12, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
+    outlinedSelectButton: { borderWidth: 1, borderColor: border, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(4), justifyContent: 'center', alignItems: 'center' },
     activeSelectButton: { backgroundColor: colors.vaultSelectBg || surface, borderColor: colors.vaultSelectBorder || primary },
-    selectButtonText: { color: primary, fontWeight: '600', fontSize: 14 },
+    selectButtonText: { color: primary, fontWeight: '600', fontSize: f(14) },
     activeSelectButtonText: { color: primary },
-    purgeButton: { backgroundColor: colors.vaultPurgeBg || `${error}18`, borderRadius: 100, paddingVertical: 12, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
-    purgeButtonText: { color: colors.vaultPurgeText || error, fontWeight: '700', fontSize: 14 },
-    sectionHeader: { color: sectionText, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, marginBottom: 12, marginTop: 8, paddingLeft: 4 },
-    folderCard: { backgroundColor: surface, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    purgeButton: { backgroundColor: colors.vaultPurgeBg || `${error}18`, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(4), justifyContent: 'center', alignItems: 'center' },
+    purgeButtonText: { color: colors.vaultPurgeText || error, fontWeight: '700', fontSize: f(14) },
+    sectionHeader: { color: sectionText, fontSize: f(12), fontWeight: '700', letterSpacing: 1.2, marginBottom: s(3), marginTop: s(2), paddingLeft: s(1) },
+    folderCard: { backgroundColor: surface, borderRadius: tab ? 22 : 18, padding: s(4), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: s(3) },
     folderCardSelected: { borderColor: primary, borderWidth: 1 },
     folderCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    folderIconContainer: { width: 44, height: 44, backgroundColor: iconBg, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    cardIconText: { fontSize: 20 },
-    folderTitleText: { color: text, fontSize: 16, fontWeight: '600', paddingRight: 8 },
-    folderMetaText: { color: muted, fontSize: 12, marginTop: 2 },
-    folderActionsRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    chevronIcon: { color: muted, fontSize: 22, fontWeight: '600' },
-    fileCard: { backgroundColor: surface, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    folderIconContainer: { width: rs(40, 48, 52), height: rs(40, 48, 52), backgroundColor: iconBg, borderRadius: s(3), alignItems: 'center', justifyContent: 'center', marginRight: s(4) },
+    cardIconText: { fontSize: f(20) },
+    folderTitleText: { color: text, fontSize: f(16), fontWeight: '600', paddingRight: s(2), flexShrink: 1 },
+    folderMetaText: { color: muted, fontSize: f(12), marginTop: 2 },
+    folderActionsRight: { flexDirection: 'row', alignItems: 'center', gap: s(2) },
+    chevronIcon: { color: muted, fontSize: f(22), fontWeight: '600' },
+    fileCard: { backgroundColor: surface, borderRadius: tab ? 22 : 18, padding: s(4), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: s(3) },
     fileCardSelected: { borderColor: primary, borderWidth: 1 },
     fileCardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    fileIconContainer: { width: 44, height: 44, backgroundColor: iconBg, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    fileTitleText: { color: text, fontSize: 15, fontWeight: '600', paddingRight: 8 },
-    fileMetaText: { color: muted, fontSize: 12, marginTop: 2 },
-    fileActionsRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    checkboxIndicator: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: muted, marginRight: 12 },
+    fileIconContainer: { width: rs(40, 48, 52), height: rs(40, 48, 52), backgroundColor: iconBg, borderRadius: s(3), alignItems: 'center', justifyContent: 'center', marginRight: s(4) },
+    fileTitleText: { color: text, fontSize: f(15), fontWeight: '600', paddingRight: s(2), flexShrink: 1 },
+    fileMetaText: { color: muted, fontSize: f(12), marginTop: 2 },
+    fileActionsRight: { flexDirection: 'row', alignItems: 'center', gap: s(2) },
+    checkboxIndicator: { width: s(4), height: s(4), borderRadius: s(2), borderWidth: 1.5, borderColor: muted, marginRight: s(3) },
     checkboxIndicatorActive: { backgroundColor: primary, borderColor: primary },
-    cardMenuIcon: { padding: 6 },
-    menuDotsText: { color: muted, fontSize: 14, fontWeight: '700' },
-    emptyText: { color: muted, fontSize: 14, textAlign: 'center', marginVertical: 20, fontStyle: 'italic' },
-    bottomTabBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 92, backgroundColor: surface, borderTopWidth: 1, borderTopColor: border, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingBottom: 24, paddingHorizontal: 8 },
+    cardMenuIcon: { padding: s(1) },
+    menuDotsText: { color: muted, fontSize: f(14), fontWeight: '700' },
+    emptyStateContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: s(8), paddingHorizontal: s(6), gap: s(2) },
+    emptyStateTitle: { color: muted, fontSize: f(16), fontWeight: '600', textAlign: 'center' },
+    emptyStateSubtitle: { color: muted, fontSize: f(13), fontWeight: '400', textAlign: 'center', opacity: 0.8 },
+    bottomTabBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 92, backgroundColor: surface, borderTopWidth: 1, borderTopColor: border, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingBottom: 24, paddingHorizontal: s(2) },
     tabItem: { alignItems: 'center', justifyContent: 'center', flex: 1 },
-    tabIconActive: { fontSize: 22, color: text },
-    tabLabelActive: { color: text, fontSize: 11, fontWeight: '600', marginTop: 4 },
-    tabIconMuted: { fontSize: 22, color: muted, opacity: 0.6 },
-    tabLabelMuted: { color: muted, fontSize: 11, fontWeight: '500', marginTop: 4 },
-    orbWrapper: { width: 72, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
-    floatingSearchOrb: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#5162FF', alignItems: 'center', justifyContent: 'center', shadowColor: '#5162FF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 6, transform: [{ translateY: -14 }] },
-    orbIconText: { fontSize: 22, color: '#FFFFFF' },
-    modalOverlay: { flex: 1, backgroundColor: overlay, justifyContent: 'center', paddingHorizontal: 24 },
-    modalContent: { backgroundColor: surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: border },
-    modalTitle: { color: text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
-    modalInput: { backgroundColor: iconBg, borderRadius: 10, padding: 14, color: text, fontSize: 15, marginBottom: 20, borderWidth: 1, borderColor: border },
+    tabIconActive: { fontSize: f(22), color: text },
+    tabLabelActive: { color: text, fontSize: f(11), fontWeight: '600', marginTop: s(1) },
+    tabIconMuted: { fontSize: f(22), color: muted, opacity: 0.6 },
+    tabLabelMuted: { color: muted, fontSize: f(11), fontWeight: '500', marginTop: s(1) },
+    orbWrapper: { width: rs(72, 84, 96), alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+    floatingSearchOrb: { width: s(14), height: s(14), borderRadius: s(7), backgroundColor: '#5162FF', alignItems: 'center', justifyContent: 'center', shadowColor: '#5162FF', shadowOffset: { width: 0, height: s(1) }, shadowOpacity: 0.4, shadowRadius: s(2), elevation: 6, transform: [{ translateY: rs(-8, -12, -14) }] },
+    orbIconText: { fontSize: f(22), color: '#FFFFFF' },
+    modalOverlay: { flex: 1, backgroundColor: overlay, justifyContent: 'center', paddingHorizontal: s(6) },
+    modalContent: { backgroundColor: surface, borderRadius: s(5), padding: s(6), borderWidth: 1, borderColor: border },
+    modalTitle: { color: text, fontSize: f(18), fontWeight: '700', marginBottom: s(4) },
+    modalInput: { backgroundColor: iconBg, borderRadius: s(2), padding: s(3), color: text, fontSize: f(15), marginBottom: s(5), borderWidth: 1, borderColor: border },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end' },
-    modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 16, marginRight: 12 },
-    modalCancelText: { color: muted, fontSize: 15, fontWeight: '600' },
-    modalConfirmBtn: { backgroundColor: primary, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 20 },
-    modalConfirmText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
-    fileMenuContent: { backgroundColor: surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: border },
-    fileMenuHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: border, alignSelf: 'center', marginBottom: 16 },
-    fileMenuTitle: { color: text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
-    fileMenuItem: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: border },
-    fileMenuItemText: { fontSize: 15, fontWeight: '500' },
+    modalCancelBtn: { paddingVertical: s(2), paddingHorizontal: s(4), marginRight: s(3) },
+    modalCancelText: { color: muted, fontSize: f(15), fontWeight: '600' },
+    modalConfirmBtn: { backgroundColor: primary, borderRadius: s(2), paddingVertical: s(2), paddingHorizontal: s(5) },
+    modalConfirmText: { color: '#FFF', fontSize: f(15), fontWeight: '700' },
+    fileMenuContent: { backgroundColor: surface, borderRadius: s(5), padding: s(6), borderWidth: 1, borderColor: border, alignSelf: 'center', width: '100%' },
+    fileMenuHandle: { width: s(10), height: s(1), borderRadius: 1, backgroundColor: border, alignSelf: 'center', marginBottom: s(4) },
+    fileMenuTitle: { color: text, fontSize: f(18), fontWeight: '700', marginBottom: s(4) },
+    fileMenuItem: { paddingVertical: s(3), borderBottomWidth: 1, borderBottomColor: border },
+    fileMenuItemText: { fontSize: f(15), fontWeight: '500' },
     pmsOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: overlay },
-    pmsCard: { width: '90%', maxWidth: 400, maxHeight: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
+    pmsCard: { width: '90%', maxWidth: tab ? 480 : 360, maxHeight: '80%', borderRadius: s(6), padding: s(5), alignItems: 'center' },
     pmsContent: { width: '100%', alignItems: 'stretch' },
-    pmsTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 },
-    pmsTargetRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 28, gap: 10 },
-    pmsTargetChip: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-    pmsTargetChipText: { fontSize: 13, fontWeight: '600' },
-    pmsLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    pmsLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
-    pmsOptionalBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginLeft: 8 },
-    pmsOptionalBadgeText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-    pmsInput: { width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, minHeight: 52 },
-    pmsEyeButton: { position: 'absolute', right: 14, top: '50%', marginTop: -12, padding: 6 },
-    pmsSectionDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
+    pmsTitle: { fontSize: f(28), fontWeight: '800', letterSpacing: -0.5, marginBottom: s(3) },
+    pmsTargetRow: { flexDirection: 'row', alignItems: 'center', marginBottom: s(7), gap: s(2) },
+    pmsTargetChip: { flexDirection: 'row', alignItems: 'center', borderRadius: s(3), paddingHorizontal: s(3), paddingVertical: s(2), gap: s(2) },
+    pmsTargetChipText: { fontSize: f(13), fontWeight: '600' },
+    pmsLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: s(2) },
+    pmsLabel: { fontSize: f(11), fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+    pmsOptionalBadge: { borderRadius: s(2), paddingHorizontal: s(2), paddingVertical: 2, marginLeft: s(2) },
+    pmsOptionalBadgeText: { fontSize: f(10), fontWeight: '700', textTransform: 'uppercase' },
+    pmsInput: { width: '100%', borderRadius: s(3), paddingHorizontal: s(4), paddingVertical: s(3), fontSize: f(15), minHeight: rs(48, 52, 56) },
+    pmsEyeButton: { position: 'absolute', right: s(3), top: '50%', marginTop: rs(-10, -12, -14), padding: s(1) },
+    pmsSectionDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: s(7) },
     pmsDividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-    pmsSectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginHorizontal: 16 },
-    pmsStrengthRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 10 },
-    pmsStrengthBar: { height: 4, borderRadius: 2, flex: 1, overflow: 'hidden' },
-    pmsStrengthFill: { height: '100%', borderRadius: 2 },
-    pmsStrengthText: { fontSize: 11, fontWeight: '600' },
-    pmsValidationBox: { marginTop: 10, padding: 12, borderRadius: 12 },
-    pmsValidationTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
-    pmsValidationItem: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-    pmsValidationIcon: { fontSize: 12, marginRight: 8, fontWeight: '700', width: 16, textAlign: 'center' },
-    pmsValidationText: { fontSize: 12, fontWeight: '500' },
-    pmsActions: { flexDirection: 'row', gap: 12, marginTop: 32 },
-    pmsCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-    pmsCancelText: { fontSize: 15, fontWeight: '700' },
-    pmsPrimaryBtn: { flex: 1.2, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-    pmsPrimaryText: { fontSize: 15, fontWeight: '700' },
+    pmsSectionLabel: { fontSize: f(11), fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginHorizontal: s(4) },
+    pmsStrengthRow: { flexDirection: 'row', alignItems: 'center', marginTop: s(2), gap: s(2) },
+    pmsStrengthBar: { height: s(1), borderRadius: 1, flex: 1, overflow: 'hidden' },
+    pmsStrengthFill: { height: '100%', borderRadius: 1 },
+    pmsStrengthText: { fontSize: f(11), fontWeight: '600' },
+    pmsValidationBox: { marginTop: s(2), padding: s(3), borderRadius: s(3) },
+    pmsValidationTitle: { fontSize: f(11), fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: s(2) },
+    pmsValidationItem: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+    pmsValidationIcon: { fontSize: f(12), marginRight: s(2), fontWeight: '700', width: s(4), textAlign: 'center' },
+    pmsValidationText: { fontSize: f(12), fontWeight: '500' },
+    pmsActions: { flexDirection: 'row', gap: s(3), marginTop: s(8) },
+    pmsCancelBtn: { flex: 1, paddingVertical: s(3), borderRadius: s(3), alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: s(2) },
+    pmsCancelText: { fontSize: f(15), fontWeight: '700' },
+    pmsPrimaryBtn: { flex: 1.2, paddingVertical: s(3), borderRadius: s(3), alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: s(2) },
+    pmsPrimaryText: { fontSize: f(15), fontWeight: '700' },
     iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-    iconGridItem: { borderRadius: 18, padding: 10, alignItems: 'center', marginBottom: 12 },
-    iconGridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8, overflow: 'hidden' },
-    iconGridThumbImage: { width: '100%', height: '100%', borderRadius: 14 },
-    thumbBadge: { position: 'absolute', bottom: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-    videoBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
-    iconGridName: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 3 },
-    iconGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    iconGridItem: { borderRadius: tab ? 20 : 18, padding: s(2), alignItems: 'center', marginBottom: s(3) },
+    iconGridThumb: { width: '100%', aspectRatio: 1, borderRadius: s(3), alignItems: 'center', justifyContent: 'center', marginBottom: s(2), overflow: 'hidden' },
+    iconGridThumbImage: { width: '100%', height: '100%', borderRadius: s(3) },
+    thumbBadge: { position: 'absolute', bottom: s(1), right: s(1), width: rs(14, 16, 18), height: rs(14, 16, 18), borderRadius: rs(7, 8, 9), alignItems: 'center', justifyContent: 'center' },
+    videoBadge: { position: 'absolute', top: s(1), right: s(1), backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: s(1), paddingHorizontal: s(1), paddingVertical: 2 },
+    gridMenuIcon: { position: 'absolute', top: s(1), left: s(1), width: rs(20, 24, 28), height: rs(20, 24, 28), borderRadius: rs(10, 12, 14), alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.35)', zIndex: 10 },
+    gridMenuDots: { color: '#FFFFFF', fontSize: f(12), fontWeight: '700', lineHeight: 14 },
+    iconGridName: { fontSize: f(12), fontWeight: '600', textAlign: 'center', marginBottom: 2 },
+    iconGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: s(1) },
   });
 };

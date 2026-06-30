@@ -1,6 +1,6 @@
 // File: src/components/GridListToggle.tsx
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { GridListView } from '../types';
 
 interface ToggleProps {
@@ -9,17 +9,21 @@ interface ToggleProps {
 }
 
 export const GridListToggle = ({ value, onChange }: ToggleProps) => {
-  const colors = useThemeColors();
+  const { colors, space, font, radius, isTablet, responsiveSize } = useTheme();
   const isList = value === 'list';
 
+  const containerWidth = responsiveSize(120, 160, 200);
+  const pillWidth = responsiveSize(44, 52, 60);
+  const pillLeft = isList ? space(1) : containerWidth - pillWidth - space(1);
+
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface }]}>
+    <View style={[styles.container, { backgroundColor: colors.surface, width: containerWidth }]}>
       <View
         style={[
           styles.pill,
           {
             backgroundColor: colors.primary,
-            left: isList ? 4 : 64,
+            left: pillLeft,
           },
         ]}
       />
@@ -27,8 +31,11 @@ export const GridListToggle = ({ value, onChange }: ToggleProps) => {
         style={styles.btn}
         onPress={() => onChange('list')}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isList }}
+        accessibilityLabel="List view"
       >
-        <Text style={[styles.btnText, { color: isList ? '#FFF' : colors.text }]}>
+        <Text style={[styles.btnText, { color: isList ? '#FFF' : colors.text, fontSize: font(12) }]}>
           List
         </Text>
       </TouchableOpacity>
@@ -36,8 +43,11 @@ export const GridListToggle = ({ value, onChange }: ToggleProps) => {
         style={styles.btn}
         onPress={() => onChange('large-icons')}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ selected: !isList }}
+        accessibilityLabel="Grid view"
       >
-        <Text style={[styles.btnText, { color: !isList ? '#FFF' : colors.text }]}>
+        <Text style={[styles.btnText, { color: !isList ? '#FFF' : colors.text, fontSize: font(12) }]}>
           Grid
         </Text>
       </TouchableOpacity>
@@ -49,8 +59,6 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     borderRadius: 8,
-    padding: 4,
-    width: 120,
     alignSelf: 'flex-end',
     marginVertical: 8,
     position: 'relative',
@@ -64,14 +72,14 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
-    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 6,
     zIndex: 1,
+    height: 28,
+    minWidth: 44,
   },
   btnText: {
-    fontSize: 12,
     fontWeight: 'bold',
   },
 });

@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { Delete, Lock } from 'lucide-react-native';
 import { useMemo, useRef, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -23,21 +24,24 @@ const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
 };
 
 export default function LoginScreen() {
-  const { colors, isDark } = useTheme();
-  const { height } = useWindowDimensions();
+  const { colors, isDark, font, space, isTablet } = useTheme();
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+
   const { buttonHeight, sciButtonHeight } = useMemo(() => {
-    const ROW_MARGIN = 8;
-    const BOTTOM_PADDING = 20;
-    const SCI_RATIO = 0.65;
-    const MAX_BUTTON_AREA_RATIO = 0.55;
+    const landscape = width > height;
+    const ROW_MARGIN = landscape ? space(2) : space(1);
+    const BOTTOM_PADDING = landscape ? space(4) : space(3);
+    const SCI_RATIO = 0.7;
+    const SCI_HEIGHT_BASE = isTablet ? 40 : 28;
     const totalRows = 6;
     const fixedVerticalSpace = totalRows * ROW_MARGIN + BOTTOM_PADDING;
-    const maxButtonAreaHeight = height * MAX_BUTTON_AREA_RATIO;
-    const heightBasedMain = (maxButtonAreaHeight - fixedVerticalSpace - (56 * SCI_RATIO)) / 5;
-    const mainHeight = Math.max(36, Math.min(heightBasedMain, 64));
-    const sciHeight = mainHeight * SCI_RATIO;
+    const maxButtonAreaHeight = height * (landscape ? 0.7 : 0.55);
+    const heightBasedMain = (maxButtonAreaHeight - fixedVerticalSpace - SCI_HEIGHT_BASE) / 5;
+    const mainHeight = Math.max(44, Math.min(heightBasedMain, landscape ? 80 : 64));
+    const sciHeight = Math.max(44, mainHeight * SCI_RATIO);
     return { buttonHeight: mainHeight, sciButtonHeight: sciHeight };
-  }, [height]);
+  }, [width, height, isTablet, space]);
 
   const { authenticate, securityHint } = useAuthStore();
   const { disguiseMode, disguiseIconTheme } = useSettingsStore();
@@ -388,77 +392,94 @@ export default function LoginScreen() {
 
   if (showTransitionSplash) {
     return (
-      <View style={styles.transitionSplash}>
-        <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
-        <Text style={styles.transitionSplashTitle}>Deposito Seguro</Text>
-      </View>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#2D2D2D' }}>
+        <View style={styles.transitionSplash}>
+          <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
+          <Text style={[styles.transitionSplashTitle, { color: '#FFFFFF' }]}>Deposito Seguro</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (isCalc) {
     return (
-      <View style={[styles.container, { backgroundColor: CALC_BG }]}>
-        <View style={styles.displayArea}>
-          <Text style={styles.historyText} numberOfLines={1}>
-            {calcHistory}
-          </Text>
-          <Text style={styles.expressionText} numberOfLines={1}>
-            {calcExpression ? formatExpression(calcExpression) : '\u00A0'}
-          </Text>
-          <Text
-            style={[
-              styles.mainText,
-              displayMain.length > 9 && styles.mainTextMedium,
-              displayMain.length > 14 && styles.mainTextSmall,
-            ]}
-            numberOfLines={1}
-          >
-            {displayMain}
-          </Text>
-        </View>
+      <SafeAreaView style={{ flex: 1, backgroundColor: CALC_BG }}>
+        <View style={[styles.calcOuter, { flexDirection: isLandscape && !isTablet ? 'row' : 'column' }]}>
+          <View style={[
+            styles.displayArea,
+            {
+              paddingHorizontal: space(2),
+              paddingTop: space(1),
+              paddingBottom: 8,
+              flex: 1,
+              maxWidth: isLandscape ? '50%' : undefined,
+            },
+          ]}>
+            <Text style={[styles.historyText, { fontSize: font(16) }]} numberOfLines={1}>
+              {calcHistory}
+            </Text>
+            <Text style={[styles.expressionText, { fontSize: font(22) }]} numberOfLines={1}>
+              {calcExpression ? formatExpression(calcExpression) : '\u00A0'}
+            </Text>
+            <Text
+              style={[
+                styles.mainText,
+                { fontSize: font(64) },
+                displayMain.length > 9 && { fontSize: font(46) },
+                displayMain.length > 14 && { fontSize: font(36) },
+              ]}
+              numberOfLines={1}
+            >
+              {displayMain}
+            </Text>
+          </View>
 
-        <View style={styles.sciRow}>
-          <CalcButton label="2nd" style="sci" active={isSecondMode} onPress={() => handleButtonPress('2nd')} height={sciButtonHeight} />
-          <CalcButton label={isSecondMode ? '√' : 'x²'} style="sci" onPress={() => handleButtonPress(isSecondMode ? '√' : 'x²')} height={sciButtonHeight} />
-          <CalcButton label={isSecondMode ? '∛' : 'x³'} style="sci" onPress={() => handleButtonPress(isSecondMode ? '∛' : 'x³')} height={sciButtonHeight} />
-          <CalcButton label={isSecondMode ? 'ʸ√' : 'xʸ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'ʸ√' : 'xʸ')} height={sciButtonHeight} />
-          <CalcButton label={isSecondMode ? 'ln' : 'eˣ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'ln' : 'eˣ')} height={sciButtonHeight} />
-          <CalcButton label={isSecondMode ? 'log' : '10ˣ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'log' : '10ˣ')} height={sciButtonHeight} />
-        </View>
+          <View style={[styles.calcButtonPanel, isLandscape && !isTablet && styles.calcButtonPanelLandscape]}>
+            <View style={[styles.sciRow, { paddingHorizontal: 8, marginBottom: 8, gap: 8 }]}>
+              <CalcButton label="2nd" style="sci" active={isSecondMode} onPress={() => handleButtonPress('2nd')} height={sciButtonHeight} fontSize={font(13)} />
+              <CalcButton label={isSecondMode ? '√' : 'x²'} style="sci" onPress={() => handleButtonPress(isSecondMode ? '√' : 'x²')} height={sciButtonHeight} fontSize={font(13)} />
+              <CalcButton label={isSecondMode ? '∛' : 'x³'} style="sci" onPress={() => handleButtonPress(isSecondMode ? '∛' : 'x³')} height={sciButtonHeight} fontSize={font(13)} />
+              <CalcButton label={isSecondMode ? 'ʸ√' : 'xʸ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'ʸ√' : 'xʸ')} height={sciButtonHeight} fontSize={font(13)} />
+              <CalcButton label={isSecondMode ? 'ln' : 'eˣ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'ln' : 'eˣ')} height={sciButtonHeight} fontSize={font(13)} />
+              <CalcButton label={isSecondMode ? 'log' : '10ˣ'} style="sci" onPress={() => handleButtonPress(isSecondMode ? 'log' : '10ˣ')} height={sciButtonHeight} fontSize={font(13)} />
+            </View>
 
-        <View style={styles.buttonGrid}>
-          <View style={styles.row}>
-            <CalcButton label="AC" style="func" onPress={() => handleButtonPress('AC')} height={buttonHeight} />
-            <CalcButton label="±" style="func" onPress={() => handleButtonPress('±')} height={buttonHeight} />
-            <CalcButton label="%" style="func" onPress={() => handleButtonPress('%')} height={buttonHeight} />
-            <CalcButton label="÷" style="op" onPress={() => handleButtonPress('÷')} height={buttonHeight} />
-          </View>
-          <View style={styles.row}>
-            <CalcButton label="7" style="num" onPress={() => handleButtonPress('7')} height={buttonHeight} />
-            <CalcButton label="8" style="num" onPress={() => handleButtonPress('8')} height={buttonHeight} />
-            <CalcButton label="9" style="num" onPress={() => handleButtonPress('9')} height={buttonHeight} />
-            <CalcButton label="×" style="op" onPress={() => handleButtonPress('×')} height={buttonHeight} />
-          </View>
-          <View style={styles.row}>
-            <CalcButton label="4" style="num" onPress={() => handleButtonPress('4')} height={buttonHeight} />
-            <CalcButton label="5" style="num" onPress={() => handleButtonPress('5')} height={buttonHeight} />
-            <CalcButton label="6" style="num" onPress={() => handleButtonPress('6')} height={buttonHeight} />
-            <CalcButton label="-" style="op" onPress={() => handleButtonPress('-')} height={buttonHeight} />
-          </View>
-          <View style={styles.row}>
-            <CalcButton label="1" style="num" onPress={() => handleButtonPress('1')} height={buttonHeight} />
-            <CalcButton label="2" style="num" onPress={() => handleButtonPress('2')} height={buttonHeight} />
-            <CalcButton label="3" style="num" onPress={() => handleButtonPress('3')} height={buttonHeight} />
-            <CalcButton label="+" style="op" onPress={() => handleButtonPress('+')} height={buttonHeight} />
-          </View>
-          <View style={styles.row}>
-            <CalcButton label="0" style="num" onPress={() => handleButtonPress('0')} height={buttonHeight} />
-            <CalcButton label="." style="num" onPress={() => handleButtonPress('.')} height={buttonHeight} />
-            <CalcButton label="⌫" style="func" onPress={() => handleButtonPress('⌫')} height={buttonHeight} />
-            <CalcButton label="=" style="equal" onPress={() => handleButtonPress('=')} height={buttonHeight} equalBg={calcTheme.equalBg} />
+            <View style={[styles.buttonGrid, { paddingHorizontal: 8, paddingBottom: 20, gap: 8 }]}>
+              {[
+                ['AC', '±', '%', '÷'],
+                ['7', '8', '9', '×'],
+                ['4', '5', '6', '-'],
+                ['1', '2', '3', '+'],
+                ['0', '.', '⌫', '='],
+              ].map((row, ri) => (
+                <View key={`row-${ri}`} style={[styles.row, { gap: space(1), marginBottom: space(1) }]}>
+                  {row.map((label, ci) => {
+                    const btnKey = `btn-${ri}-${ci}`;
+                    const styleType: 'num' | 'func' | 'op' | 'equal' =
+                      label === 'AC' || label === '±' || label === '%' || label === '⌫' ? 'func' :
+                      ['÷', '×', '-', '+', '='].includes(label) ? (label === '=' ? 'equal' : 'op') : 'num';
+                    const isOp = ['÷', '×', '-', '+'].includes(label);
+                    const pressed = () => handleButtonPress(label);
+                    if (styleType === 'equal') {
+                      return (
+                        <CalcButton key={btnKey} label="=" style="equal" onPress={pressed} height={buttonHeight} fontSize={font(34)} equalBg={calcTheme.equalBg} />
+                      );
+                    }
+                    if (isOp) {
+                      return (
+                        <CalcButton key={btnKey} label={label} style="op" onPress={pressed} height={buttonHeight} fontSize={font(30)} />
+                      );
+                    }
+                    return (
+                      <CalcButton key={btnKey} label={label} style={styleType} onPress={pressed} height={buttonHeight} fontSize={font(26)} />
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -474,110 +495,130 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={[styles.stdContainer, { backgroundColor: stdTheme.bg }]}>
-      <View style={[styles.logoWrap, { backgroundColor: isDark ? '#1C1C1E' : colors.surfaceElevated }]}>
-        <Image source={require('../../../assets/logo/DepoS_logo.png')} style={styles.logo} resizeMode="contain" />
-      </View>
-      <Text style={[styles.appName, { color: stdTheme.text }]}>Deposito Seguro</Text>
-
-      <Text style={[styles.stdTitle, { color: stdTheme.text }]}>Enter PIN</Text>
-      <Text style={[styles.subtitle, { color: stdTheme.muted }]}>
-        Enter your PIN to unlock the vault
-      </Text>
-
-      <TextInput
-        ref={pinInputRef}
-        style={[styles.pinInput, { backgroundColor: stdTheme.surface, color: stdTheme.text }]}
-        placeholder="Enter PIN"
-        placeholderTextColor={stdTheme.inputPlaceholder}
-        value={pin}
-        onChangeText={setPin}
-        keyboardType="number-pad"
-        maxLength={20}
-        secureTextEntry
-        editable={false}
-        showSoftInputOnFocus={false}
-        autoFocus={false}
-        returnKeyType="done"
-      />
-
-      {securityHint ? (
-        <Text style={[styles.hintText, { color: stdTheme.muted }]}>Hint: {securityHint}</Text>
-      ) : null}
-
-      <View style={{ flex: 1 }} />
-
-      <View style={styles.keypadGrid}>
-        {[
-          ['1', '2', '3'],
-          ['4', '5', '6'],
-          ['7', '8', '9'],
-          ['clearAll', '0', 'backspace'],
-        ].map((row, ri) => (
-          <View key={`row-${ri}`} style={styles.keypadRow}>
-            {row.map((key, ci) => {
-              const btnKey = `btn-${ri}-${ci}`;
-              if (key === 'clearAll') {
-                return (
-                  <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleClearAll} activeOpacity={0.7}>
-                    <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>C</Text>
-                  </TouchableOpacity>
-                );
-              }
-              if (key === 'backspace') {
-                return (
-                  <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleBackspace} activeOpacity={0.7}>
-                    <Delete size={26} color={stdTheme.keyText} strokeWidth={2.5} />
-                  </TouchableOpacity>
-                );
-              }
-              return (
-                <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
-                  <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>{key}</Text>
-                  {T9[key] ? <Text style={[styles.keySub, { color: stdTheme.keySub }]}>{T9[key]}</Text> : null}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
-      </View>
-
-      <View style={{ height: 16 }} />
-
-      <TouchableOpacity
-        style={[styles.unlockBtn, { backgroundColor: stdTheme.unlockBg }]}
-        onPress={handleUnlockPress}
-        activeOpacity={0.8}
+    <SafeAreaView style={{ flex: 1, backgroundColor: stdTheme.bg }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Lock size={18} color={stdTheme.unlockText} strokeWidth={2.5} />
-        <Text style={[styles.unlockBtnText, { color: stdTheme.unlockText }]}>Unlock Vault</Text>
-      </TouchableOpacity>
-    </View>
+        <ScrollView
+          contentContainerStyle={[
+            styles.stdScrollContent,
+            { backgroundColor: stdTheme.bg, paddingHorizontal: space(6), paddingVertical: space(6), alignItems: 'center', minHeight: '100%' }
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={[styles.stdContainer, { backgroundColor: 'transparent', width: '100%' }]}>
+            <View style={[styles.logoWrap, { backgroundColor: isDark ? '#1C1C1E' : colors.surfaceElevated, marginTop: space(10) }]}>
+              <Image source={require('../../../assets/logo/DepoS_logo.png')} style={[styles.logo, { width: '40%', aspectRatio: 160 / 140, maxWidth: 160 }]} resizeMode="contain" />
+            </View>
+            <Text style={[styles.appName, { color: stdTheme.text, marginTop: space(5), fontSize: font(36) }]}>
+              Deposito Seguro
+            </Text>
+
+            <Text style={[styles.stdTitle, { color: stdTheme.text, marginTop: space(10), fontSize: font(28) }]}>Enter PIN</Text>
+            <Text style={[styles.subtitle, { color: stdTheme.muted, fontSize: font(15) }]}>
+              Enter your PIN to unlock the vault
+            </Text>
+
+            <TextInput
+              ref={pinInputRef}
+              style={[styles.pinInput, { backgroundColor: stdTheme.surface, color: stdTheme.text, width: '100%', minHeight: 52, fontSize: font(18), letterSpacing: 4, marginBottom: space(4) }]}
+              placeholder="Enter PIN"
+              placeholderTextColor={stdTheme.inputPlaceholder}
+              value={pin}
+              onChangeText={setPin}
+              keyboardType="number-pad"
+              maxLength={20}
+              secureTextEntry
+              editable={false}
+              showSoftInputOnFocus={false}
+              autoFocus={false}
+              returnKeyType="done"
+              accessibilityLabel="PIN display"
+            />
+
+            {securityHint ? (
+              <Text style={[styles.hintText, { color: stdTheme.muted, fontSize: font(13), marginBottom: space(7) }]}>Hint: {securityHint}</Text>
+            ) : null}
+
+            <View style={[styles.keypadGrid, { width: '100%', maxWidth: 400, alignSelf: 'center', paddingHorizontal: space(2), gap: space(1), marginBottom: space(2) }]}>
+              {[
+                ['1', '2', '3'],
+                ['4', '5', '6'],
+                ['7', '8', '9'],
+                ['clearAll', '0', 'backspace'],
+              ].map((row, ri) => (
+                <View key={`row-${ri}`} style={[styles.keypadRow, { gap: space(1) }]}>
+                  {row.map((key, ci) => {
+                    const btnKey = `btn-${ri}-${ci}`;
+                    if (key === 'clearAll') {
+                      return (
+                        <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleClearAll} activeOpacity={0.7}>
+                          <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>C</Text>
+                        </TouchableOpacity>
+                      );
+                    }
+                    if (key === 'backspace') {
+                      return (
+                        <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleBackspace} activeOpacity={0.7}>
+                          <Delete size={26} color={stdTheme.keyText} strokeWidth={2.5} />
+                        </TouchableOpacity>
+                      );
+                    }
+                    return (
+                      <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
+                        <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>{key}</Text>
+                        {T9[key] ? <Text style={[styles.keySub, { color: stdTheme.keySub }]}>{T9[key]}</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.unlockBtn, { backgroundColor: stdTheme.unlockBg, marginTop: space(4), minHeight: 64, width: '100%', maxWidth: 400, alignSelf: 'center', paddingVertical: space(4) }]}
+              onPress={handleUnlockPress}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Unlock Vault"
+            >
+              <Lock size={18} color={stdTheme.unlockText} strokeWidth={2.5} />
+              <Text style={[styles.unlockBtnText, { color: stdTheme.unlockText, fontSize: font(26) }]}>Unlock Vault</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-function CalcButton({ label, style, onPress, active, height, equalBg }: { label: string; style: 'num' | 'func' | 'op' | 'equal' | 'sci'; onPress: () => void; active?: boolean; height?: number; equalBg?: string }) {
+function CalcButton({ label, style, onPress, active, height, fontSize, equalBg }: { label: string; style: 'num' | 'func' | 'op' | 'equal' | 'sci'; onPress: () => void; active?: boolean; height?: number; fontSize?: number; equalBg?: string }) {
   const bg = style === 'equal' ? (equalBg || CALC_OP_BG) :
              style === 'op' ? CALC_OP_BG :
              style === 'sci' ? (active ? CALC_FUNC_BG : CALC_SCI_BG) :
              style === 'func' ? CALC_FUNC_BG : CALC_NUM_BG;
   const textColor = style === 'op' || style === 'equal' ? CALC_OP_TEXT : CALC_TEXT;
-  const fontSize = label === '=' ? 34 :
-                    label === '÷' || label === '×' || label === '-' || label === '+' ? 30 :
-                    style === 'sci' ? 13 : 26;
+  const defaultFontSize = label === '=' ? 34 :
+                          label === '÷' || label === '×' || label === '-' || label === '+' ? 30 :
+                          style === 'sci' ? 13 : 26;
+  const resolvedFontSize = fontSize ?? defaultFontSize;
   const btnHeight = height || 56;
-  const borderRadius = btnHeight * 0.22;
+  const borderRadius = btnHeight * 0.2;
 
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.65}
+      accessible
+      accessibilityLabel={label === '⌫' ? 'Backspace' : label === 'AC' ? 'All Clear' : label === '±' ? 'Plus Minus' : label}
+      accessibilityRole="button"
       style={[
         styles.calcButton,
-        { backgroundColor: bg, height: btnHeight, borderRadius },
+        { backgroundColor: bg, height: btnHeight, borderRadius, minHeight: 44 },
       ]}
     >
-      <Text style={[styles.calcButtonText, { color: textColor, fontSize }]}>
+      <Text style={[styles.calcButtonText, { color: textColor, fontSize: resolvedFontSize }]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -586,18 +627,17 @@ function CalcButton({ label, style, onPress, active, height, equalBg }: { label:
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: CALC_BG },
+  calcOuter: { flex: 1 },
+  calcButtonPanel: {},
+  calcButtonPanelLandscape: { flexBasis: '50%', maxWidth: '55%', flexGrow: 1 },
   displayArea: {
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    paddingTop: 8,
     minHeight: 120,
   },
   historyText: {
     color: 'rgba(255,255,255,0.4)',
-    fontSize: 16,
     fontWeight: '400',
     minHeight: 20,
     textAlign: 'right',
@@ -606,7 +646,6 @@ const styles = StyleSheet.create({
   },
   expressionText: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 22,
     fontWeight: '400',
     minHeight: 28,
     textAlign: 'right',
@@ -615,46 +654,70 @@ const styles = StyleSheet.create({
   },
   mainText: {
     color: CALC_TEXT,
-    fontSize: 64,
     fontWeight: '300',
     minHeight: 72,
     textAlign: 'right',
     width: '100%',
     letterSpacing: -1,
   },
-  mainTextMedium: { fontSize: 46 },
-  mainTextSmall: { fontSize: 36 },
+  mainTextMedium: {},
+  mainTextSmall: {},
   sciRow: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    gap: 8,
   },
-  buttonGrid: { paddingHorizontal: 12, paddingBottom: 20 },
-  row: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  calcButton: { justifyContent: 'center', alignItems: 'center', flex: 1 },
+  buttonGrid: {},
+  row: { flexDirection: 'row' },
+  calcButton: { justifyContent: 'center', alignItems: 'center', flex: 1, minWidth: 44 },
   calcButtonText: { fontWeight: '400', includeFontPadding: false },
-  stdContainer: { flex: 1, backgroundColor: '#000000', alignItems: 'center', paddingHorizontal: 24 },
-  logoWrap: { width: 72, height: 72, borderRadius: 20, backgroundColor: '#1C1C1E', alignItems: 'center', justifyContent: 'center', marginTop: 60, marginBottom: 12 },
-  
-  logo: { marginTop: 40, width: 160, height: 140 },
-  
-  appName: {  marginTop: 40, color: '#FFFFFF', fontSize: 36, fontWeight: '800', letterSpacing: -0.2, marginBottom: 24 },
-  
-  stdTitle: { marginTop: 40, fontSize: 28, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' },
-  subtitle: { fontSize: 15, color: '#8E8E93', textAlign: 'center', marginBottom: 20, lineHeight: 20 },
-  hintText: { fontSize: 13, color: '#8E8E93', textAlign: 'center', fontStyle: 'italic', marginBottom: 28 },
- 
-  pinInput: { width: 400,  height: 52, backgroundColor: '#1C1C1E', borderRadius: 22, paddingHorizontal: 20, color: '#FFFFFF', fontSize: 18, fontWeight: '500', textAlign: 'center', letterSpacing: 4, marginBottom: 16 },
-  keypadGrid: { gap: 12, width: '100%', maxWidth: 320, marginBottom: 8 },
-  keypadRow: { flexDirection: 'row', gap: 12, justifyContent: 'center' },
- 
-  keypadBtn: { width: 120, height: 108, borderRadius: 22, backgroundColor: '#2D2D2D', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' },
-  keyNum: { color: '#FFFFFF', fontSize: 28, fontWeight: '400', includeFontPadding: false, lineHeight: 32 },
-  keySub: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '500', letterSpacing: 0.5, marginTop: -2, lineHeight: 12 },
-  
-  unlockBtn: {  marginBottom: 70 , height: 80, width: 400,  paddingVertical: 16, borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  unlockBtnText: { color: '#000000', fontWeight: '800', fontSize: 26, letterSpacing: -0.2 },
+  stdContainer: { width: '100%', alignItems: 'center' },
+  stdScrollContent: { flexGrow: 1 },
+  calcScrollContent: { flexGrow: 1, backgroundColor: CALC_BG },
+  logoWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  logo: {},
+  appName: { fontWeight: '800', letterSpacing: -0.2, marginBottom: 24, textAlign: 'center' },
+  stdTitle: { fontWeight: '800', letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' },
+  subtitle: { textAlign: 'center', marginBottom: 20, lineHeight: 20 },
+  hintText: { textAlign: 'center', fontStyle: 'italic' },
+  pinInput: {
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    fontWeight: '500',
+    textAlign: 'center',
+    letterSpacing: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  keypadGrid: { alignSelf: 'center', marginBottom: 8 },
+  keypadRow: { flexDirection: 'row', justifyContent: 'center' },
+  keypadBtn: {
+    flex: 1,
+    aspectRatio: 1,
+    minHeight: 72,
+    borderRadius: 22,
+    backgroundColor: '#2D2D2D',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'column',
+  },
+  keyNum: { fontWeight: '400', includeFontPadding: false, lineHeight: 32 },
+  keySub: { fontWeight: '500', letterSpacing: 0.5, marginTop: -2, lineHeight: 12 },
+  unlockBtn: {
+    borderRadius: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 64,
+  },
+  unlockBtnText: { fontWeight: '800', letterSpacing: -0.2 },
   transitionSplash: {
     flex: 1,
     backgroundColor: '#2D2D2D',
@@ -662,12 +725,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   transitionSplashImage: {
-    width: 200,
-    height: 200,
+    maxWidth: 200,
+    aspectRatio: 1,
   },
   transitionSplashTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
     fontWeight: '800',
     letterSpacing: -0.3,
     marginTop: 24,

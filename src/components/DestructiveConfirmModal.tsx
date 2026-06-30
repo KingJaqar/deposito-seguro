@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Trash2, X } from 'lucide-react-native';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface DestructiveConfirmState {
   visible: boolean;
@@ -33,36 +34,53 @@ export function useConfirmDestructive() {
 interface Props {
   state: DestructiveConfirmState;
   onClose: () => void;
+  style?: ViewStyle;
 }
 
-export function DestructiveConfirmModal({ state, onClose }: Props) {
+export function DestructiveConfirmModal({ state, onClose, style }: Props) {
+  const { space, font, radius, isTablet } = useTheme();
+
+  const cardStyle: ViewStyle = {
+    width: '100%',
+    maxWidth: isTablet ? 480 : 360,
+    borderRadius: radius(12),
+    paddingVertical: space(6),
+    paddingHorizontal: space(5),
+    alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  };
+
   return (
     <Modal visible={state.visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
-        <View style={styles.card}>
-          <View style={styles.iconWrap}>
+        <View style={[cardStyle, style]}>
+          <View style={[styles.iconWrap, { marginBottom: space(4) }]}>
             <Trash2 size={24} color="#EF4444" strokeWidth={2.5} />
           </View>
 
-          <Text style={styles.title}>{state.title}</Text>
-          <Text style={styles.message}>{state.message}</Text>
+          <Text style={[styles.title, { marginBottom: space(1) }]}>{state.title}</Text>
+          <Text style={[styles.message, { marginBottom: space(8), lineHeight: 20 }]}>{state.message}</Text>
 
-          <View style={styles.row}>
-            <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose}>
-              <X size={18} color="#fff" strokeWidth={2.5} />
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, styles.confirm]}
-              onPress={() => {
-                onClose();
-                state.onConfirm();
-              }}
-            >
-              <Trash2 size={18} color="#fff" strokeWidth={2.5} />
-              <Text style={styles.confirmText}>{state.confirmText}</Text>
-            </TouchableOpacity>
+          <View style={[styles.row, { gap: space(3) }]}>
+             <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose} accessibilityRole="button" accessibilityLabel="Cancel">
+               <X size={18} color="#fff" strokeWidth={2.5} />
+               <Text style={styles.cancelText} numberOfLines={1}>Cancel</Text>
+             </TouchableOpacity>
+             <TouchableOpacity
+               style={[styles.btn, styles.confirm]}
+               onPress={() => {
+                 onClose();
+                 state.onConfirm();
+               }}
+               accessibilityRole="button"
+               accessibilityLabel={state.confirmText}
+             >
+               <Trash2 size={18} color="#fff" strokeWidth={2.5} />
+               <Text style={styles.confirmText} numberOfLines={1}>{state.confirmText}</Text>
+             </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -85,16 +103,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 24,
-    padding: 24,
-    alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
   iconWrap: {
     width: 56,
     height: 56,
@@ -102,26 +110,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
   title: {
     fontSize: 20,
     fontWeight: '800',
     color: '#fff',
     letterSpacing: -0.3,
-    marginBottom: 6,
     textAlign: 'center',
   },
   message: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 20,
   },
   row: {
     flexDirection: 'row',
-    gap: 12,
     width: '100%',
   },
   btn: {
@@ -132,6 +135,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
+    minHeight: 44,
   },
   cancel: {
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -140,6 +144,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 15,
+    flexShrink: 1,
   },
   confirm: {
     backgroundColor: '#EF4444',
@@ -148,5 +153,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 15,
+    flexShrink: 1,
   },
 });

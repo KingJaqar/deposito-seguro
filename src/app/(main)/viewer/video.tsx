@@ -46,9 +46,15 @@ export default function VideoViewerScreen() {
     };
     
     loadFile();
-  }, [fileId, fileMeta]);
+    
+    return () => {
+      if (decryptedPathRef.current) {
+        StorageService.removeSandboxFile(decryptedPathRef.current).catch(e => console.error(e));
+      }
+    };
+  }, [fileId, fileMeta, encryptionKeys]);
 
-  const player = useVideoPlayer(videoUri || null, (player) => {
+  const player = useVideoPlayer(videoUri ? { uri: videoUri } : null, (player) => {
     player.loop = false;
   });
 
@@ -82,7 +88,8 @@ export default function VideoViewerScreen() {
           <video 
             src={videoUri} 
             controls 
-            autoPlay
+            muted
+            playsInline
             style={styles.videoElement as any}
           />
         </View>
@@ -106,5 +113,5 @@ export default function VideoViewerScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: 50 },
   viewport: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
-  videoElement: { width: '100%', height: 300, borderRadius: 12 },
+  videoElement: { width: '100%', height: 300, borderRadius: 12 } as any,
 });

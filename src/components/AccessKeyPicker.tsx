@@ -1,5 +1,5 @@
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useSettingsStore } from '../store/settingsStore';
 import { AccessKeyMetadata } from '../types';
 
@@ -10,7 +10,7 @@ interface AccessKeyPickerProps {
 }
 
 export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKeyPickerProps) {
-  const colors = useThemeColors();
+  const { colors, space, font, radius, isTablet } = useTheme();
   const accessKeys = useSettingsStore((state: { accessKeys: AccessKeyMetadata[] }) => state.accessKeys);
 
   if (!visible) return null;
@@ -23,25 +23,32 @@ export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKe
         activeOpacity={0.8}
       >
         <View
-          style={[styles.sheet, { backgroundColor: colors.surface }]}
+          style={[
+            styles.sheet,
+            { backgroundColor: colors.surface },
+            isTablet && styles.sheetTablet,
+          ]}
           onStartShouldSetResponder={() => true}
         >
-          <View style={styles.handle} />
-          <Text style={[styles.title, { color: colors.text }]}>Assign Access Key</Text>
+          <View style={[styles.handle, { backgroundColor: 'rgba(255,255,255,0.18)' }]} />
+          <Text style={[styles.title, { color: colors.text, marginBottom: space(3) }]}>Assign Access Key</Text>
 
           {accessKeys.length === 0 ? (
             <View style={styles.empty}>
               <Text style={{ color: colors.text, fontSize: 34, marginBottom: 8 }}>🔒</Text>
               <Text style={[styles.emptyText, { color: colors.text }]}>No access keys yet</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Create an access key from Settings, then assign it here.</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>
+                Create an access key from Settings, then assign it here.
+              </Text>
             </View>
           ) : (
-            <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+            <ScrollView style={[styles.scroll, { maxHeight: isTablet ? 480 : 360 }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: space(4) }}>
               {accessKeys.map((ak: AccessKeyMetadata) => (
                 <AccessKeyItem
                   key={ak.id}
                   accessKeyItem={ak}
                   colors={colors}
+                  font={font}
                   onPress={() => onSelectPassword(ak.id)}
                 />
               ))}
@@ -56,37 +63,42 @@ export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKe
 function AccessKeyItem({
   accessKeyItem,
   colors,
+  font,
   onPress,
 }: {
   accessKeyItem: AccessKeyMetadata;
   colors: any;
+  font: (size: number) => number;
   onPress: () => void;
 }) {
   return (
-    <View>
-      <TouchableOpacity
-        style={[styles.password, { borderColor: colors.border }]}
-        onPress={onPress}
-        activeOpacity={0.7}
-      >
-        <View style={styles.passwordContent}>
-          <View>
-            <Text style={[styles.passwordName, { color: colors.text }]} numberOfLines={1}>
-              {accessKeyItem.label}
+    <TouchableOpacity
+      style={[
+        styles.password,
+        { borderBottomColor: colors.border },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`Select access key: ${accessKeyItem.label}`}
+    >
+      <View style={styles.passwordInner}>
+        <View style={{ flex: 1, flexShrink: 1 }}>
+          <Text style={[styles.passwordName, { color: colors.text }]} numberOfLines={1}>
+            {accessKeyItem.label}
+          </Text>
+          <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
+            Fingerprint {accessKeyItem.fingerprint}
+          </Text>
+          {accessKeyItem.description && (
+            <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
+              {accessKeyItem.description}
             </Text>
-            <Text style={[styles.passwordMeta, { color: colors.textMuted }]}>
-              Fingerprint {accessKeyItem.fingerprint}
-            </Text>
-            {accessKeyItem.description && (
-              <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                {accessKeyItem.description}
-              </Text>
-            )}
-          </View>
-          <Text style={{ color: colors.primary, fontSize: 22 }}>›</Text>
+          )}
         </View>
-      </TouchableOpacity>
-    </View>
+        <Text style={{ color: colors.primary, fontSize: 22, flexShrink: 0 }}>›</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -102,18 +114,19 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 18,
   },
+  sheetTablet: {
+    maxHeight: '65%',
+  },
   handle: {
     width: 42,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
     alignSelf: 'center',
     marginBottom: 10,
   },
   title: {
     fontSize: 18,
     fontWeight: '800',
-    marginBottom: 14,
   },
   scroll: {
     maxHeight: 360,
@@ -122,16 +135,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    marginHorizontal: -18,
-    paddingHorizontal: 18,
   },
-  passwordContent: {
-    flex: 1,
+  passwordInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    marginHorizontal: -18,
   },
   passwordName: {
     fontSize: 15,

@@ -1,22 +1,25 @@
 // File: src/app/(main)/settings/storage.tsx
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
-import { useThemeColors } from '../../../contexts/ThemeContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { StorageService } from '../../../services/storage';
 
 function ProgressBar({
   ratio,
   color,
   delay = 0,
+  trackHeight = 8,
 }: {
   ratio: number;
   color: string;
   delay?: number;
+  trackHeight?: number;
 }) {
   return (
-    <View style={barStyles.track}>
+    <View style={[barStyles.track, { height: trackHeight, backgroundColor: 'rgba(255,255,255,0.08)' }]}>
       <View style={[barStyles.fill, { backgroundColor: color, width: `${ratio * 100}%` }]} />
     </View>
   );
@@ -24,12 +27,10 @@ function ProgressBar({
 
 const barStyles = StyleSheet.create({
   track: {
-    height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
-  fill: { height: '100%', borderRadius: 4 },
+  fill: { borderRadius: 4 },
 });
 
 function StatCard({
@@ -41,6 +42,8 @@ function StatCard({
   barColor,
   delay,
   colors,
+  space,
+  font,
 }: {
   icon: string;
   label: string;
@@ -50,14 +53,16 @@ function StatCard({
   barColor?: string;
   delay?: number;
   colors: any;
+  space: (key: any) => number;
+  font: (size: number) => number;
 }) {
   return (
     <View
       style={[
         statStyles.card,
         {
-          backgroundColor: 'rgba(255,255,255,0.04)',
-          borderColor: 'rgba(255,255,255,0.08)',
+          padding: space(4),
+          marginBottom: space(3),
         },
       ]}
     >
@@ -66,17 +71,17 @@ function StatCard({
           <Text style={statStyles.icon}>{icon}</Text>
         </View>
         <View style={statStyles.texts}>
-          <Text style={[statStyles.label, { color: 'rgba(255,255,255,0.45)' }]}>{label}</Text>
-          <Text style={[statStyles.value, { color: colors.text }]}>{value}</Text>
+          <Text style={[statStyles.label, { color: 'rgba(255,255,255,0.45)', fontSize: font(11) }]}>{label}</Text>
+          <Text style={[statStyles.value, { color: colors.text, fontSize: font(22) }]}>{value}</Text>
           {sublabel ? (
-            <Text style={[statStyles.sublabel, { color: 'rgba(255,255,255,0.3)' }]}>{sublabel}</Text>
+            <Text style={[statStyles.sublabel, { color: 'rgba(255,255,255,0.3)', fontSize: font(11) }]}>{sublabel}</Text>
           ) : null}
         </View>
       </View>
       {barRatio !== undefined && barColor ? (
-        <View style={{ marginTop: 14 }}>
-          <ProgressBar ratio={barRatio} color={barColor} delay={delay ?? 0} />
-          <Text style={[statStyles.barLabel, { color: 'rgba(255,255,255,0.3)' }]}>
+        <View style={{ marginTop: space(3) }}>
+          <ProgressBar ratio={barRatio} color={barColor} delay={delay ?? 0} trackHeight={space(2)} />
+          <Text style={[statStyles.barLabel, { color: 'rgba(255,255,255,0.3)', fontSize: font(10) }]}>
             {Math.round(barRatio * 100)}% used
           </Text>
         </View>
@@ -89,8 +94,6 @@ const statStyles = StyleSheet.create({
   card: {
     borderRadius: 20,
     borderWidth: 1,
-    padding: 18,
-    marginBottom: 12,
   },
   header: { flexDirection: 'row', alignItems: 'center' },
   iconBox: {
@@ -101,16 +104,16 @@ const statStyles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 14,
   },
-  icon: { fontSize: 20 },
+  icon: {},
   texts: { flex: 1 },
-  label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 },
-  value: { fontSize: 22, fontWeight: '700' },
-  sublabel: { fontSize: 11, marginTop: 3 },
-  barLabel: { fontSize: 10, marginTop: 6, textAlign: 'right' },
+  label: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 },
+  value: { fontWeight: '700' },
+  sublabel: { marginTop: 3 },
+  barLabel: { marginTop: 6, textAlign: 'right' },
 });
 
 export default function StorageTelemetryScreen() {
-  const colors = useThemeColors();
+  const { colors, space, screenPadding, bottomTabSpacing, font } = useTheme();
   const [loading, setLoading] = useState(true);
   const [quota, setQuota] = useState<{ used: number; free: number } | null>(null);
   const [error, setError] = useState(false);
@@ -128,26 +131,26 @@ export default function StorageTelemetryScreen() {
   const usedRatio = quota ? quota.used / totalBytes : 0;
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
       <VaultHeader title="Storage" showBack />
-      <View style={styles.content}>
+      <View style={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]}>
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: 'rgba(255,255,255,0.35)' }]}>
+            <Text style={[styles.loadingText, { color: 'rgba(255,255,255,0.35)', fontSize: font(13) }]}>
               Reading partition…
             </Text>
           </View>
         ) : error ? (
           <View style={styles.errorWrap}>
             <Text style={styles.errorEmoji}>⚠️</Text>
-            <Text style={[styles.errorText, { color: colors.text }]}>
+            <Text style={[styles.errorText, { color: colors.text, fontSize: font(15) }]}>
               Could not read storage data
             </Text>
           </View>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { color: 'rgba(255,255,255,0.38)' }]}>
+            <Text style={[styles.sectionTitle, { color: 'rgba(255,255,255,0.38)', fontSize: font(11) }]}>
               PARTITION OVERVIEW
             </Text>
 
@@ -160,6 +163,8 @@ export default function StorageTelemetryScreen() {
               barColor={colors.primary}
               delay={0}
               colors={colors}
+              space={space}
+              font={font}
             />
 
             <StatCard
@@ -171,6 +176,8 @@ export default function StorageTelemetryScreen() {
               barColor="#34d399"
               delay={120}
               colors={colors}
+              space={space}
+              font={font}
             />
 
             <StatCard
@@ -180,30 +187,30 @@ export default function StorageTelemetryScreen() {
               sublabel="Combined capacity"
               delay={240}
               colors={colors}
+              space={space}
+              font={font}
             />
           </>
         )}
       </View>
 
       <AnimatedTabBar />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, flex: 1, paddingBottom: 110 },
+  content: { flex: 1 },
   sectionTitle: {
-    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.9,
     textTransform: 'uppercase',
-    marginBottom: 14,
     paddingHorizontal: 4,
   },
   loadingWrap: { alignItems: 'center', marginTop: 80, gap: 16 },
-  loadingText: { fontSize: 13 },
+  loadingText: {},
   errorWrap: { alignItems: 'center', marginTop: 80 },
-  errorEmoji: { fontSize: 40, marginBottom: 12 },
-  errorText: { fontSize: 15, fontWeight: '600' },
+  errorEmoji: { marginBottom: 12 },
+  errorText: { fontWeight: '600' },
 });

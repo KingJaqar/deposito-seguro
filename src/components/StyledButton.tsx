@@ -1,38 +1,45 @@
-import { StyleSheet, Text, TouchableOpacity } from 'react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { StyleSheet, Text, TouchableOpacity, ViewStyle } from 'react-native';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface StyledButtonProps {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'danger';
+  disabled?: boolean;
+  style?: ViewStyle;
 }
 
-export const StyledButton = ({ title, onPress, variant = 'primary' }: StyledButtonProps) => {
-  const colors = useThemeColors();
+export const StyledButton = ({ title, onPress, variant = 'primary', disabled = false, style }: StyledButtonProps) => {
+  const { colors, space, font, radius } = useTheme();
   const bg = variant === 'primary' ? colors.primary : colors.error;
 
   return (
     <TouchableOpacity
-      style={[styles.btn, { backgroundColor: bg }]}
+      style={[
+        styles.btn,
+        { backgroundColor: bg, paddingVertical: space(3), paddingHorizontal: space(4), borderRadius: radius(8) },
+        style,
+      ]}
       onPress={onPress}
       activeOpacity={0.8}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
     >
-      <Text style={styles.txt}>{title}</Text>
+      <Text style={[styles.txt, { fontSize: font(14) }]}>{title}</Text>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   btn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 16,
     alignItems: 'center',
-    marginHorizontal: 4,
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
   },
   txt: {
     color: '#FFF',
     fontWeight: '600',
-    fontSize: 14,
   },
 });

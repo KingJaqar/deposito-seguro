@@ -3,7 +3,7 @@
 import { router } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface HeaderProps {
   title: string;
@@ -14,7 +14,7 @@ interface HeaderProps {
 }
 
 export const VaultHeader = ({ title, showBack = false, rightButton, style }: HeaderProps) => {
-  const colors = useThemeColors();
+  const { colors, space, font, headerPaddingTop, isTablet } = useTheme();
 
   const handleBackPress = () => {
     if (showBack) {
@@ -22,13 +22,17 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
     }
   };
 
+  const containerStyle: ViewStyle = {
+    borderBottomColor: colors.borderLight,
+    backgroundColor: colors.glass,
+    paddingTop: headerPaddingTop,
+    paddingHorizontal: space(4),
+    minHeight: isTablet ? 72 : 64,
+  };
+
   return (
     <View
-      style={[
-        styles.container,
-        { borderBottomColor: colors.borderLight, backgroundColor: colors.glass },
-        style,
-      ]}
+      style={[styles.container, containerStyle, style]}
     >
       <View style={styles.content}>
         {showBack && (
@@ -36,6 +40,8 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
             onPress={handleBackPress}
             style={styles.backBtn}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <View
               style={[
@@ -68,10 +74,8 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
 
 const styles = StyleSheet.create({
   container: {
-    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     justifyContent: 'space-between',
     zIndex: 100,
@@ -99,15 +103,18 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flex: 1,
+    flexShrink: 1,
   },
   title: {
     fontSize: 22,
     fontWeight: '700',
     letterSpacing: -0.5,
     textAlign: 'center',
+    flexShrink: 1,
   },
   rightBtn: {
     marginLeft: 'auto',
+    flexShrink: 0,
   },
   gradientLine: {
     position: 'absolute',

@@ -1,12 +1,14 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useThemeColors } from '../../contexts/ThemeContext';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { validatePin, PIN_MIN_LENGTH } from '../../utils/accessKeyValidation';
+import { StyledButton } from '../../components/StyledButton';
 
 export default function RegisterScreen() {
-  const colors = useThemeColors();
+  const { colors, space, font, isTablet } = useTheme();
   const { initializeVault } = useAuthStore();
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -42,70 +44,97 @@ export default function RegisterScreen() {
     }
   };
 
+  const inputStyle = {
+    color: colors.text,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    minHeight: 52,
+    borderRadius: 12,
+    paddingHorizontal: space(4),
+    paddingVertical: space(3),
+    fontSize: font(16),
+    marginBottom: space(5),
+    borderWidth: 1,
+  };
+
+  const labelStyle = {
+    color: colors.text,
+    fontSize: font(12),
+    marginBottom: space(1),
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView contentContainerStyle={[styles.container]}>
-        <Text style={[styles.header, { color: colors.text }]}>Initialize Master Key</Text>
-        <Text style={[styles.desc, { color: colors.textMuted }]}>
-          Establish your localized cryptographic master key configuration below. This cannot be reset if lost.
-        </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={[styles.container, { paddingHorizontal: space(6), paddingVertical: space(6), paddingBottom: space(10) }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={[styles.header, { color: colors.text, fontSize: font(24), marginBottom: space(2) }]}>
+            Initialize Master Key
+          </Text>
+          <Text style={[styles.desc, { color: colors.textMuted, fontSize: font(14), marginBottom: space(7), lineHeight: 20 }]}>
+            Establish your localized cryptographic master key configuration below. This cannot be reset if lost.
+          </Text>
 
-        <View style={styles.form}>
-          <Text style={[styles.label, { color: colors.text }]}>Enter PIN ({PIN_MIN_LENGTH}+ digits)</Text>
-          <TextInput
-            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-            placeholder="Enter numeric PIN"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry
-            value={pin}
-            onChangeText={setPin}
-            keyboardType="number-pad"
-            maxLength={20}
-          />
+          <View style={[styles.form, { width: '100%', maxWidth: isTablet ? 480 : '100%' }]}>
+            <Text style={[styles.label, labelStyle]}>Enter PIN ({PIN_MIN_LENGTH}+ digits)</Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="Enter numeric PIN"
+              placeholderTextColor={colors.textMuted}
+              secureTextEntry
+              value={pin}
+              onChangeText={setPin}
+              keyboardType="number-pad"
+              maxLength={20}
+              autoComplete="off"
+            />
 
-          <Text style={[styles.label, { color: colors.text }]}>Confirm PIN</Text>
-          <TextInput
-            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-            placeholder="Repeat PIN"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry
-            value={confirmPin}
-            onChangeText={setConfirmPin}
-            keyboardType="number-pad"
-            maxLength={20}
-          />
+            <Text style={[styles.label, labelStyle]}>Confirm PIN</Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="Repeat PIN"
+              placeholderTextColor={colors.textMuted}
+              secureTextEntry
+              value={confirmPin}
+              onChangeText={setConfirmPin}
+              keyboardType="number-pad"
+              maxLength={20}
+              autoComplete="off"
+            />
 
-          <Text style={[styles.label, { color: colors.text }]}>Password Security Hint</Text>
-          <TextInput
-            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
-            placeholder="Cryptographic hint reference"
-            placeholderTextColor={colors.textMuted}
-            value={hint}
-            onChangeText={setHint}
-          />
+            <Text style={[styles.label, labelStyle]}>Password Security Hint</Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="Cryptographic hint reference"
+              placeholderTextColor={colors.textMuted}
+              value={hint}
+              onChangeText={setHint}
+              autoComplete="off"
+            />
 
-          <View style={{ marginTop: 20 }}>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: colors.primary }]}
-              onPress={handleInitialization}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonText}>Lock & Build Vault Container</Text>
-            </TouchableOpacity>
+            <View style={{ marginTop: space(5) }}>
+              <StyledButton
+                title="Lock & Build Vault Container"
+                onPress={handleInitialization}
+                style={{ width: '100%' }}
+              />
+            </View>
           </View>
-        </View>
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: 24, justifyContent: 'center' },
-  header: { fontSize: 24, fontWeight: '800', marginBottom: 8 },
-  desc: { fontSize: 14, marginBottom: 32, lineHeight: 20 },
-  form: { width: '100%' },
-  label: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6, letterSpacing: 0.5 },
-  input: { height: 50, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, marginBottom: 20, fontSize: 16 },
-  button: { height: 52, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  container: { flexGrow: 1, justifyContent: 'center' },
+  header: { fontWeight: '800', textAlign: 'center' },
+  desc: { fontWeight: '400', textAlign: 'center' },
+  form: {},
+  label: { fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 1 },
 });

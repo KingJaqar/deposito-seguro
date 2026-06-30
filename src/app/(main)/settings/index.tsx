@@ -2,18 +2,14 @@
 import { router } from 'expo-router';
 import { Moon, Search, Sun, Calculator, Pencil, Circle, Lock, Key, Palette } from 'lucide-react-native';
 import { ReactNode, useState } from 'react';
-import { Alert, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAuthModal';
 import { setDisguiseIcon } from '../../../utils/disguiseIcon';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { BackupService } from '../../../services/backup';
 import { useSettingsStore } from '../../../store/settingsStore';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SCREEN_PADDING = 24;
-const CARD_GAP = 12;
-const CARD_WIDTH = SCREEN_WIDTH - SCREEN_PADDING * 2;
 
 interface SettingItem {
   id: string;
@@ -27,8 +23,13 @@ interface SettingItem {
 }
 
 export default function SettingsCenterScreen() {
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors, isDark, toggleTheme, space, screenPadding, bottomTabSpacing, headerPaddingTop, font, isTablet, clampSize } = useTheme();
   const { themeMode, disguiseMode, updateSetting } = useSettingsStore();
+  const { width } = useWindowDimensions();
+
+  const iconSize = clampSize(40, 56);
+  const iconOptionSize = clampSize(64, 88);
+  const iconOptionImageSize = clampSize(32, 48);
 
   const dash = {
     bg: colors.dashboardBg ?? colors.background,
@@ -168,17 +169,18 @@ export default function SettingsCenterScreen() {
           styles.settingCard,
           {
             backgroundColor: dash.surface,
+            padding: space(4),
           },
         ]}
       >
         <View style={styles.settingContent}>
-          <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15` }]}>
+          <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15`, width: iconSize, height: iconSize, borderRadius: iconSize / 2, marginRight: space(3) }]}>
             {item.icon}
           </View>
           <View style={styles.settingInfo}>
-            <Text style={[styles.settingTitle, { color: dash.text }]}>{item.title}</Text>
+            <Text style={[styles.settingTitle, { color: dash.text, fontSize: font(15) }]}>{item.title}</Text>
             {item.description && (
-              <Text style={[styles.settingDescription, { color: dash.textMuted }]}>{item.description}</Text>
+              <Text style={[styles.settingDescription, { color: dash.textMuted, fontSize: font(12) }]}>{item.description}</Text>
             )}
           </View>
           {item.type === 'toggle' && (
@@ -190,38 +192,47 @@ export default function SettingsCenterScreen() {
             />
           )}
           {item.type === 'link' && (
-            <Text style={[styles.chevron, { color: dash.accent }]}>›</Text>
+            <Text style={[styles.chevron, { color: dash.accent, fontSize: font(28) }]}>›</Text>
           )}
         </View>
       </TouchableOpacity>
     );
   };
 
+  const q = query.trim().toLowerCase();
+
+  const visibleSections = settingSections
+    .map(section => {
+      const filteredItems = section.items.filter(item =>
+        !q ||
+        item.title.toLowerCase().includes(q) ||
+        (item.description && item.description.toLowerCase().includes(q))
+      );
+      return { ...section, items: filteredItems };
+    })
+    .filter(section => {
+      if (section.items.length > 0) return true;
+      if (!q && section.title === 'Identity Disguise Shield' && disguiseMode === 'calculator') return true;
+      return false;
+    });
+
   return (
-    <View style={[styles.root, { backgroundColor: dash.bg }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: dash.bg }]}>
       <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         <View style={styles.headerTextBlock}>
-          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Settings</Text>
-          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Manage your preferences</Text>
+          <Text style={[styles.headerTitle, { color: dash.text, fontSize: font(24) }]} numberOfLines={1}>Settings</Text>
+          <Text style={[styles.headerTagline, { color: dash.textMuted, fontSize: font(13) }]} numberOfLines={1}>Manage your preferences</Text>
         </View>
-        <Pressable
-          onPress={toggleTheme}
-          style={[styles.themeToggle, { backgroundColor: dash.surfaceHover }]}
-          accessibilityRole="button"
-          accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <Sun size={18} color={dash.text} /> : <Moon size={18} color={dash.text} />}
-        </Pressable>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollBody}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.searchBar, { backgroundColor: dash.surface }]}>
+        <View style={[styles.searchBar, { backgroundColor: dash.surface, paddingHorizontal: space(4), paddingVertical: space(3) }]}>
           <Search size={18} color={dash.textMuted} />
           <TextInput
-            style={[styles.searchInput, { color: dash.text }]}
+            style={[styles.searchInput, { color: dash.text, fontSize: font(14) }]}
             placeholder="Search settings..."
             placeholderTextColor={dash.textMuted}
             value={query}
@@ -229,25 +240,32 @@ export default function SettingsCenterScreen() {
           />
         </View>
 
-        {settingSections.map((section, sectionIndex) => (
-          <View key={section.title} style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: dash.text }]}>{section.title}</Text>
-            <View style={styles.cardsContainer}>
+        {visibleSections.length === 0 && q ? (
+          <View style={styles.emptyState}>
+            <Search size={32} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.4 }} />
+            <Text style={[styles.emptyTitle, { color: dash.text, fontSize: font(17) }]}>No results found</Text>
+            <Text style={[styles.emptyText, { color: dash.textMuted, fontSize: font(13) }]}>Try a different search term</Text>
+          </View>
+        ) : (
+          visibleSections.map((section, sectionIndex) => (
+            <View key={section.title} style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(13) }]}>{section.title}</Text>
+            <View style={[styles.cardsContainer, { gap: space(3) }]}>
               {section.items.map((item) => (
                 <SettingCard key={item.id} item={item} />
               ))}
               {section.title === 'Identity Disguise Shield' && disguiseMode === 'calculator' && (
-                <View style={[styles.iconPickerCard, { backgroundColor: dash.surface, borderColor: dash.border }]}>
+                <View style={[styles.iconPickerCard, { backgroundColor: dash.surface, borderColor: dash.border, padding: space(4) }]}>
                   <View style={styles.settingContent}>
-                    <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15` }]}>
+                    <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15`, width: iconSize, height: iconSize, borderRadius: iconSize / 2, marginRight: space(3) }]}>
                       <Palette size={22} strokeWidth={2} color={dash.accent} />
                     </View>
                     <View style={styles.settingInfo}>
-                      <Text style={[styles.settingTitle, { color: dash.text }]}>Icon Theme</Text>
-                      <Text style={[styles.settingDescription, { color: dash.textMuted }]}>Home screen icon color</Text>
+                      <Text style={[styles.settingTitle, { color: dash.text, fontSize: font(15) }]}>Icon Theme</Text>
+                      <Text style={[styles.settingDescription, { color: dash.textMuted, fontSize: font(12) }]}>Home screen icon color</Text>
                     </View>
                   </View>
-                  <View style={styles.iconGrid}>
+                  <View style={[styles.iconGrid, { gap: space(2) }]}>
                     {[
                       { id: 'default', label: 'Default', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-white.png') },
                       { id: 'white', label: 'White', source: require('../../../../assets/icons/calculator-icons/calculator-icon-black-white.png') },
@@ -258,7 +276,7 @@ export default function SettingsCenterScreen() {
                         key={theme.id}
                         style={[
                           styles.iconOption,
-                          { backgroundColor: dash.surfaceHover, borderColor: disguiseIconTheme === theme.id ? dash.accent : dash.border },
+                          { backgroundColor: dash.surfaceHover, borderColor: disguiseIconTheme === theme.id ? dash.accent : dash.border, width: iconOptionSize, height: iconOptionSize, borderRadius: iconOptionSize / 4 },
                           disguiseIconTheme === theme.id && styles.iconOptionSelected,
                         ]}
                         onPress={async () => {
@@ -270,37 +288,39 @@ export default function SettingsCenterScreen() {
                       >
                         <Image
                           source={theme.source}
-                          style={styles.iconOptionImage}
+                          style={[styles.iconOptionImage, { width: iconOptionImageSize, height: iconOptionImageSize, borderRadius: iconOptionImageSize / 4 }]}
                           resizeMode="contain"
                         />
-                        <Text style={[styles.iconOptionText, { color: dash.textMuted }]}>{theme.label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+                        <Text style={[styles.iconOptionText, { color: dash.textMuted, fontSize: font(10) }]}>{theme.label}</Text>
+                       </TouchableOpacity>
+                     ))}
+                   </View>
+                 </View>
               )}
             </View>
           </View>
-        ))}
+        )))}
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: dash.text }]}>Data Continuity Engine</Text>
+          <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(13) }]}>Data Continuity Engine</Text>
           <TouchableOpacity
             onPress={handleExport}
             style={[
               styles.exportButton,
               {
                 backgroundColor: dash.fabBg,
+                paddingVertical: space(4),
+                paddingHorizontal: space(5),
               },
             ]}
           >
-            <Text style={[styles.exportButtonText, { color: dash.fabText }]}>
+            <Text style={[styles.exportButtonText, { color: dash.fabText, fontSize: font(15) }]}>
               Export Standalone Backup Archive
             </Text>
           </TouchableOpacity>
         </View>
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: bottomTabSpacing }} />
       </ScrollView>
 
       <AnimatedTabBar />
@@ -311,42 +331,42 @@ export default function SettingsCenterScreen() {
       />
 
       <Modal visible={showDisplayNameModal} transparent animationType="fade" onRequestClose={() => setShowDisplayNameModal(false)}>
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, { padding: space(6) }]}>
           <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowDisplayNameModal(false)} activeOpacity={1} />
-          <View style={[styles.modalCard, { backgroundColor: dash.surface }]}>
-            <Text style={[styles.modalTitle, { color: dash.text }]}>App Display Name</Text>
-            <Text style={[styles.modalSubtitle, { color: dash.textMuted }]}>
+          <View style={[styles.modalCard, { backgroundColor: dash.surface, padding: space(6) }]}>
+            <Text style={[styles.modalTitle, { color: dash.text, fontSize: font(20) }]}>App Display Name</Text>
+            <Text style={[styles.modalSubtitle, { color: dash.textMuted, fontSize: font(14), marginBottom: space(5), lineHeight: font(14) * 1.4 }]}>
               Enter the name to show on the home screen (leave empty to use default)
             </Text>
             <TextInput
-              style={[styles.modalInput, { color: dash.text, borderColor: dash.border, backgroundColor: dash.bg }]}
+              style={[styles.modalInput, { color: dash.text, borderColor: dash.border, backgroundColor: dash.bg, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), marginBottom: space(5) }]}
               value={displayNameInput}
               onChangeText={setDisplayNameInput}
               placeholder="Deposito Seguro"
               placeholderTextColor={dash.textMuted}
               autoFocus
             />
-            <View style={styles.modalButtonRow}>
+            <View style={[styles.modalButtonRow, { gap: space(3) }]}>
               <TouchableOpacity
-                style={[styles.modalCancelBtn, { backgroundColor: dash.surfaceHover }]}
+                style={[styles.modalCancelBtn, { backgroundColor: dash.surfaceHover, paddingVertical: space(3) }]}
                 onPress={() => setShowDisplayNameModal(false)}
               >
-                <Text style={[styles.modalCancelText, { color: dash.text }]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: dash.text, fontSize: font(15) }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalSaveBtn, { backgroundColor: colors.primary }]}
+                style={[styles.modalSaveBtn, { backgroundColor: colors.primary, paddingVertical: space(3) }]}
                 onPress={() => {
                   updateSetting('disguiseAppName', displayNameInput.trim());
                   setShowDisplayNameModal(false);
                 }}
               >
-                <Text style={styles.modalSaveText}>Save</Text>
+                <Text style={[styles.modalSaveText, { fontSize: font(15) }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -357,37 +377,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: SCREEN_PADDING,
+    paddingHorizontal: 24,
     paddingTop: 50,
     paddingBottom: 16,
   },
   headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
-  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
-  themeToggle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  headerTitle: { fontWeight: '800', letterSpacing: -0.4 },
+  headerTagline: { fontWeight: '500', marginTop: 4 },
 
-  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8 },
+  scrollBody: { paddingHorizontal: 24, paddingTop: 4 },
 
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
     marginBottom: 16,
   },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  searchInput: { flex: 1, fontWeight: '500' },
 
   section: { marginBottom: 28 },
   sectionTitle: {
-    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -395,49 +405,51 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  cardsContainer: { gap: CARD_GAP },
+  cardsContainer: {},
 
   settingCard: {
     borderRadius: 20,
-    padding: 16,
   },
   settingContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   settingIcon: {
-    width: 48,
-    height: 48,
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
   },
   settingInfo: { flex: 1 },
   settingTitle: {
-    fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
     marginBottom: 2,
+    flexShrink: 1,
   },
   settingDescription: {
-    fontSize: 12,
     fontWeight: '500',
   },
   chevron: {
-    fontSize: 28,
     fontWeight: '300',
-    marginLeft: 8,
+    marginLeft: 4,
+    flexShrink: 0,
   },
 
+  emptyState: {
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  emptyText: {
+    textAlign: 'center',
+  },
   exportButton: {
     borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
     alignItems: 'center',
   },
   exportButtonText: {
-    fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
@@ -446,7 +458,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.75)',
-    padding: 24,
   },
   modalBackdrop: {
     position: 'absolute',
@@ -459,88 +470,66 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     borderRadius: 24,
-    padding: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   modalTitle: {
-    fontSize: 20,
     fontWeight: '800',
     letterSpacing: -0.3,
-    marginBottom: 6,
     textAlign: 'center',
   },
   modalSubtitle: {
-    fontSize: 14,
     textAlign: 'center',
-    marginBottom: 20,
     lineHeight: 20,
   },
   modalInput: {
     width: '100%',
     borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
     borderWidth: 1,
-    marginBottom: 20,
   },
   modalButtonRow: {
     flexDirection: 'row',
-    gap: 12,
     width: '100%',
   },
   modalCancelBtn: {
     flex: 1,
-    paddingVertical: 14,
     borderRadius: 14,
     alignItems: 'center',
   },
   modalCancelText: {
     fontWeight: '700',
-    fontSize: 15,
   },
   modalSaveBtn: {
     flex: 1.2,
-    paddingVertical: 14,
     borderRadius: 14,
     alignItems: 'center',
   },
   modalSaveText: {
     color: '#FFFFFF',
     fontWeight: '800',
-    fontSize: 15,
   },
   iconPickerCard: {
     borderRadius: 20,
-    padding: 16,
     borderWidth: 1,
   },
   iconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
     marginTop: 12,
   },
   iconOption: {
-    width: 72,
-    height: 72,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    gap: 4,
   },
   iconOptionSelected: {
     borderWidth: 2,
   },
   iconOptionImage: {
-    width: 40,
-    height: 40,
     borderRadius: 10,
   },
   iconOptionText: {
-    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,

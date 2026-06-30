@@ -1,7 +1,7 @@
 // File: src/components/AnimatedCard.tsx
 import React from 'react';
 import { GestureResponderEvent, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { useThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface AnimatedCardProps {
   children: React.ReactNode;
@@ -20,7 +20,7 @@ export const AnimatedCard = ({
   disabled = false,
   delay = 0,
 }: AnimatedCardProps) => {
-  const colors = useThemeColors();
+  const { colors, space, radius } = useTheme();
 
   const handlePress = (event: GestureResponderEvent) => {
     if (onPress && !disabled) {
@@ -28,8 +28,18 @@ export const AnimatedCard = ({
     }
   };
 
+  const cardStyle: ViewStyle = {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.borderLight,
+    borderRadius: radius(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    padding: space(4),
+    minHeight: 44,
+  };
+
   return (
-    <View style={[styles.container, style]}>
+    <View style={[{ marginVertical: space(1) }, style]}>
       <View style={styles.shadow}>
         <TouchableOpacity
           onPress={handlePress}
@@ -38,10 +48,7 @@ export const AnimatedCard = ({
           disabled={disabled}
           style={styles.pressable}
         >
-          <View style={[styles.card, {
-            backgroundColor: colors.surfaceElevated,
-            borderColor: colors.borderLight
-          }]}>
+          <View style={cardStyle}>
             {children}
           </View>
         </TouchableOpacity>
@@ -52,7 +59,7 @@ export const AnimatedCard = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 4,
+    // marginVertical moved to inline style for responsive value
   },
   shadow: {
     borderRadius: 20,
@@ -64,18 +71,23 @@ const styles = StyleSheet.create({
   pressable: {
     borderRadius: 20,
   },
-  card: {
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-    padding: 16,
-  },
 });
 
 export const SimpleCard = ({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) => {
-  const colors = useThemeColors();
+  const { colors, space, radius } = useTheme();
+
+  const cardStyle: ViewStyle = {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.borderLight,
+    borderRadius: radius(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    padding: space(4),
+    minHeight: 44,
+  };
+
   return (
-    <View style={[styles.card, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderLight }, style]}>
+    <View style={[cardStyle, style]}>
       {children}
     </View>
   );

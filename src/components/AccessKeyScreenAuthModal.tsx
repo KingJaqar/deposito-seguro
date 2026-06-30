@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Eye, EyeOff, Key, Lock, ShieldCheck, X } from 'lucide-react-native';
-import { useThemeColors, useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAuthStore } from '../store/authStore';
 import { useLockoutStore } from '../store/lockoutStore';
 import { validatePin } from '../utils/accessKeyValidation';
@@ -13,8 +13,7 @@ interface AccessKeyScreenAuthModalProps {
 }
 
 export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: AccessKeyScreenAuthModalProps) {
-  const colors = useThemeColors();
-  const { isDark } = useTheme();
+  const { isDark, colors, space, font, radius, isTablet } = useTheme();
   const { authenticate } = useAuthStore();
   const { recordFailedAttempt, resetAttempts, isLockedOut, getRemainingLockoutTime } = useLockoutStore();
 
@@ -60,7 +59,7 @@ export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: Access
         if (nowLockedOut) {
           Alert.alert(
             'Too Many Failed Attempts',
-            `You have exceeded the maximum number of attempts (5). Please wait 30 seconds before trying again.`,
+            'You have exceeded the maximum number of attempts (5). Please wait 30 seconds before trying again.',
           );
           onClose();
         } else {
@@ -83,23 +82,40 @@ export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: Access
     onClose();
   };
 
+  const cardStyle: ViewStyle = {
+    backgroundColor: isDark ? '#000000' : '#FFFFFF',
+    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+    width: '100%',
+    maxWidth: isTablet ? 480 : 360,
+    borderRadius: radius(12),
+    paddingVertical: space(7),
+    paddingHorizontal: space(5),
+    alignItems: 'center',
+    borderWidth: 1,
+  };
+
   return (
     <Modal transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
-        <View style={[styles.card, { backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }]}>
-          <View style={[styles.iconRing, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+        <View style={cardStyle}>
+          <View style={[styles.iconRing, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', marginBottom: space(5) }]}>
             <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
               <Lock size={28} color={colors.textMuted} strokeWidth={1.8} />
             </View>
           </View>
 
-          <Text style={[styles.title, { color: colors.text }]}>Security Verification Required</Text>
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          <Text style={[styles.title, { color: colors.text, marginBottom: space(1) }]}>
+            Security Verification Required
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textMuted, marginBottom: space(5), lineHeight: 20 }]}>
             Enter your authentication key to access the Access Keys screen.
           </Text>
 
-          <View style={[styles.idBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)' }]}>
+          <View style={[
+            styles.idBox,
+            { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)', marginBottom: space(5) }
+          ]}>
             <Key size={16} color={colors.textMuted} strokeWidth={2} />
             <Text style={[styles.idText, { color: colors.text }]}>Access Keys</Text>
           </View>
@@ -111,7 +127,15 @@ export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: Access
 
           <View style={styles.inputWrap}>
             <TextInput
-              style={[styles.input, { color: colors.text, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)' }]}
+              style={[
+                styles.input,
+                {
+                  color: colors.text,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+                  paddingRight: space(12),
+                },
+              ]}
               placeholder="Enter authentication key"
               placeholderTextColor={colors.textMuted}
               value={pin}
@@ -120,10 +144,13 @@ export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: Access
               autoFocus
               keyboardType="number-pad"
               maxLength={10}
+              accessibilityLabel="Authentication key input"
             />
             <TouchableOpacity
               style={styles.eyeBtn}
               onPress={() => setShowPin(!showPin)}
+              accessibilityRole="button"
+              accessibilityLabel={showPin ? 'Hide PIN' : 'Show PIN'}
             >
               {showPin ? (
                 <EyeOff size={18} color={colors.textMuted} strokeWidth={2} />
@@ -134,19 +161,23 @@ export function AccessKeyScreenAuthModal({ visible, onClose, onSuccess }: Access
             </TouchableOpacity>
           </View>
 
-          <View style={styles.buttonRow}>
+          <View style={[styles.buttonRow, { gap: space(3) }]}>
             <TouchableOpacity
               style={[styles.cancelBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
               onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
             >
               <X size={18} color={colors.text} strokeWidth={2.5} />
               <Text style={[styles.cancelText, { color: colors.text }]}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.verifyBtn, { backgroundColor: colors.primary, opacity: isVerifying ? 0.65 : 1 }]}
+              style={[styles.verifyBtn, { backgroundColor: '#4A90D9', opacity: isVerifying ? 0.65 : 1 }]}
               onPress={handleVerify}
               disabled={isVerifying}
               activeOpacity={0.78}
+              accessibilityRole="button"
+              accessibilityLabel="Verify"
             >
               <ShieldCheck size={18} color="#FFFFFF" strokeWidth={2.5} />
               <Text style={styles.verifyText}>{isVerifying ? 'Verifying…' : 'Verify'}</Text>
@@ -173,22 +204,12 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 24,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
   iconRing: {
     width: 72,
     height: 72,
     borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
   },
   iconCircle: {
     width: 64,
@@ -201,14 +222,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     letterSpacing: -0.3,
-    marginBottom: 6,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 20,
   },
   idBox: {
     width: '100%',
@@ -216,7 +234,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     alignItems: 'center',
-    marginBottom: 20,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -226,6 +243,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.5,
+    flexShrink: 1,
+    textAlign: 'center',
   },
   labelRow: {
     flexDirection: 'row',
@@ -251,7 +270,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,
-    paddingRight: 80,
     borderWidth: 1,
   },
   eyeBtn: {
@@ -271,7 +289,6 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 12,
     width: '100%',
   },
   cancelBtn: {
@@ -282,6 +299,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
+    minHeight: 44,
   },
   cancelText: {
     fontWeight: '700',
@@ -295,6 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
+    minHeight: 44,
   },
   verifyText: {
     color: '#FFFFFF',
