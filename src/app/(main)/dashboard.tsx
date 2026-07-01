@@ -10,16 +10,14 @@ import {
   Folder,
   Image as ImageIcon,
   Lock,
-  MoreVertical,
   Music,
   Plus,
   Scissors,
   Search,
   ShieldCheck,
   Smartphone,
-  Undo2,
   Video,
-  X,
+  X
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -36,11 +34,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { AccessKeyPicker } from '../../components/AccessKeyPicker';
+import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
-import { AccessKeyPicker } from '../../components/AccessKeyPicker';
-import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { CategoryTint } from '../../constants/Colors';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -352,6 +350,15 @@ export default function DashboardScreen() {
     );
   };
 
+  const handleDeleteAllFolders = () => {
+    if (folders.length === 0) return;
+    confirmDestructive(
+      'Delete All Vaults',
+      `Move all ${folders.length} vaults into retention trash?`,
+      () => shredMultipleFolders(folders.map(f => f.id))
+    );
+  };
+
   const handleBulkCopy = () => {
     if (selectedFolderIds.length === 0) return;
     copyToClipboard(selectedFolderIds, [], null);
@@ -402,6 +409,7 @@ export default function DashboardScreen() {
     const accentColor = vaultAccentPalette[index % vaultAccentPalette.length];
     const width = gridWidth ?? 160;
 
+    // Compact horizontal layout for list view
     return (
       <Pressable
         onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
@@ -413,49 +421,57 @@ export default function DashboardScreen() {
             width,
             borderColor: isSelected ? dash.accent : 'transparent',
             borderWidth: 2,
-            padding: space(4),
-            minHeight: responsiveSize(150, 170, 190),
+            paddingVertical: space(2),
+            paddingHorizontal: space(3),
+            minHeight: responsiveSize(64, 72, 80),
+            flexDirection: 'row',
+            alignItems: 'center',
           },
         ]}
       >
-        <View style={styles.vaultTopRow}>
-          <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26`, width: responsiveSize(40, 48, 52), height: responsiveSize(40, 48, 52), borderRadius: responsiveSize(20, 24, 26) }]}>
-            <Folder size={responsiveSize(20, 22, 24)} color={accentColor} strokeWidth={2.2} />
-            {(item.hasAccessKey || item.accessKeyId) && (
-              <View style={{ position: 'absolute', bottom: -2, right: -2, width: responsiveSize(16, 18, 20), height: responsiveSize(16, 18, 20), borderRadius: responsiveSize(8, 9, 10), alignItems: 'center', justifyContent: 'center', backgroundColor: dash.accent }}>
-                <Lock size={responsiveSize(10, 12, 14)} color="#FFFFFF" strokeWidth={3} />
-              </View>
-            )}
-          </View>
-          {selectionMode ? (
-            <View style={styles.checkBox}>
-              <View style={{ width: responsiveSize(20, 24, 28), height: responsiveSize(20, 24, 28), borderRadius: responsiveSize(6, 8, 9), borderWidth: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }}>
-                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
-              </View>
+        {/* Icon section - left side */}
+        <View style={[styles.vaultIconChip, { backgroundColor: `${accentColor}26`, width: responsiveSize(40, 44, 48), height: responsiveSize(40, 44, 48), borderRadius: responsiveSize(12, 14, 16), marginRight: space(3), flexShrink: 0 }]}>
+          <Folder size={responsiveSize(20, 22, 24)} color={accentColor} strokeWidth={2.2} />
+          {(item.hasAccessKey || item.accessKeyId) && (
+            <View style={{ position: 'absolute', bottom: -2, right: -2, width: responsiveSize(14, 16, 18), height: responsiveSize(14, 16, 18), borderRadius: responsiveSize(7, 8, 9), alignItems: 'center', justifyContent: 'center', backgroundColor: dash.accent }}>
+              <Lock size={responsiveSize(8, 10, 12)} color="#FFFFFF" strokeWidth={3} />
             </View>
-          ) : (
-            <TouchableOpacity
-              onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.7}
-            >
-              <MoreVertical size={responsiveSize(18, 20, 22)} color={dash.textMuted} />
-            </TouchableOpacity>
           )}
         </View>
 
-        <View style={[styles.vaultBottomBlock, { marginTop: space(3) }]}>
-          <View style={styles.vaultNameRow}>
-            <Text style={[styles.vaultName, { color: dash.text, fontSize: font(15) }]} numberOfLines={1}>{item.name}</Text>
-            <View style={styles.vaultNameIcons}>
-              {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(14, 16, 18)} color={dash.accent} />}
-              {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: responsiveSize(12, 14, 16) }}>🔐</Text> : null}
-              {item.isFavorite ? <ShieldCheck size={responsiveSize(14, 16, 18)} color="#FBBF24" /> : null}
+        {/* Content section - right side */}
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', minWidth: 0 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.vaultNameRow}>
+              <Text style={[styles.vaultName, { color: dash.text, fontSize: font(14), marginBottom: 2 }]} numberOfLines={1}>{item.name}</Text>
+              <View style={styles.vaultNameIcons}>
+                {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(12, 14, 16)} color={dash.accent} />}
+                {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: responsiveSize(10, 12, 14) }}>🔐</Text> : null}
+                {item.isFavorite ? <ShieldCheck size={responsiveSize(12, 14, 16)} color="#FBBF24" /> : null}
+              </View>
             </View>
-          </View>
-          <View style={styles.vaultMetaRow}>
-            <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(12) }]}>{folderFileCount} files</Text>
-            <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(12) }]}>{sizeLabel}</Text>
+            <View style={styles.vaultMetaRow}>
+              <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(11) }]}>{folderFileCount} files</Text>
+              <View style={{ width: 64, alignItems: 'center', position: 'relative' }}>
+                {selectionMode ? (
+                  <View style={[styles.checkBox, { position: 'absolute', top: 0, flexShrink: 0 }]}>
+                    <View style={{ width: responsiveSize(20, 22, 24), height: responsiveSize(20, 22, 24), borderRadius: responsiveSize(6, 7, 8), borderWidth: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }}>
+                      {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    activeOpacity={0.7}
+                    style={{ position: 'absolute', top: 0 }}
+                  >
+                    <Text style={[styles.gridMenuDots, { color: dash.textMuted, fontSize: 14 }]}>•••</Text>
+                  </TouchableOpacity>
+                )}
+                <Text style={[styles.vaultMeta, { color: dash.textMuted, fontSize: font(11), marginTop: 20 }]}>{sizeLabel}</Text>
+              </View>
+            </View>
           </View>
         </View>
       </Pressable>
@@ -469,14 +485,16 @@ export default function DashboardScreen() {
    const getVaultColumns = useCallback((mode: string) => {
      const w = width - screenPadding * 2;
      if (mode === 'list') return 1;
-     if (w > 900 || isTablet) return mode === 'small-icons' ? 5 : mode === 'medium-icons' ? 4 : 2;
-     return mode === 'small-icons' ? 4 : mode === 'medium-icons' ? 3 : 2;
+     if (mode === 'small-icons') return 5;
+     if (mode === 'medium-icons') return 3;
+     if (w > 900 || isTablet) return 4;
+     return 2;
    }, [width, screenPadding, isTablet]);
 
   const getVaultItemWidth = useCallback((mode: string) => {
     const cols = getVaultColumns(mode);
     const gap = vaultGap;
-    return Math.max(140, (width - screenPadding * 2 - gap * (cols - 1)) / cols);
+    return Math.max(60, (width - screenPadding * 2 - gap * (cols - 1)) / cols);
   }, [width, screenPadding, vaultGap, getVaultColumns]);
 
   const renderVaultGrid = (folders: any[], accentOffset = 0) => {
@@ -634,27 +652,30 @@ export default function DashboardScreen() {
                     {selectedFolderIds.length === folders.length ? 'Deselect All' : 'Select All'}
                   </Text>
                 </TouchableOpacity>
-                {selectedFolderIds.length > 0 && (
-                  <>
-                    <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
-                      <Copy size={14} color={dash.text} strokeWidth={2.5} />
-                      <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Copy</Text>
-                    </TouchableOpacity>
-                     <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
-                       <Scissors size={14} color={dash.text} strokeWidth={2.5} />
-                       <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Cut</Text>
+                 {selectedFolderIds.length > 0 && (
+                   <>
+                     <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
+                       <Copy size={14} color={dash.text} strokeWidth={2.5} />
+                       <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Copy</Text>
                      </TouchableOpacity>
-                     {clipboard && (
-                       <TouchableOpacity onPress={handlePasteToRoot} style={styles.textBtn}>
-                         <ClipboardCheck size={14} color={dash.accent} strokeWidth={2.5} />
-                         <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>Paste</Text>
-                       </TouchableOpacity>
-                     )}
-                     <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
-                      <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Shred</Text>
-                     </TouchableOpacity>
-                  </>
-                )}
+                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
+                        <Scissors size={14} color={dash.text} strokeWidth={2.5} />
+                        <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Cut</Text>
+                      </TouchableOpacity>
+                      {clipboard && (
+                        <TouchableOpacity onPress={handlePasteToRoot} style={styles.textBtn}>
+                          <ClipboardCheck size={14} color={dash.accent} strokeWidth={2.5} />
+                          <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>Paste</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
+                       <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Delete</Text>
+                      </TouchableOpacity>
+                   </>
+                 )}
+                 <TouchableOpacity onPress={handleDeleteAllFolders} style={styles.textBtnDanger}>
+                   <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Delete All</Text>
+                 </TouchableOpacity>
                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
                   <Text style={{ color: dash.textMuted, fontSize: font(13), fontWeight: '700' }}>Cancel</Text>
                 </TouchableOpacity>

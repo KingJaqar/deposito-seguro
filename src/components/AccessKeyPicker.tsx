@@ -1,4 +1,5 @@
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { X } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSettingsStore } from '../store/settingsStore';
 import { AccessKeyMetadata } from '../types';
@@ -16,7 +17,7 @@ export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKe
   if (!visible) return null;
 
   return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity
         style={styles.overlay}
         onPress={onClose}
@@ -28,10 +29,13 @@ export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKe
             { backgroundColor: colors.surface },
             isTablet && styles.sheetTablet,
           ]}
-          onStartShouldSetResponder={() => true}
         >
-          <View style={[styles.handle, { backgroundColor: 'rgba(255,255,255,0.18)' }]} />
-          <Text style={[styles.title, { color: colors.text, marginBottom: space(3) }]}>Assign Access Key</Text>
+          <View style={styles.headerRow}>
+            <Text style={[styles.title, { color: colors.text }]}>Assign Access Key</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <X size={20} color={colors.textMuted} strokeWidth={2.5} />
+            </TouchableOpacity>
+          </View>
 
           {accessKeys.length === 0 ? (
             <View style={styles.empty}>
@@ -105,13 +109,15 @@ function AccessKeyItem({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.65)',
   },
   sheet: {
-    maxHeight: '78%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    borderRadius: 24,
     padding: 18,
   },
   sheetTablet: {
@@ -123,6 +129,16 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  closeBtn: {
+    padding: 4,
+    zIndex: 1,
   },
   title: {
     fontSize: 18,

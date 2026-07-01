@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Eye, EyeOff, Key, Lock, X } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { LOCKOUT_DURATION_MS, MAX_PASSWORD_ATTEMPTS, useLockoutStore } from '../store/lockoutStore';
@@ -25,7 +25,7 @@ export function AccessKeyUnlockModal({
   onClose,
   onUnlock,
 }: AccessKeyUnlockModalProps) {
-  const { isDark, space, font, radius, isTablet } = useTheme();
+  const { isDark, colors, space, font, radius, isTablet, screenPadding, clampSize } = useTheme();
   const accessKeys = useSettingsStore((state: { accessKeys: AccessKeyMetadata[] }) => state.accessKeys);
   const { recordFailedAttempt, resetAttempts, isLockedOut, getRemainingLockoutTime } = useLockoutStore();
   const [password, setPassword] = useState('');
@@ -81,81 +81,73 @@ export function AccessKeyUnlockModal({
     onClose();
   };
 
-  const theme = {
-    card: isDark ? '#1A1A1A' : '#FFFFFF',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-    ring: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-    circle: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    title: isDark ? '#FFFFFF' : '#0F172A',
-    subtitle: isDark ? '#8E8E93' : '#64748B',
-    icon: isDark ? '#8E8E93' : '#64748B',
-    idBox: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-    idBoxBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
-    idText: isDark ? '#FFFFFF' : '#0F172A',
-    hint: isDark ? '#8E8E93' : '#64748B',
-    input: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-    inputBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
-    inputText: isDark ? '#FFFFFF' : '#0F172A',
-    placeholder: isDark ? '#8E8E93' : '#64748B',
-    eye: isDark ? '#FFFFFF' : '#0F172A',
-    cancelBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    cancelText: isDark ? '#FFFFFF' : '#0F172A',
-    unlockBg: isDark ? '#F5F0E8' : '#5162FF',
-    unlockText: isDark ? '#000000' : '#FFFFFF',
-  };
+  const ICON_OUTER = clampSize(52, 64);
+  const ICON_INNER = clampSize(44, 56);
 
   const cardStyle: ViewStyle = {
-    backgroundColor: theme.card,
-    borderColor: theme.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderLight,
     width: '100%',
-    maxWidth: isTablet ? 480 : 360,
-    borderRadius: radius(12),
-    paddingVertical: space(7),
+    maxWidth: isTablet ? 420 : 360,
+    borderRadius: radius(16),
+    paddingVertical: space(6),
     paddingHorizontal: space(5),
     alignItems: 'center',
     borderWidth: 1,
   };
 
   return (
-    <Modal transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
-        <View style={cardStyle}>
-          <View style={[styles.iconRing, { backgroundColor: theme.ring, marginBottom: space(5) }]}>
-            <View style={[styles.iconCircle, { backgroundColor: theme.circle }]}>
-              <Lock size={32} color={theme.icon} strokeWidth={1.5} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+      statusBarTranslucent
+    >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={[styles.overlay, { backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.45)', padding: screenPadding }]}>
+          <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
+          <View style={cardStyle}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={handleClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <X size={20} color={colors.textMuted} strokeWidth={2.5} />
+            </TouchableOpacity>
+            <View style={[styles.iconRing, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', width: ICON_OUTER, height: ICON_OUTER, borderRadius: ICON_OUTER / 2, marginBottom: space(4) }]}>
+              <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', width: ICON_INNER, height: ICON_INNER, borderRadius: ICON_INNER / 2 }]}>
+                <Lock size={ICON_INNER * 0.5} color={colors.textMuted} strokeWidth={1.8} />
+              </View>
             </View>
           </View>
 
-          <Text style={[styles.title, { color: theme.title, marginBottom: space(1) }]}>
+          <Text style={[styles.title, { color: colors.text, marginBottom: space(2) }]}>
             Password Required
           </Text>
-          <Text style={[styles.subtitle, { color: theme.subtitle, marginBottom: space(6), lineHeight: 20 }]}>
+          <Text style={[styles.subtitle, { color: colors.textMuted, marginBottom: space(5), lineHeight: 20 }]}>
             Enter the access key password to access this {targetType}
           </Text>
 
-          <View style={[styles.idBox, { backgroundColor: theme.idBox, borderColor: theme.idBoxBorder, marginBottom: space(5) }]}>
-            <Text style={[styles.idText, { color: theme.idText }]} numberOfLines={1}>
+          <View style={[styles.idBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderColor: colors.borderLight, marginBottom: space(4) }]}>
+            <Text style={[styles.idText, { color: colors.text }]} numberOfLines={1}>
               {targetId}
             </Text>
             {targetPassword && (
-              <Text style={[styles.hintText, { color: theme.hint }]} numberOfLines={1}>
-                Hint: {targetPassword.label}
-                {targetPassword.description ? ` - ${targetPassword.description}` : ''}
+              <Text style={[styles.hintText, { color: colors.textMuted }]} numberOfLines={1}>
+                {targetPassword.label}
+                {targetPassword.description ? ` · ${targetPassword.description}` : ''}
               </Text>
             )}
           </View>
 
           <View style={styles.labelRow}>
-            <Key size={14} color={theme.icon} strokeWidth={2} />
-            <Text style={[styles.inputLabel, { color: theme.icon }]}>ENTER PASSWORD</Text>
+            <Key size={13} color={colors.textMuted} strokeWidth={2} />
+            <Text style={[styles.inputLabel, { color: colors.textMuted }]}>ENTER PASSWORD</Text>
           </View>
 
-          <View style={styles.inputWrap}>
+          <View style={[styles.inputWrap, { marginBottom: space(5) }]}>
             <TextInput
-              style={[styles.input, { backgroundColor: theme.input, borderColor: theme.inputBorder, color: theme.inputText, paddingRight: space(12) }]}
+              style={[styles.input, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderColor: colors.border, color: colors.text, paddingRight: space(10) }]}
               placeholder="Enter password"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={colors.textMuted}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -168,26 +160,26 @@ export function AccessKeyUnlockModal({
               accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? (
-                <EyeOff size={18} color={theme.icon} strokeWidth={2} />
+                <EyeOff size={16} color={colors.textMuted} strokeWidth={2} />
               ) : (
-                <Eye size={18} color={theme.icon} strokeWidth={2} />
+                <Eye size={16} color={colors.textMuted} strokeWidth={2} />
               )}
-              <Text style={[styles.eyeText, { color: theme.icon }]}>{showPassword ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={[styles.buttonRow, { gap: space(3) }]}>
-            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.cancelBg }]} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Cancel">
-              <X size={18} color={theme.cancelText} strokeWidth={2.5} />
-              <Text style={[styles.cancelText, { color: theme.cancelText }]}>Cancel</Text>
+            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', borderColor: colors.borderLight }]} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Cancel">
+              <X size={16} color={colors.text} strokeWidth={2.5} />
+              <Text style={[styles.cancelText, { color: colors.text }]}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.unlockBtn, { backgroundColor: theme.unlockBg }]} onPress={handleUnlock} accessibilityRole="button" accessibilityLabel="Unlock">
-              <Lock size={18} color={theme.unlockText} strokeWidth={2.5} />
-              <Text style={[styles.unlockText, { color: theme.unlockText }]}>Unlock</Text>
+            <TouchableOpacity style={[styles.unlockBtn, { backgroundColor: colors.primary }]} onPress={handleUnlock} accessibilityRole="button" accessibilityLabel="Unlock">
+              <Lock size={16} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={[styles.unlockText, { color: '#FFFFFF' }]}>Unlock</Text>
             </TouchableOpacity>
-          </View>
+            </View>
         </View>
       </View>
+    </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -197,8 +189,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    padding: 24,
   },
   backdrop: {
     position: 'absolute',
@@ -207,22 +197,29 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
+  modalHeader: {
+    width: '100%',
+    alignItems: 'center',
+    position: 'relative',
+    marginBottom: 16,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    padding: 4,
+    zIndex: 1,
+  },
   iconRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.3,
     textAlign: 'center',
@@ -233,30 +230,34 @@ const styles = StyleSheet.create({
   },
   idBox: {
     width: '100%',
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: 'center',
     borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
   },
   idText: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    flexShrink: 1,
     textAlign: 'center',
   },
   hintText: {
     fontSize: 13,
     textAlign: 'center',
     fontStyle: 'italic',
+    flexShrink: 1,
   },
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     alignSelf: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   inputLabel: {
     fontSize: 11,
@@ -267,7 +268,6 @@ const styles = StyleSheet.create({
   inputWrap: {
     width: '100%',
     position: 'relative',
-    marginBottom: 24,
   },
   input: {
     width: '100%',
@@ -279,18 +279,14 @@ const styles = StyleSheet.create({
   },
   eyeBtn: {
     position: 'absolute',
-    right: 12,
+    right: 10,
     top: '50%',
     marginTop: -16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
+    gap: 4,
+    paddingHorizontal: 6,
     paddingVertical: 4,
-  },
-  eyeText: {
-    fontSize: 12,
-    fontWeight: '600',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -302,9 +298,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 48,
+    borderWidth: 1,
   },
   cancelText: {
     fontWeight: '700',
@@ -316,9 +313,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 48,
   },
   unlockText: {
     fontWeight: '800',

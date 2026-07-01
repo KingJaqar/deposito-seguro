@@ -25,7 +25,7 @@ export const AnimatedActionSheet = ({
   const { isDark, space, font, radius, isTablet } = useTheme();
   const mountedRef = useRef(false);
 
-  const sheetBg = isDark ? '#000000' : '#FFFFFF';
+  const sheetBg = isDark ? '#2A2A2A' : '#FFFFFF';
   const textColor = isDark ? '#FFFFFF' : '#111111';
   const closeBtnBg = isDark ? '#2A2A2A' : '#F5F5F5';
 

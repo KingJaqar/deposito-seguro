@@ -147,11 +147,11 @@ export default function TrashScreen() {
   };
 
   const card = {
-    bg: isDark ? '#18181B' : '#FFFFFF',
+    bg: isDark ? '#2A2A2A' : '#FFFFFF',
     divider: isDark ? 'rgba(245, 239, 224, 0.08)' : 'rgba(15, 23, 42, 0.08)',
-    restoreBg: isDark ? '#202030' : '#E8E8FF',
+    restoreBg: isDark ? '#333333' : '#E8E8FF',
     restoreText: isDark ? '#7C82E8' : '#5162FF',
-    deleteBg: isDark ? '#2C1E20' : '#FEE2E2',
+    deleteBg: isDark ? '#333333' : '#FEE2E2',
     deleteText: isDark ? '#E4786F' : '#DC2626',
   };
 

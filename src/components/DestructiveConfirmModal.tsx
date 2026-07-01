@@ -38,7 +38,7 @@ interface Props {
 }
 
 export function DestructiveConfirmModal({ state, onClose, style }: Props) {
-  const { space, font, radius, isTablet } = useTheme();
+  const { space, font, radius, isTablet, isDark, colors } = useTheme();
 
   const cardStyle: ViewStyle = {
     width: '100%',
@@ -47,9 +47,9 @@ export function DestructiveConfirmModal({ state, onClose, style }: Props) {
     paddingVertical: space(6),
     paddingHorizontal: space(5),
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: isDark ? '#2A2A2A' : colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: isDark ? colors.borderLight : colors.borderLight,
   };
 
   return (

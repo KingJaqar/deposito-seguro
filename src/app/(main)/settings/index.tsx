@@ -1,15 +1,15 @@
 // File: src/app/(main)/settings/index.tsx
 import { router } from 'expo-router';
-import { Moon, Search, Sun, Calculator, Pencil, Circle, Lock, Key, Palette } from 'lucide-react-native';
+import { Calculator, Circle, Key, Lock, Moon, Palette, Pencil, Search, Sun } from 'lucide-react-native';
 import { ReactNode, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAuthModal';
-import { setDisguiseIcon } from '../../../utils/disguiseIcon';
+import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { BackupService } from '../../../services/backup';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { setDisguiseIcon } from '../../../utils/disguiseIcon';
 
 interface SettingItem {
   id: string;
@@ -58,12 +58,43 @@ export default function SettingsCenterScreen() {
     router.push('/(main)/settings/access-keys');
   };
 
+  const [backupProgress, setBackupProgress] = useState<{ message: string; progress: number } | null>(null);
+
   const handleExport = async () => {
-    const path = await BackupService.exportCompleteBackupArchive();
-    if (path) {
-      Alert.alert('Backup Complete', 'Encrypted local structural manifest shared successfully.');
+    setBackupProgress({ message: 'Starting backup...', progress: 0 });
+    
+    const result = await BackupService.createBackup((message, progress) => {
+      setBackupProgress({ message, progress });
+    });
+
+    setBackupProgress(null);
+
+    if (result.success) {
+      Alert.alert(
+        'Backup Complete',
+        `Backup saved as ${result.backupName}\nSize: ${(result.fileSize || 0 / 1024).toFixed(2)} KB`,
+        [{ text: 'OK' }]
+      );
     } else {
-      Alert.alert('Backup Error', 'Failed compiling data structures.');
+      Alert.alert('Backup Error', result.error || 'Failed to create backup.');
+    }
+  };
+
+  const handleImport = async () => {
+    const result = await BackupService.importBackup((message, progress) => {
+      setBackupProgress({ message, progress });
+    });
+
+    setBackupProgress(null);
+
+    if (result.success) {
+      Alert.alert(
+        'Restore Complete',
+        `Restored ${result.restoredFiles} files and ${result.restoredFolders} folders.`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Restore Error', result.error || 'Failed to restore backup.');
     }
   };
 
@@ -303,21 +334,51 @@ export default function SettingsCenterScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(13) }]}>Data Continuity Engine</Text>
-          <TouchableOpacity
-            onPress={handleExport}
-            style={[
-              styles.exportButton,
-              {
-                backgroundColor: dash.fabBg,
-                paddingVertical: space(4),
-                paddingHorizontal: space(5),
-              },
-            ]}
-          >
-            <Text style={[styles.exportButtonText, { color: dash.fabText, fontSize: font(15) }]}>
-              Export Standalone Backup Archive
-            </Text>
-          </TouchableOpacity>
+          <View style={[styles.cardsContainer, { gap: space(3) }]}>
+            <TouchableOpacity
+              onPress={handleExport}
+              style={[
+                styles.settingCard,
+                {
+                  backgroundColor: dash.surface,
+                  padding: space(4),
+                },
+              ]}
+            >
+              <View style={styles.settingContent}>
+                <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15`, width: iconSize, height: iconSize, borderRadius: iconSize / 2, marginRight: space(3) }]}>
+                  <Text style={{ fontSize: 22 }}>📦</Text>
+                </View>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingTitle, { color: dash.text, fontSize: font(15) }]}>Create Backup</Text>
+                  <Text style={[styles.settingDescription, { color: dash.textMuted, fontSize: font(12) }]}>Export vault to secure archive</Text>
+                </View>
+                <Text style={[styles.chevron, { color: dash.accent, fontSize: font(28) }]}>›</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleImport}
+              style={[
+                styles.settingCard,
+                {
+                  backgroundColor: dash.surface,
+                  padding: space(4),
+                },
+              ]}
+            >
+              <View style={styles.settingContent}>
+                <View style={[styles.settingIcon, { backgroundColor: `${dash.accent}15`, width: iconSize, height: iconSize, borderRadius: iconSize / 2, marginRight: space(3) }]}>
+                  <Text style={{ fontSize: 22 }}>📥</Text>
+                </View>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingTitle, { color: dash.text, fontSize: font(15) }]}>Restore Backup</Text>
+                  <Text style={[styles.settingDescription, { color: dash.textMuted, fontSize: font(12) }]}>Import vault from archive</Text>
+                </View>
+                <Text style={[styles.chevron, { color: dash.accent, fontSize: font(28) }]}>›</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={{ height: bottomTabSpacing }} />
@@ -329,6 +390,39 @@ export default function SettingsCenterScreen() {
         onClose={() => setShowAccessKeyAuthModal(false)}
         onSuccess={handleAccessKeyAuthSuccess}
       />
+
+      {/* Backup Progress Modal */}
+      <Modal visible={backupProgress !== null} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={[styles.modalOverlay, { padding: space(6) }]}>
+          <View style={[styles.modalCard, { backgroundColor: dash.surface, padding: space(6), alignItems: 'center' }]}>
+            <Text style={[styles.modalTitle, { color: dash.text, fontSize: font(18) }]}>
+              {backupProgress?.progress === 100 ? 'Complete!' : 'Processing...'}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: dash.textMuted, fontSize: font(14), marginBottom: space(5), textAlign: 'center' }]}>
+              {backupProgress?.message || 'Please wait...'}
+            </Text>
+            
+            {/* Progress Bar */}
+            <View style={[styles.progressBarTrack, { backgroundColor: dash.border, height: 8, borderRadius: 4, width: '100%', overflow: 'hidden' }]}>
+              <View 
+                style={[
+                  styles.progressBarFill, 
+                  { 
+                    backgroundColor: dash.accent, 
+                    height: '100%', 
+                    width: `${backupProgress?.progress || 0}%`,
+                    borderRadius: 4,
+                  }
+                ]} 
+              />
+            </View>
+            
+            <Text style={[styles.progressText, { color: dash.textMuted, fontSize: font(12), marginTop: space(3) }]}>
+              {Math.round(backupProgress?.progress || 0)}%
+            </Text>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={showDisplayNameModal} transparent animationType="fade" onRequestClose={() => setShowDisplayNameModal(false)}>
         <View style={[styles.modalOverlay, { padding: space(6) }]}>
@@ -533,5 +627,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  progressBarTrack: {},
+  progressBarFill: {},
+  progressText: {
+    fontWeight: '600',
   },
 });

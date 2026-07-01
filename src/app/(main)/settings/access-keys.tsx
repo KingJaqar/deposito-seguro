@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedCard } from '../../../components/AnimatedCard';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
@@ -232,19 +232,20 @@ export default function AccessKeysScreen() {
 
   return (
     <SafeAreaView style={[{ backgroundColor: theme.bg, flex: 1 }]}>
-      <View style={styles.customHeader}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+      <View style={[styles.customHeader, { paddingTop: headerPaddingTop, paddingHorizontal: screenPadding }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={[styles.backIcon, { color: theme.text }]}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <View style={[styles.lockIconBox, { backgroundColor: theme.iconBg }]}>
             <Lock size={20} color={theme.label} strokeWidth={2} />
           </View>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Access Keys</Text>
+          <Text style={[styles.headerTitle, { color: theme.text, fontSize: font(22) }]}>Access Keys</Text>
         </View>
         <View style={{ width: 32 }} />
       </View>
-      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={[styles.description, { color: theme.textMuted, fontSize: font(13) }]}>
           Create up to <Text style={{ color: theme.text, fontWeight: '800' }}>20 passwords</Text> to protect your folders and files. Stored securely and must meet strength requirements.
         </Text>
@@ -371,11 +372,13 @@ export default function AccessKeysScreen() {
 
         {accessKeys.length === 0 ? (
            <View style={[styles.empty, { borderColor: theme.emptyBorder }]}>
-             <Text style={{ fontSize: font(42), marginBottom: space(2) }}>🔒</Text>
+             <View style={[styles.emptyIconCircle, { backgroundColor: theme.iconBg }]}>
+               <Lock size={28} color={theme.label} strokeWidth={1.8} />
+             </View>
              <Text style={[styles.emptyTitle, { color: colors.text }]}>No passwords yet</Text>
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>Create a password to assign it to folders or files.</Text>
-          </View>
-        ) : (
+           </View>
+         ) : (
           accessKeys.map((fp: AccessKeyMetadata) => (
             <View key={fp.id} style={[styles.passwordCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
               <View style={styles.passwordLeft}>
@@ -429,12 +432,13 @@ export default function AccessKeysScreen() {
 
         <View style={{ height: bottomTabSpacing }} />
       </ScrollView>
+    </KeyboardAvoidingView>
       <AnimatedTabBar />
 
       {/* Delete Password Verification Modal */}
       {showDeleteVerificationModal && pendingDeletePassword && (
-         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.verifyOverlay, justifyContent: 'center', alignItems: 'center', padding: space(12) }}>
-          <View style={[styles.verifyCard, { backgroundColor: theme.verifyCardBg, borderColor: theme.verifyCardBorder, maxWidth: isTablet ? 480 : 360 }]}>
+         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.verifyOverlay, justifyContent: 'center', alignItems: 'center', padding: space(6) }}>
+          <View style={[styles.verifyCard, { backgroundColor: theme.verifyCardBg, borderColor: theme.verifyCardBorder, maxWidth: isTablet ? 420 : 360, padding: isTablet ? space(6) : space(5) }]}>
             <View style={[styles.verifyIconRing, { backgroundColor: theme.verifyIconRing }]}>
               <View style={[styles.verifyIconInner, { backgroundColor: theme.verifyIconInner }]}>
                 <Lock size={28} color={colors.error} strokeWidth={1.5} />
@@ -443,7 +447,7 @@ export default function AccessKeysScreen() {
 
             <Text style={[styles.verifyTitle, { color: theme.text }]}>Verify to Delete</Text>
             <Text style={[styles.verifySubtitle, { color: theme.textMuted }]}>
-              Enter the password to confirm deletion of "{pendingDeletePassword.label}"
+              Enter the password to confirm deletion of &quot;{pendingDeletePassword.label}&quot;
             </Text>
 
             {pendingDeletePassword.description && (
@@ -514,8 +518,8 @@ export default function AccessKeysScreen() {
 
       {/* Edit Password Modal */}
       {showEditModal && editingPassword && (
-         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.editOverlay, justifyContent: 'center', alignItems: 'center', padding: space(12) }}>
-          <View style={[styles.editCard, { backgroundColor: theme.editCardBg, borderColor: theme.editCardBorder, maxWidth: isTablet ? 480 : 400 }]}>
+         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.editOverlay, justifyContent: 'center', alignItems: 'center', padding: space(6) }}>
+          <View style={[styles.editCard, { backgroundColor: theme.editCardBg, borderColor: theme.editCardBorder, maxWidth: isTablet ? 420 : 400, padding: isTablet ? space(6) : space(5) }]}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8, width: '100%', alignItems: 'stretch' }}>
                <Text style={[styles.editTitle, { color: theme.text, marginBottom: space(1) }]}>Edit Access Key</Text>
                <Text style={[styles.editSubtitle, { color: theme.textMuted, marginBottom: space(6) }]}>Editing: {editingPassword.label}</Text>
@@ -532,20 +536,20 @@ export default function AccessKeysScreen() {
               </View>
 
               <View style={styles.fieldGroup}>
-              <View style={styles.fieldGroup}>
-                <Text style={[styles.label, { color: theme.label, marginBottom: 0 }]}>Description</Text>
-                <View style={[styles.optionalBadge, { backgroundColor: theme.badgeBg, borderColor: theme.badgeBorder }]}>
-                  <Text style={[styles.optionalBadgeText, { color: theme.textMuted }]}>optional</Text>
+                <View style={styles.labelRow}>
+                  <Text style={[styles.label, { color: theme.label }]}>Description</Text>
+                  <View style={[styles.optionalBadge, { backgroundColor: theme.badgeBg, borderColor: theme.badgeBorder }]}>
+                    <Text style={[styles.optionalBadgeText, { color: theme.textMuted }]}>optional</Text>
+                  </View>
                 </View>
-              </View>
-              <TextInput
-                  style={[styles.input, styles.multilineInput, { color: theme.text, backgroundColor: theme.inputBg }]}
-                  value={editDescription}
-                  onChangeText={setEditDescription}
-                  placeholder="What is this password used for?"
-                  placeholderTextColor={theme.textMuted}
-                  multiline
-                />
+                <TextInput
+                   style={[styles.input, styles.multilineInput, { color: theme.text, backgroundColor: theme.inputBg }]}
+                   value={editDescription}
+                   onChangeText={setEditDescription}
+                   placeholder="What is this password used for?"
+                   placeholderTextColor={theme.textMuted}
+                   multiline
+                 />
               </View>
 
                <View style={styles.fieldGroup}>
@@ -636,9 +640,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: 50,
   },
   backBtn: { padding: 4 },
   backIcon: { fontSize: 22, fontWeight: '600' },
@@ -729,15 +731,24 @@ const styles = StyleSheet.create({
   },
   counterText: { fontSize: 12, fontWeight: '700' },
   empty: { borderWidth: 1, borderRadius: 18, paddingVertical: 36, alignItems: 'center' },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyTitle: { fontSize: 16, fontWeight: '800', marginTop: 4 },
   emptyText: { fontSize: 13, textAlign: 'center', marginTop: 4, paddingHorizontal: 24 },
   passwordCard: {
     flexDirection: 'row',
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderWidth: 1,
   },
   passwordLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
   keyIconBox: {
@@ -749,34 +760,37 @@ const styles = StyleSheet.create({
   },
   passwordName: { fontSize: 15, fontWeight: '800', marginBottom: 2, flexShrink: 1 },
   passwordMeta: { fontSize: 12, flexShrink: 1 },
-  passwordActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  passwordActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 8,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   deleteBtn: {
     alignSelf: 'flex-start',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 8,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
+    justifyContent: 'center',
   },
   infoBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   verifyCard: {
     width: '100%',
-    maxWidth: false ? 480 : 360,
     borderRadius: 24,
     padding: 24,
     alignItems: 'center',
@@ -852,7 +866,6 @@ const styles = StyleSheet.create({
   },
   editCard: {
     width: '100%',
-    maxWidth: false ? 480 : 400,
     maxHeight: '80%',
     borderRadius: 24,
     padding: 20,

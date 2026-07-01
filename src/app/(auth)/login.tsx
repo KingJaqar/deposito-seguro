@@ -60,8 +60,8 @@ export default function LoginScreen() {
     bg: isDark ? '#000000' : colors.background,
     text: isDark ? '#FFFFFF' : colors.text,
     muted: isDark ? '#8E8E93' : colors.textMuted,
-    surface: isDark ? '#1C1C1E' : colors.surface,
-    keypad: isDark ? '#2D2D2D' : colors.surfaceElevated,
+    surface: isDark ? '#2A2A2A' : colors.surface,
+    keypad: isDark ? '#333333' : colors.surfaceElevated,
     keyText: isDark ? '#FFFFFF' : colors.text,
     keySub: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
     unlockBg: isDark ? '#F5F0E8' : colors.primary,
@@ -394,8 +394,10 @@ export default function LoginScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: '#2D2D2D' }}>
         <View style={styles.transitionSplash}>
-          <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
-          <Text style={[styles.transitionSplashTitle, { color: '#FFFFFF' }]}>Deposito Seguro</Text>
+          <View style={styles.transitionSplashLogoContainer}>
+            <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
+          </View>
+          <Text style={styles.transitionSplashTitle}>Deposito Seguro</Text>
         </View>
       </SafeAreaView>
     );
@@ -508,7 +510,7 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.stdContainer, { backgroundColor: 'transparent', width: '100%' }]}>
-            <View style={[styles.logoWrap, { backgroundColor: isDark ? '#1C1C1E' : colors.surfaceElevated, marginTop: space(10) }]}>
+            <View style={[styles.logoWrap, { backgroundColor: isDark ? '#2A2A2A' : colors.surfaceElevated, marginTop: space(10) }]}>
               <Image source={require('../../../assets/logo/DepoS_logo.png')} style={[styles.logo, { width: '40%', aspectRatio: 160 / 140, maxWidth: 160 }]} resizeMode="contain" />
             </View>
             <Text style={[styles.appName, { color: stdTheme.text, marginTop: space(5), fontSize: font(36) }]}>
@@ -676,7 +678,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#2A2A2A',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -723,14 +725,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#2D2D2D',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  transitionSplashLogoContainer: {
+    width: 160,
+    height: 160,
+    borderRadius: 40,
+    backgroundColor: '#3A3A3C',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   transitionSplashImage: {
-    maxWidth: 200,
-    aspectRatio: 1,
+    width: 300,
+    height: 300,
+    resizeMode: 'contain',
   },
   transitionSplashTitle: {
     fontWeight: '800',
     letterSpacing: -0.3,
-    marginTop: 24,
+    fontSize: 28,
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
 });

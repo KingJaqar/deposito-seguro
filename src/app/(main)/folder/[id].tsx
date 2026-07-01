@@ -2,7 +2,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Lock, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Trash2, Undo2, X } from 'lucide-react-native';
+import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Key, Lock, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Trash2, Undo2, X, CheckSquare } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, Image as RNImage } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -59,13 +59,13 @@ export default function FolderDetailsScreen() {
   
   // Access Key modals state
   const [showPasswordPicker, setShowPasswordPicker] = useState(false);
-  const [passwordPickerTarget, setPasswordPickerTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string } | null>(null);
+  const [passwordPickerTarget, setPasswordPickerTarget] = useState<{ type: 'file' | 'folder' | 'bulk'; id: string; name: string } | null>(null);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string; onUnlock: () => void } | null>(null);
   const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string } | null>(null);
   const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
-  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string } | null>(null);
+  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ type: 'file' | 'folder' | 'bulk'; id: string; name: string } | null>(null);
   const [newPasswordLabel, setNewPasswordLabel] = useState('');
   const [newPasswordDescription, setNewPasswordDescription] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -175,6 +175,61 @@ export default function FolderDetailsScreen() {
     );
   };
 
+
+
+  const handleDeleteAll = () => {
+    const totalItems = matchedFiles.length + matchedFolders.length;
+    if (totalItems === 0) {
+      Alert.alert('Folder Empty', 'There are no items to delete.');
+      return;
+    }
+    confirmDestructive(
+      'Delete Everything',
+      `Move ALL  items into retention trash? This will permanently delete all items.`,
+      async () => {
+        for (const file of matchedFiles) {
+          await softDeleteFile(file.id);
+        }
+        for (const folder of matchedFolders) {
+          await deleteFolder(folder.id);
+        }
+        exitSelectionMode();
+      },
+      'Delete All'
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allFileIds = matchedFiles.map(f => f.id);
+    const allFolderIds = matchedFolders.map(f => f.id);
+    const allSelected = allFileIds.every(id => selectedFileIds.includes(id)) && allFolderIds.every(id => selectedFolderIds.includes(id));
+    if (allSelected) {
+      exitSelectionMode();
+    } else {
+      setSelectedFileIds(allFileIds);
+      setSelectedFolderIds(allFolderIds);
+      setSelectionMode(true);
+    }
+  };  const handleBulkAssignExistingKey = () => {
+    const totalSelected = selectedFileIds.length + selectedFolderIds.length;
+    if (totalSelected === 0) {
+      Alert.alert('Selection Empty', 'Select elements first before assigning a key.');
+      return;
+    }
+    setPasswordPickerTarget({ type: 'bulk', id: 'bulk', name: 'selected items' });
+    setShowPasswordPicker(true);
+  };
+
+  const handleBulkCreateAndAssignKey = () => {
+    const totalSelected = selectedFileIds.length + selectedFolderIds.length;
+    if (totalSelected === 0) {
+      Alert.alert('Selection Empty', 'Select elements first before creating a key.');
+      return;
+    }
+    setCreatePasswordTarget({ type: 'bulk', id: 'bulk', name: `${totalSelected} selected items` });
+    setShowCreatePasswordModal(true);
+  };
+
   const handleBulkCopy = () => {
     const totalSelected = selectedFileIds.length + selectedFolderIds.length;
     if (totalSelected === 0) {
@@ -275,11 +330,21 @@ export default function FolderDetailsScreen() {
       return;
     }
     
-    // Assign the newly created password to the target
-    if (createPasswordTarget.type === 'file') {
+    // Assign the newly created password to the target(s)
+    if (createPasswordTarget.type === 'bulk') {
+      for (const fileId of selectedFileIds) {
+        await assignFileAccessKey(fileId, fp.id);
+      }
+      for (const folderId of selectedFolderIds) {
+        await assignFolderAccessKey(folderId, fp.id);
+      }
+      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${selectedFileIds.length + selectedFolderIds.length} items.`);
+    } else if (createPasswordTarget.type === 'file') {
       await assignFileAccessKey(createPasswordTarget.id, fp.id);
+      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${createPasswordTarget.name}.`);
     } else {
       await assignFolderAccessKey(createPasswordTarget.id, fp.id);
+      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${createPasswordTarget.name}.`);
     }
     
     // Reset state
@@ -289,8 +354,6 @@ export default function FolderDetailsScreen() {
     setNewConfirmPassword('');
     setCreatePasswordTarget(null);
     setShowCreatePasswordModal(false);
-    
-    Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${createPasswordTarget.name}.`);
   };
 
   // Handle file actions
@@ -615,22 +678,34 @@ export default function FolderDetailsScreen() {
                 <Text style={st.selectButtonText}>☑ Select</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={st.purgeButton} onPress={handleBulkSoftDelete}>
-                <Text style={st.purgeButtonText}>Purge</Text>
-              </TouchableOpacity>
             </>
           ) : (
             <>
+              <TouchableOpacity onPress={handleSelectAll} style={st.iconActionPill}>
+                <CheckSquare size={18} color={text} strokeWidth={2.5} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={handleBulkCopy} style={st.iconActionPill}>
                 <Copy size={18} color={text} strokeWidth={2.5} />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleBulkCut} style={st.iconActionPill}>
                 <Scissors size={18} color={text} strokeWidth={2.5} />
               </TouchableOpacity>
-                <TouchableOpacity onPress={exitSelectionMode} style={[st.outlinedSelectButton, st.activeSelectButton]}>
-                  <Text style={[st.selectButtonText, st.activeSelectButtonText]}>✓ Selected</Text>
-                </TouchableOpacity>
-              </>
+              <TouchableOpacity onPress={handleBulkSoftDelete} style={[st.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleBulkAssignExistingKey} style={st.iconActionPill}>
+                <Key size={18} color={primary} strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleBulkCreateAndAssignKey} style={st.iconActionPill}>
+                <ShieldCheck size={18} color={primary} strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDeleteAll} style={[st.deleteAllButton, { backgroundColor: colors.error }]}>
+                <Text style={[st.deleteAllButtonText, { color: '#FFF' }]}>Delete All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={exitSelectionMode} style={[st.outlinedSelectButton, st.activeSelectButton]}>
+                <Text style={[st.selectButtonText, st.activeSelectButtonText]}>✕ Exit</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
 
@@ -1229,12 +1304,21 @@ export default function FolderDetailsScreen() {
         onClose={() => { setShowPasswordPicker(false); setPasswordPickerTarget(null); }}
         onSelectPassword={async (passwordId) => {
           if (passwordPickerTarget) {
-            if (passwordPickerTarget.type === 'file') {
+            if (passwordPickerTarget.type === 'bulk') {
+              for (const fileId of selectedFileIds) {
+                await assignFileAccessKey(fileId, passwordId);
+              }
+              for (const folderId of selectedFolderIds) {
+                await assignFolderAccessKey(folderId, passwordId);
+              }
+              Alert.alert('Password Assigned', `Access key has been assigned to ${selectedFileIds.length + selectedFolderIds.length} items.`);
+            } else if (passwordPickerTarget.type === 'file') {
               await assignFileAccessKey(passwordPickerTarget.id, passwordId);
+              Alert.alert('Password Assigned', `Access key has been assigned to ${passwordPickerTarget.name}.`);
             } else {
               await assignFolderAccessKey(passwordPickerTarget.id, passwordId);
+              Alert.alert('Password Assigned', `Access key has been assigned to ${passwordPickerTarget.name}.`);
             }
-            Alert.alert('Password Assigned', `Access key has been assigned to ${passwordPickerTarget.name}.`);
           }
           setShowPasswordPicker(false);
           setPasswordPickerTarget(null);
@@ -1306,17 +1390,19 @@ const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolea
     metricValue: { color: text, fontSize: f(18), fontWeight: '800' },
     metricLabel: { color: muted, fontSize: f(11), fontWeight: '500', marginTop: s(1) },
     metricDivider: { width: 1, height: s(8), backgroundColor: border, opacity: 0.6 },
-    actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: s(7), justifyContent: 'center', flexWrap: 'wrap' },
+    actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: s(7), justifyContent: 'center', flexWrap: 'wrap', gap: s(3) },
     addFileButton: { backgroundColor: colors.vaultAddFileBg || primary, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(6), flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     addFileText: { color: '#FFF', fontWeight: '700', fontSize: f(15) },
     iconActionPill: { backgroundColor: iconBg, width: rs(44, 52, 56), height: rs(44, 52, 56), borderRadius: rs(22, 26, 28), alignItems: 'center', justifyContent: 'center' },
     pillIconText: { fontSize: 18 },
-    outlinedSelectButton: { borderWidth: 1, borderColor: border, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(4), justifyContent: 'center', alignItems: 'center' },
+    outlinedSelectButton: { borderWidth: 1, borderColor: border, borderRadius: 100, paddingVertical: s(4), paddingHorizontal: s(5), justifyContent: 'center', alignItems: 'center' },
     activeSelectButton: { backgroundColor: colors.vaultSelectBg || surface, borderColor: colors.vaultSelectBorder || primary },
     selectButtonText: { color: primary, fontWeight: '600', fontSize: f(14) },
     activeSelectButtonText: { color: primary },
     purgeButton: { backgroundColor: colors.vaultPurgeBg || `${error}18`, borderRadius: 100, paddingVertical: s(3), paddingHorizontal: s(4), justifyContent: 'center', alignItems: 'center' },
     purgeButtonText: { color: colors.vaultPurgeText || error, fontWeight: '700', fontSize: f(14) },
+    deleteAllButton: { backgroundColor: colors.error, borderRadius: 100, paddingVertical: s(4), paddingHorizontal: s(6), justifyContent: 'center', alignItems: 'center', minHeight: rs(44, 52, 56) },
+    deleteAllButtonText: { color: '#FFF', fontWeight: '800', fontSize: f(14), letterSpacing: 0.5 },
     sectionHeader: { color: sectionText, fontSize: f(12), fontWeight: '700', letterSpacing: 1.2, marginBottom: s(3), marginTop: s(2), paddingLeft: s(1) },
     folderCard: { backgroundColor: surface, borderRadius: tab ? 22 : 18, padding: s(4), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: s(3) },
     folderCardSelected: { borderColor: primary, borderWidth: 1 },

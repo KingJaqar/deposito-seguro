@@ -19,7 +19,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
 
 export default function FavoritesScreen() {
-  const { colors } = useTheme();
+  const { colors, space, font, radius, isTablet, screenPadding, bottomTabSpacing, headerPaddingTop } = useTheme();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const {
     files, folders, clipboard,
@@ -54,7 +54,7 @@ export default function FavoritesScreen() {
   const [newFavFolderName, setNewFavFolderName] = useState('');
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameText, setRenameText] = useState('');
-  const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
+  const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string; onUnlock: () => void } | null>(null);
   const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
@@ -234,7 +234,10 @@ export default function FavoritesScreen() {
   const handleFileAction = (file: any, action: string) => {
     setShowFileMenu(false);
     switch (action) {
-      case 'unfavorite': toggleFavorite(file.id); break;
+      case 'rename': setTargetItem(file); setRenameText(file.name); setShowRenameModal(true); break;
+      case 'move': Alert.alert('Move', 'Select a destination folder to move this file.'); break;
+      case 'export': Alert.alert('Export', 'Export functionality available from the file viewer.'); break;
+      case 'favorite': toggleFavorite(file.id); break;
       case 'copy':
         copyToClipboard([], [file.id], null);
         break;
@@ -254,23 +257,21 @@ export default function FavoritesScreen() {
       case 'shred':
         confirmDestructive(
           'Permanently Shred',
-          `Shred "${file.name}" permanently?`,
+          `Permanently shred "${file.name}"?`,
           () => shredFile(file.id),
           'Shred Permanently'
         );
         break;
       case 'register-key': handleCreateAndAssignPassword(file.id, file.name, 'file'); break;
-      case 'assign-key': setKeyPickerTarget({ id: file.id, name: file.name }); break;
+      case 'assign-key': if (accessKeys.length === 0) { Alert.alert('No Access Keys', 'Create an access key in Settings first.'); } else { setKeyPickerTarget({ id: file.id, name: file.name, type: 'file' }); } break;
       case 'remove-key':
-        if (file.accessKeyId) {
-          setPendingPasswordRemoval({
-            type: 'file',
-            id: file.id,
-            name: file.name,
-            accessKeyId: file.accessKeyId
-          });
-          setShowUnlockModal(true);
-        }
+        setPendingPasswordRemoval({
+          type: 'file',
+          id: file.id,
+          name: file.name,
+          accessKeyId: file.accessKeyId
+        });
+        setShowUnlockModal(true);
         break;
     }
   };
@@ -297,8 +298,11 @@ export default function FavoritesScreen() {
   const handleFolderAction = (folder: any, action: string) => {
     setShowFolderMenu(false);
     switch (action) {
+      case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
+      case 'move': Alert.alert('Move', 'Select a destination folder to move this folder.'); break;
+      case 'export': Alert.alert('Export', 'Export functionality available from the folder view.'); break;
+      case 'favorite': toggleFavorite(folder.id); break;
       case 'open': handleFolderNavigate(folder); break;
-      case 'unfavorite': toggleFavorite(folder.id); break;
       case 'copy':
         copyToClipboard([folder.id], [], null);
         break;
@@ -311,13 +315,11 @@ export default function FavoritesScreen() {
       case 'paste':
         if (clipboard) {
           pasteFromClipboard(folder.id).then((result) => {
-            if (result.pastedFiles > 0 || result.pastedFolders > 0) {
-              Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
-            }
+            if (result.pastedFiles === 0 && result.pastedFolders === 0) return;
+            Alert.alert('Paste Complete', `${result.pastedFolders} folder${result.pastedFolders !== 1 ? 's' : ''}, ${result.pastedFiles} file${result.pastedFiles !== 1 ? 's' : ''} pasted.`);
           }).catch(() => Alert.alert('Paste Failed', 'Could not paste items.'));
         }
         break;
-      case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
       case 'delete':
         confirmDestructive(
           'Move to Trash',
@@ -328,23 +330,21 @@ export default function FavoritesScreen() {
       case 'shred':
         confirmDestructive(
           'Permanently Shred',
-          `Shred "${folder.name}" permanently?`,
-          () => shredFile(folder.id),
+          `Shred "${folder.name}" and all its contents permanently?`,
+          () => deleteFolder(folder.id),
           'Shred Permanently'
         );
         break;
       case 'register-key': handleCreateAndAssignPassword(folder.id, folder.name, 'folder'); break;
-      case 'assign-key': setKeyPickerTarget({ id: folder.id, name: folder.name }); break;
+      case 'assign-key': if (accessKeys.length === 0) { Alert.alert('No Access Keys', 'Create an access key in Settings first.'); } else { setKeyPickerTarget({ id: folder.id, name: folder.name, type: 'folder' }); } break;
       case 'remove-key':
-        if (folder.accessKeyId) {
-          setPendingPasswordRemoval({
-            type: 'folder',
-            id: folder.id,
-            name: folder.name,
-            accessKeyId: folder.accessKeyId
-          });
-          setShowUnlockModal(true);
-        }
+        setPendingPasswordRemoval({
+          type: 'folder',
+          id: folder.id,
+          name: folder.name,
+          accessKeyId: folder.accessKeyId
+        });
+        setShowUnlockModal(true);
         break;
     }
   };
@@ -571,16 +571,16 @@ export default function FavoritesScreen() {
                       ]} />
                     )}
                     {!selectionMode && (
-                      <TouchableOpacity
-                        style={styles.cardMenuIcon}
-                        onPressIn={() => {
-                          setTargetItem(item);
-                          setShowFolderMenu(true);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={[styles.menuDotsText, { color: dash.textMuted }]}>•••</Text>
-                      </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ padding: space(1) }}
+                      onPress={() => {
+                        setTargetItem(item);
+                        setShowFolderMenu(true);
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={[{ color: dash.textMuted, fontSize: font(14), fontWeight: '700' }]}>•••</Text>
+                    </TouchableOpacity>
                     )}
                     {!selectionMode && <Text style={[styles.chevronIcon, { color: dash.textMuted }]}>›</Text>}
                   </View>
@@ -751,17 +751,17 @@ export default function FavoritesScreen() {
                       ]} />
                     )}
                     <TouchableOpacity
-                      style={styles.cardMenuIcon}
-                      onPressIn={() => {
+                      style={{ padding: space(1) }}
+                      onPress={() => {
                         setTargetItem(item);
                         setShowFileMenu(true);
                       }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Text style={styles.menuDotsText}>•••</Text>
+                      <Text style={[{ color: dash.textMuted, fontSize: font(14), fontWeight: '700' }]}>•••</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.cardMenuIcon}
+                      style={{ padding: space(1) }}
                       onPress={() => confirmDestructive(
                         'Move to Trash',
                         `Move "${item.name}" into retention trash?`,
@@ -812,59 +812,23 @@ export default function FavoritesScreen() {
 
       {showFileMenu && targetItem && (
         <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
-          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
-            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
-              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
-              {(() => {
-                const hasPassword = targetItem.hasAccessKey || targetItem.accessKeyId;
-                 const baseItems = [
-                  { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
-                  { action: 'copy', label: 'Copy', color: dash.accent },
-                  { action: 'cut', label: 'Cut', color: dash.accent },
-                  { action: 'duplicate', label: 'Duplicate', color: dash.text },
-                  { action: 'delete', label: 'Move to Trash', color: colors.error },
-                  { action: 'shred', label: 'Shred Permanently', color: colors.error },
-                ];
-                if (hasPassword) {
-                  baseItems.push({ action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
-                } else {
-                  baseItems.push(
-                    { action: 'register-key', label: 'Assign and Create Access Key', color: dash.accent },
-                    { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
-                  );
-                }
-                return baseItems;
-              })().map(item => (
-                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFileAction(targetItem, item.action)}>
-                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-
-      {showFolderMenu && targetItem && (
-        <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
-          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
-            <View style={[styles.actionSheet, { backgroundColor: dash.surface }]}>
-              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
+          <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
+            <View style={[{ backgroundColor: dash.surface, borderRadius: space(5), padding: space(6), borderWidth: 1, borderColor: dash.border, alignSelf: 'center', width: '100%' }, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+              <View style={{ width: space(10), height: space(1), borderRadius: 1, backgroundColor: dash.border, alignSelf: 'center', marginBottom: space(4) }} />
+              <Text style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{targetItem.name}</Text>
               {(() => {
                 const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
-                 const baseItems = [
-                  { action: 'open', label: 'Open Folder', color: dash.accent },
-                  { action: 'unfavorite', label: 'Remove from Favorites', color: '#FBBF24' },
-                  { action: 'copy', label: 'Copy', color: dash.accent },
-                  { action: 'cut', label: 'Cut', color: dash.accent },
-                  { action: 'duplicate', label: 'Duplicate', color: dash.text },
+                const baseItems = [
+                  { action: 'rename', label: 'Rename', color: dash.text },
+                  { action: 'move', label: 'Move to...', color: dash.text },
+                  { action: 'export', label: 'Export / Save to Device', color: dash.text },
+                  { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
                   { action: 'delete', label: 'Move to Trash', color: colors.error },
                   { action: 'shred', label: 'Shred Permanently', color: colors.error },
                 ];
-                if (clipboard) {
-                  baseItems.splice(4, 0, { action: 'paste', label: 'Paste Here', color: dash.accent });
-                }
+                baseItems.splice(3, 0, { action: 'copy', label: 'Copy', color: dash.accent });
+                baseItems.splice(4, 0, { action: 'cut', label: 'Cut', color: dash.accent });
+                baseItems.splice(5, 0, { action: 'duplicate', label: 'Duplicate', color: dash.text });
                 if (hasPassword) {
                   baseItems.splice(5, 0, { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
                 } else {
@@ -875,8 +839,48 @@ export default function FavoritesScreen() {
                 }
                 return baseItems;
               })().map(item => (
-                <TouchableOpacity key={item.action} style={[styles.actionSheetItem, { borderBottomColor: dash.border }]} onPress={() => handleFolderAction(targetItem, item.action)}>
-                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
+                <TouchableOpacity key={item.action} style={{ paddingVertical: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: dash.border }} onPress={() => handleFileAction(targetItem, item.action)}>
+                  <Text style={[{ color: item.color, fontSize: font(15), fontWeight: '500' }]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {showFolderMenu && targetItem && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFolderMenu(false)}>
+          <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
+            <View style={[{ backgroundColor: dash.surface, borderRadius: space(5), padding: space(6), borderWidth: 1, borderColor: dash.border, alignSelf: 'center', width: '100%' }, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
+              <View style={{ width: space(10), height: space(1), borderRadius: 1, backgroundColor: dash.border, alignSelf: 'center', marginBottom: space(4) }} />
+              <Text style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{targetItem.name}</Text>
+              {(() => {
+                const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
+                const hasClipboard = !!clipboard;
+                const baseItems = [
+                  { action: 'rename', label: 'Rename', color: dash.text },
+                  { action: 'move', label: 'Move', color: dash.text },
+                  { action: 'export', label: 'Export', color: dash.text },
+                  { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: '#FBBF24' },
+                  { action: 'delete', label: 'Move to Trash', color: colors.error },
+                  { action: 'shred', label: 'Shred Permanently', color: colors.error },
+                ];
+                if (hasClipboard) {
+                  baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: dash.accent });
+                }
+                baseItems.splice(3, 0, { action: 'duplicate', label: 'Duplicate', color: dash.text });
+                if (hasPassword) {
+                  baseItems.splice(4, 0, { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error });
+                } else {
+                  baseItems.splice(4, 0,
+                    { action: 'register-key', label: 'Assign and Create Access Key', color: dash.accent },
+                    { action: 'assign-key', label: 'Assign Existing Password', color: dash.accent }
+                  );
+                }
+                return baseItems;
+              })().map(item => (
+                <TouchableOpacity key={item.action} style={{ paddingVertical: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: dash.border }} onPress={() => handleFolderAction(targetItem, item.action)}>
+                  <Text style={[{ color: item.color, fontSize: font(15), fontWeight: '500' }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
