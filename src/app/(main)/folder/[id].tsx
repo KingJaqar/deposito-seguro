@@ -2,23 +2,34 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Key, Lock, Music, Play, Scissors, ShieldCheck, Smartphone, Star, Trash2, Undo2, X, CheckSquare } from 'lucide-react-native';
+import { CheckSquare, Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Key, Lock, Scissors, ShieldCheck, Star, Trash2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, Image as RNImage } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, Image as RNImage, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AccessKeyPicker } from '../../../components/AccessKeyPicker';
+import { AccessKeyRegistrationModal } from '../../../components/AccessKeyRegistrationModal';
+import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../../components/DestructiveConfirmModal';
 import { ViewModeMenu } from '../../../components/ViewModeMenu';
-import { AccessKeyPicker } from '../../../components/AccessKeyPicker';
-import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
+import { useRename } from '../../../contexts/RenameContext';
+import { useMove } from '../../../contexts/MoveVaultContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useFileSystemQuery } from '../../../hooks/useFileSystemQuery';
 import { SecureCrypto } from '../../../security/crypto';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
-import { getPasswordStrength, getPasswordValidationMessages, validatePassword } from '../../../utils/accessKeyValidation';
+
+const wrapAtLength = (text: string, maxLength = 60): string[] => {
+  if (!text) return [];
+  const lines: string[] = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    lines.push(text.slice(i, i + maxLength));
+  }
+  return lines;
+};
 
 export default function FolderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -39,6 +50,8 @@ export default function FolderDetailsScreen() {
   
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
   const { matchedFiles, matchedFolders } = useFileSystemQuery(id);
+  const { openRenameModal, setOnRename } = useRename();
+  const { openMoveModal, setOnMove } = useMove();
 
   // Maintain authentic cross-platform layout selectors
   const [selectionMode, setSelectionMode] = useState(false);
@@ -57,22 +70,6 @@ export default function FolderDetailsScreen() {
   const [newFolderName, setNewFolderName] = useState('');
   const [shredProgress, setShredProgress] = useState<{ current: number; total: number } | null>(null);
   
-  // Access Key modals state
-  const [showPasswordPicker, setShowPasswordPicker] = useState(false);
-  const [passwordPickerTarget, setPasswordPickerTarget] = useState<{ type: 'file' | 'folder' | 'bulk'; id: string; name: string } | null>(null);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
-  const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string; onUnlock: () => void } | null>(null);
-  const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string } | null>(null);
-  const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
-  const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
-  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ type: 'file' | 'folder' | 'bulk'; id: string; name: string } | null>(null);
-  const [newPasswordLabel, setNewPasswordLabel] = useState('');
-  const [newPasswordDescription, setNewPasswordDescription] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newConfirmPassword, setNewConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
-
   const folderRecord = folders.find(f => f.id === id);
   const folderName = folderRecord ? folderRecord.name : 'Vault Root';
 
@@ -82,7 +79,6 @@ export default function FolderDetailsScreen() {
   const gridColumnsCount = gridColumns(viewMode);
   const gridItemWidthValue = gridItemWidth(gridColumnsCount, gridGap, screenPadding);
 
-  // Calculate real-time metric counters
   const totalSizeKB = useMemo(() => {
     return matchedFiles.reduce((acc, f) => acc + (f.size || 0), 0) / 1024;
   }, [matchedFiles]);
@@ -91,10 +87,15 @@ export default function FolderDetailsScreen() {
     return matchedFiles.filter(f => f.hasAccessKey).length;
   }, [matchedFiles]);
 
-  const newPasswordStrength = getPasswordStrength(newPassword);
-  const newStrengthColor = newPasswordStrength === 'weak' ? colors.error : newPasswordStrength === 'medium' ? '#FBBF24' : '#34C759';
-  const newStrengthLabel = newPasswordStrength === 'weak' ? 'Weak' : newPasswordStrength === 'medium' ? 'Medium' : 'Strong';
-  const newStrengthWidth = newPasswordStrength === 'weak' ? '33%' : newPasswordStrength === 'medium' ? '66%' : '100%';
+  // Access Key modals state
+  const [showPasswordPicker, setShowPasswordPicker] = useState(false);
+  const [passwordPickerTarget, setPasswordPickerTarget] = useState<{ type: 'file' | 'folder' | 'bulk'; id: string; name: string } | null>(null);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string; onUnlock: () => void } | null>(null);
+  const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string } | null>(null);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string; targetType: 'file' | 'folder' | 'bulk' } | null>(null);
+  const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
 
   const sanitizeFilename = (name: string): string => {
     return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, '_');
@@ -226,8 +227,8 @@ export default function FolderDetailsScreen() {
       Alert.alert('Selection Empty', 'Select elements first before creating a key.');
       return;
     }
-    setCreatePasswordTarget({ type: 'bulk', id: 'bulk', name: `${totalSelected} selected items` });
-    setShowCreatePasswordModal(true);
+    setKeyCreateTarget({ id: 'bulk', name: `${totalSelected} selected items`, targetType: 'bulk' });
+    setShowCreateKeyModal(true);
   };
 
   const handleBulkCopy = () => {
@@ -290,70 +291,13 @@ export default function FolderDetailsScreen() {
     }
   };
 
-  // Handle creating and assigning a new access key
-  const handleCreateAndAssignPassword = (targetId: string, targetName: string, targetType: 'file' | 'folder') => {
+  const handleOpenKeyModal = (targetId: string, targetName: string, targetType: 'file' | 'folder') => {
     if (accessKeys.length >= 20) {
       Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
       return;
     }
-    setCreatePasswordTarget({ type: targetType, id: targetId, name: targetName });
-    setShowCreatePasswordModal(true);
-  };
-
-  const confirmCreateAndAssignPassword = async () => {
-    if (!createPasswordTarget) return;
-    
-    if (!newPasswordLabel.trim()) {
-      Alert.alert('Password Label Required', 'Give this access key a recognizable name.');
-      return;
-    }
-    
-    if (accessKeyExists(newPasswordLabel)) {
-      Alert.alert('Password Label Already Used', 'Access key labels must be unique.');
-      return;
-    }
-    
-    const validation = validatePassword(newPassword);
-    if (!validation.valid) {
-      Alert.alert('Password Does Not Meet Requirements', validation.message);
-      return;
-    }
-    
-    if (newPassword !== newConfirmPassword) {
-      Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
-      return;
-    }
-    
-    const fp = await createAccessKey(newPasswordLabel, newPassword, newPasswordDescription);
-    if (!fp) {
-      Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
-      return;
-    }
-    
-    // Assign the newly created password to the target(s)
-    if (createPasswordTarget.type === 'bulk') {
-      for (const fileId of selectedFileIds) {
-        await assignFileAccessKey(fileId, fp.id);
-      }
-      for (const folderId of selectedFolderIds) {
-        await assignFolderAccessKey(folderId, fp.id);
-      }
-      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${selectedFileIds.length + selectedFolderIds.length} items.`);
-    } else if (createPasswordTarget.type === 'file') {
-      await assignFileAccessKey(createPasswordTarget.id, fp.id);
-      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${createPasswordTarget.name}.`);
-    } else {
-      await assignFolderAccessKey(createPasswordTarget.id, fp.id);
-      Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned to ${createPasswordTarget.name}.`);
-    }
-    
-    // Reset state
-    setNewPasswordLabel('');
-    setNewPasswordDescription('');
-    setNewPassword('');
-    setNewConfirmPassword('');
-    setCreatePasswordTarget(null);
-    setShowCreatePasswordModal(false);
+    setKeyCreateTarget({ id: targetId, name: targetName, targetType });
+    setShowCreateKeyModal(true);
   };
 
   // Handle file actions
@@ -363,11 +307,25 @@ export default function FolderDetailsScreen() {
 
     switch (action) {
       case 'rename':
-        setRenameText(targetFile.name);
-        setShowRenameModal(true);
+        openRenameModal({ id: targetFile.id, name: targetFile.name, type: 'file' });
+        setOnRename((newName: string) => {
+          renameFile(targetFile.id, newName.trim());
+          setTargetFile(null);
+        });
         break;
       case 'move':
-        setShowMoveModal(true);
+        if (targetFile) {
+          setOnMove((destinationFolderId: string | null) => {
+            if (destinationFolderId !== null) {
+              moveFileToFolder(targetFile.id, destinationFolderId);
+            }
+          });
+          openMoveModal(
+            { id: targetFile.id, name: targetFile.name, type: 'file', folderId: id },
+            folders.filter(f => f.id !== targetFile.folderId).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+            id
+          );
+        }
         break;
       case 'export':
         exportFileToDevice(targetFile.id).then(path => {
@@ -392,8 +350,8 @@ export default function FolderDetailsScreen() {
       case 'favorite':
         toggleFavorite(targetFile.id);
         break;
-      case 'create-password':
-        handleCreateAndAssignPassword(targetFile.id, targetFile.name, 'file');
+       case 'create-password':
+        handleOpenKeyModal(targetFile.id, targetFile.name, 'file');
         break;
        case 'assign-password':
          if (accessKeys.length === 0) {
@@ -460,13 +418,24 @@ export default function FolderDetailsScreen() {
 
     switch (action) {
       case 'rename':
-        setTargetFolder(subfolder);
-        setRenameText(subfolder.name);
-        setShowRenameModal(true);
+        openRenameModal({ id: subfolder.id, name: subfolder.name, type: 'folder' });
+        setOnRename((newName: string) => {
+          renameFolder(subfolder.id, newName.trim());
+          setTargetSubfolder(null);
+        });
         break;
       case 'move':
         setTargetFolder(subfolder);
-        setShowMoveModal(true);
+        setOnMove((destinationFolderId: string | null) => {
+          if (destinationFolderId !== null) {
+            moveFolder(subfolder.id, destinationFolderId);
+          }
+        });
+        openMoveModal(
+          { id: subfolder.id, name: subfolder.name, type: 'folder' },
+          folders.filter(f => f.id !== subfolder.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+          subfolder.parentId || id
+        );
         break;
       case 'export':
         exportFolderFiles(subfolder.id).then((paths: string[]) => {
@@ -483,8 +452,8 @@ export default function FolderDetailsScreen() {
        case 'duplicate':
          duplicateFolder(subfolder.id);
          break;
-      case 'create-password':
-        handleCreateAndAssignPassword(subfolder.id, subfolder.name, 'folder');
+       case 'create-password':
+        handleOpenKeyModal(subfolder.id, subfolder.name, 'folder');
         break;
       case 'assign-password':
         if (accessKeys.length === 0) {
@@ -530,9 +499,25 @@ export default function FolderDetailsScreen() {
     if (!folderRecord) return;
     switch (action) {
       case 'rename':
-        setTargetFolder(folderRecord); setRenameText(folderRecord.name); setShowRenameModal(true); break;
+        openRenameModal({ id: folderRecord.id, name: folderRecord.name, type: 'folder' });
+        setOnRename((newName: string) => {
+          renameFolder(folderRecord.id, newName.trim());
+          setTargetFolder(null);
+        });
+        break;
       case 'move':
-        setTargetFolder(folderRecord); setShowMoveModal(true); break;
+        setTargetFolder(folderRecord);
+        setOnMove((destinationFolderId: string | null) => {
+          if (destinationFolderId !== null) {
+            moveFolder(folderRecord.id, destinationFolderId);
+          }
+        });
+        openMoveModal(
+          { id: folderRecord.id, name: folderRecord.name, type: 'folder' },
+          folders.filter(f => f.id !== folderRecord.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+          folderRecord.parentId || id
+        );
+        break;
       case 'export':
         exportFolderFiles(folderRecord.id).then((paths: string[]) => {
           if (paths.length > 0) Alert.alert('Export Complete', `Exported ${paths.length} files`);
@@ -549,7 +534,8 @@ export default function FolderDetailsScreen() {
         duplicateFolder(folderRecord.id);
         break;
       case 'create-password':
-        handleCreateAndAssignPassword(folderRecord.id, folderRecord.name, 'folder'); break;
+        handleOpenKeyModal(folderRecord.id, folderRecord.name, 'folder');
+        break;
       case 'assign-password':
         if (accessKeys.length === 0) {
           Alert.alert('No Access Keys', 'Create a access key in Settings first.');
@@ -610,7 +596,11 @@ export default function FolderDetailsScreen() {
           <TouchableOpacity onPress={() => router.back()} style={st.backButton}>
             <Text style={st.headerIconText}>←</Text>
           </TouchableOpacity>
-          <Text style={st.headerTitle} numberOfLines={1}>{folderName}</Text>
+          <View>
+            {wrapAtLength(folderName, 60).map((line, index) => (
+              <Text key={index} style={st.headerTitle}>{line}</Text>
+            ))}
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(4) }}>
             <ViewModeMenu />
             <TouchableOpacity onPress={() => setShowFolderMenu(true)} style={st.menuButton}>
@@ -762,7 +752,11 @@ export default function FolderDetailsScreen() {
                           </View>
                         )}
                       </View>
-                      <Text style={[st.iconGridName, { color: text }]} numberOfLines={1}>{folder.name}</Text>
+                      <View>
+                        {wrapAtLength(folder.name, 60).map((line, index) => (
+                          <Text key={index} style={[st.iconGridName, { color: text }]}>{line}</Text>
+                        ))}
+                      </View>
                       <View style={st.iconGridIconsRow}>
                         {folder.isFavorite && <Star size={12} color="#FBBF24" />}
                       </View>
@@ -810,7 +804,11 @@ export default function FolderDetailsScreen() {
                        </View>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                           <Text style={st.folderTitleText} numberOfLines={1}>{folder.name}</Text>
+                           <View style={{ flex: 1, minWidth: 0 }}>
+                             {wrapAtLength(folder.name, 60).map((line, index) => (
+                               <Text key={index} style={st.folderTitleText}>{line}</Text>
+                             ))}
+                           </View>
                            {folder.hasAccessKey && folder.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
                            {folder.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                         </View>
@@ -896,7 +894,11 @@ export default function FolderDetailsScreen() {
                       </View>
                     )}
                   </View>
-                  <Text style={[st.iconGridName, { color: text }]} numberOfLines={1}>{file.name}</Text>
+                  <View>
+                    {wrapAtLength(file.name, 60).map((line, index) => (
+                      <Text key={index} style={[st.iconGridName, { color: text }]}>{line}</Text>
+                    ))}
+                  </View>
                   <View style={st.iconGridIconsRow}>
                     {file.isFavorite && <Star size={12} color="#FBBF24" />}
                   </View>
@@ -927,7 +929,11 @@ export default function FolderDetailsScreen() {
                  </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                     <Text style={st.fileTitleText} numberOfLines={1}>{file.name}</Text>
+                     <View style={{ flex: 1, minWidth: 0 }}>
+                       {wrapAtLength(file.name, 60).map((line, index) => (
+                         <Text key={index} style={st.fileTitleText}>{line}</Text>
+                       ))}
+                     </View>
                      {file.hasAccessKey && file.accessKeyId && <Lock size={14} color={primary} strokeWidth={2} style={{ marginLeft: 6 }} />}
                      {file.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                   </View>
@@ -1148,155 +1154,6 @@ export default function FolderDetailsScreen() {
         </Modal>
       )}
 
-      {/* Move Modal */}
-      {showMoveModal && (
-        <Modal transparent animationType="fade">
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-             <View style={[st.fileMenuContent, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
-               <View style={st.fileMenuHandle} />
-               <Text style={[st.fileMenuTitle, { color: text }]}>
-                 {targetFolder ? 'Move Folder' : 'Move File'}
-               </Text>
-              {folders.filter(f => f.id !== (targetFolder?.id || targetFile?.folderId)).map(f => (
-                <TouchableOpacity
-                  key={f.id}
-                  style={st.fileMenuItem}
-                  onPress={() => {
-                    if (targetFolder) moveFolder(targetFolder.id, f.id);
-                    else if (targetFile) moveFileToFolder(targetFile.id, f.id);
-                    setShowMoveModal(false);
-                  }}
-                >
-                   <Text style={[st.fileMenuItemText, { color: text }]}>{f.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-      )}
-
-      {/* Access Key Registration Modal */}
-      <Modal visible={showCreatePasswordModal} transparent animationType="fade" onRequestClose={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }}>
-        <View style={st.pmsOverlay}>
-          <View style={[st.pmsCard, { backgroundColor: surface }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.pmsContent}>
-              <Text style={[st.pmsTitle, { color: text }]}>Access Key Registration</Text>
-              
-              <View style={[st.pmsTargetRow, { backgroundColor: bg, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
-                <FileText size={16} color={textMuted} strokeWidth={2} />
-                <Text style={[st.pmsTargetChipText, { color: textMuted }]}>for {createPasswordTarget?.name}</Text>
-              </View>
-
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Password Label</Text>
-                <TextInput
-                  style={[st.pmsInput, { backgroundColor: bg, color: text }]}
-                  placeholder="e.g. Personal Vault Password"
-                  placeholderTextColor={textMuted}
-                  value={newPasswordLabel}
-                  onChangeText={setNewPasswordLabel}
-                />
-              </View>
-
-              <View style={{ marginBottom: 24 }}>
-                <View style={st.pmsLabelRow}>
-                  <Text style={[st.pmsLabel, { color: text, marginBottom: 0 }]}>Description</Text>
-                  <View style={[st.pmsOptionalBadge, { backgroundColor: bg, borderColor: border, borderWidth: 1 }]}>
-                    <Text style={[st.pmsOptionalBadgeText, { color: textMuted }]}>optional</Text>
-                  </View>
-                </View>
-                <TextInput
-                  style={[st.pmsInput, { backgroundColor: bg, color: text, minHeight: 100, textAlignVertical: 'top' }]}
-                  placeholder="What is this password used for?"
-                  placeholderTextColor={textMuted}
-                  value={newPasswordDescription}
-                  onChangeText={setNewPasswordDescription}
-                  multiline
-                />
-              </View>
-
-              <View style={st.pmsSectionDivider}>
-                <View style={[st.pmsDividerLine, { backgroundColor: border }]} />
-                <Text style={[st.pmsSectionLabel, { color: textMuted }]}>SECURITY</Text>
-                <View style={[st.pmsDividerLine, { backgroundColor: border }]} />
-              </View>
-
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Create Password</Text>
-                <View style={{ position: 'relative' }}>
-                  <TextInput
-                    style={[st.pmsInput, { backgroundColor: bg, color: text, paddingRight: 50 }]}
-                    placeholder="Enter a strong password"
-                    placeholderTextColor={textMuted}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    secureTextEntry={!showNewPassword}
-                  />
-                  <TouchableOpacity
-                    style={st.pmsEyeButton}
-                    onPress={() => setShowNewPassword(!showNewPassword)}
-                  >
-                    {showNewPassword ? <Eye size={18} color={textMuted} strokeWidth={2} /> : <EyeOff size={18} color={textMuted} strokeWidth={2} />}
-                  </TouchableOpacity>
-                </View>
-                {newPassword.length > 0 && (
-                  <View style={{ marginTop: space(2), gap: space(1) }}>
-                    <View style={{ height: 4, borderRadius: 2, backgroundColor: border, overflow: 'hidden' }}>
-                      <View style={{ height: '100%', borderRadius: 2, backgroundColor: newStrengthColor, width: newStrengthWidth }} />
-                    </View>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: newStrengthColor, textTransform: 'capitalize' }}>{newStrengthLabel} password</Text>
-                  </View>
-                )}
-                {newPassword.length > 0 && (
-                  <View style={[st.pmsValidationBox, { backgroundColor: 'rgba(255,69,58,0.06)', borderWidth: 1, borderColor: 'rgba(255,69,58,0.12)' }]}>
-                    <Text style={[st.pmsValidationTitle, { color: textMuted }]}>Password Requirements</Text>
-                    {getPasswordValidationMessages(newPassword).messages.map((msg, idx) => (
-                      <View key={idx} style={st.pmsValidationItem}>
-                        <Text style={[st.pmsValidationIcon, { color: msg.valid ? '#34C759' : colors.error }]}>{msg.valid ? '✓' : '✗'}</Text>
-                        <Text style={[st.pmsValidationText, { color: msg.valid ? textMuted : colors.error }]}>{msg.text}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[st.pmsLabel, { color: text, marginBottom: 8 }]}>Confirm Password</Text>
-                <View style={{ position: 'relative' }}>
-                   <TextInput
-                    style={[st.pmsInput, { backgroundColor: bg, color: text, paddingRight: 50 }]}
-                    placeholder="Confirm your password"
-                    placeholderTextColor={textMuted}
-                    value={newConfirmPassword}
-                    onChangeText={setNewConfirmPassword}
-                    secureTextEntry={!showNewConfirmPassword}
-                  />
-                  <TouchableOpacity
-                    style={st.pmsEyeButton}
-                    onPress={() => setShowNewConfirmPassword(!showNewConfirmPassword)}
-                  >
-                    {showNewConfirmPassword ? <Eye size={18} color={textMuted} strokeWidth={2} /> : <EyeOff size={18} color={textMuted} strokeWidth={2} />}
-                  </TouchableOpacity>
-                </View>
-                {newConfirmPassword.length > 0 && newPassword !== newConfirmPassword && (
-                  <Text style={{ fontSize: 12, color: colors.error, marginTop: 8, fontWeight: '600' }}>Passwords do not match</Text>
-                )}
-              </View>
-
-              <View style={st.pmsActions}>
-                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[st.pmsCancelBtn, { backgroundColor: bg }]}>
-                  <X size={18} color={text} strokeWidth={2.5} />
-                  <Text style={[st.pmsCancelText, { color: text }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmCreateAndAssignPassword} style={[st.pmsPrimaryBtn, { backgroundColor: fabBg }]}>
-                  <ShieldCheck size={18} color={fabText} strokeWidth={2.5} />
-                  <Text style={[st.pmsPrimaryText, { color: fabText }]}>Create Password</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
       {/* Access Key Picker Modal (Assign Existing Password) */}
       <AccessKeyPicker
@@ -1321,11 +1178,21 @@ export default function FolderDetailsScreen() {
             }
           }
           setShowPasswordPicker(false);
-          setPasswordPickerTarget(null);
-        }}
-      />
+        setPasswordPickerTarget(null);
+      }}
+    />
+    <AccessKeyRegistrationModal
+      visible={showCreateKeyModal}
+      target={keyCreateTarget ? { id: keyCreateTarget.id, name: keyCreateTarget.name, type: keyCreateTarget.targetType } : null}
+      selectedItemIds={keyCreateTarget?.targetType === 'bulk' ? [...selectedFileIds, ...selectedFolderIds] : [keyCreateTarget?.id ?? '']}
+      itemTypes={{ ...Object.fromEntries(selectedFileIds.map(id => [id, 'file'])), ...Object.fromEntries(selectedFolderIds.map(id => [id, 'folder'])) }}
+      onClose={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+      onSuccess={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+      assignFolderAccessKey={assignFolderAccessKey}
+      assignFileAccessKey={assignFileAccessKey}
+    />
 
-      {/* Access Key Unlock Modal */}
+    {/* Access Key Unlock Modal */}
       {(unlockTarget || pendingPasswordRemoval) && (
         <AccessKeyUnlockModal
           visible={showUnlockModal}
@@ -1333,6 +1200,7 @@ export default function FolderDetailsScreen() {
           targetId={unlockTarget?.id ?? pendingPasswordRemoval?.id ?? ''}
           targetType={unlockTarget?.type ?? pendingPasswordRemoval?.type ?? 'file'}
           accessKeyId={unlockTarget?.accessKeyId ?? pendingPasswordRemoval?.accessKeyId ?? ''}
+          mode="unlock"
           onClose={() => {
             setShowUnlockModal(false);
             setUnlockTarget(null);

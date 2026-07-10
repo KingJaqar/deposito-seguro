@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import {
   Box,
-  ClipboardCheck,
+  CheckSquare,
   Cloud,
   Copy,
   Eye,
@@ -9,6 +9,7 @@ import {
   FileText,
   Folder,
   Image as ImageIcon,
+  Key,
   Lock,
   Music,
   Plus,
@@ -16,6 +17,7 @@ import {
   Search,
   ShieldCheck,
   Smartphone,
+  Trash2,
   Video,
   X
 } from 'lucide-react-native';
@@ -36,15 +38,26 @@ import {
 } from 'react-native';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
 import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
+import { AccessKeyRegistrationModal } from '../../components/AccessKeyRegistrationModal';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { CategoryTint } from '../../constants/Colors';
+import { useRename } from '../../contexts/RenameContext';
+import { useMove } from '../../contexts/MoveVaultContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { getPasswordStrength, getPasswordValidationMessages, validatePassword } from '../../utils/accessKeyValidation';
+
+const wrapAtLength = (text: string, maxLength = 60): string[] => {
+  if (!text) return [];
+  const lines: string[] = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    lines.push(text.slice(i, i + maxLength));
+  }
+  return lines;
+};
 
 const DISPLAY_CAPACITY_GB = 100;
 
@@ -65,6 +78,8 @@ export default function DashboardScreen() {
     duplicateFolder,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
+  const { openRenameModal, setOnRename } = useRename();
+  const { openMoveModal, setOnMove } = useMove();
 
   const dash = useMemo(() => ({
     bg: colors.dashboardBg ?? colors.background,
@@ -88,23 +103,16 @@ export default function DashboardScreen() {
   const [folderName, setFolderName] = useState('');
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [targetFolder, setTargetFolder] = useState<any>(null);
-  const [showRenameModal, setShowRenameModal] = useState(false);
-  const [renameText, setRenameText] = useState('');
-  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false); // will be replaced by context
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
-  const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string } | null>(null);
+  const [showPasswordPicker, setShowPasswordPicker] = useState(false);
+  const [keyPickerTarget, setKeyPickerTarget] = useState<{ type: 'folder' | 'bulk'; id: string; name: string } | null>(null);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [unlockTarget, setUnlockTarget] = useState<{ type: 'folder'; id: string; name: string; accessKeyId: string; onUnlock: () => void } | null>(null);
-  const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
-  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ id: string; name: string } | null>(null);
-  const [newPasswordLabel, setNewPasswordLabel] = useState('');
-  const [newPasswordDescription, setNewPasswordDescription] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newConfirmPassword, setNewConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
   const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'folder'; id: string; name: string; accessKeyId: string } | null>(null);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -184,8 +192,6 @@ export default function DashboardScreen() {
     return map;
   }, [files]);
 
-  const moveDestinations = useMemo(() => folders.filter(f => f.id !== targetFolder?.id), [folders, targetFolder]);
-
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
       const name = window.prompt('Folder name:');
@@ -201,67 +207,38 @@ export default function DashboardScreen() {
     setFolderName('');
   };
 
-  const handleCreateAndAssignPassword = (targetId: string, targetName: string) => {
+  const handleOpenKeyModal = (targetId: string, targetName: string) => {
     if (accessKeys.length >= 20) {
       Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
       return;
     }
-    setCreatePasswordTarget({ id: targetId, name: targetName });
-    setShowCreatePasswordModal(true);
-  };
-
-  const newPasswordStrength = getPasswordStrength(newPassword);
-  const newStrengthColor = newPasswordStrength === 'weak' ? colors.error : newPasswordStrength === 'medium' ? '#FBBF24' : '#34C759';
-  const newStrengthLabel = newPasswordStrength === 'weak' ? 'Weak' : newPasswordStrength === 'medium' ? 'Medium' : 'Strong';
-  const newStrengthWidth = newPasswordStrength === 'weak' ? '33%' : newPasswordStrength === 'medium' ? '66%' : '100%';
-
-  const confirmCreateAndAssignPassword = async () => {
-    if (!createPasswordTarget) return;
-
-    if (!newPasswordLabel.trim()) {
-      Alert.alert('Password Label Required', 'Give this access key a recognizable name.');
-      return;
-    }
-
-    if (accessKeyExists(newPasswordLabel)) {
-      Alert.alert('Password Label Already Used', 'Access key labels must be unique.');
-      return;
-    }
-
-    const validation = validatePassword(newPassword);
-    if (!validation.valid) {
-      Alert.alert('Password Does Not Meet Requirements', validation.message);
-      return;
-    }
-
-    if (newPassword !== newConfirmPassword) {
-      Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
-      return;
-    }
-
-    const fp = await createAccessKey(newPasswordLabel, newPassword, newPasswordDescription);
-    if (!fp) {
-      Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
-      return;
-    }
-
-    await assignFolderAccessKey(createPasswordTarget.id, fp.id);
-    setShowCreatePasswordModal(false);
-    setCreatePasswordTarget(null);
-    setNewPasswordLabel('');
-    setNewPasswordDescription('');
-    setNewPassword('');
-    setNewConfirmPassword('');
-    Alert.alert('Access Key Created & Assigned', `${fp.label} has been created and assigned.`);
+    setKeyCreateTarget({ id: targetId, name: targetName });
+    setShowCreateKeyModal(true);
   };
 
   const handleFolderAction = (folder: any, action: string) => {
     setShowFolderMenu(false);
     switch (action) {
       case 'rename':
-        setTargetFolder(folder); setRenameText(folder.name); setShowRenameModal(true); break;
+        setTargetFolder(folder);
+        openRenameModal({ id: folder.id, name: folder.name, type: 'folder' });
+        setOnRename((newName: string) => {
+          renameFolder(folder.id, newName.trim());
+        });
+        break;
       case 'move':
-        setTargetFolder(folder); setShowMoveModal(true); break;
+        setTargetFolder(folder);
+        setOnMove((destinationFolderId: string | null) => {
+          if (destinationFolderId !== null) {
+            moveFolder(folder.id, destinationFolderId);
+          }
+        });
+        openMoveModal(
+          { id: folder.id, name: folder.name, type: 'folder' },
+          folders.filter(f => f.id !== folder.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+          folder.parentId
+        );
+        break;
       case 'export':
         exportFolderFiles(folder.id).then(paths => {
           if (paths.length > 0) Alert.alert('Export Complete', `Exported ${paths.length} files`);
@@ -283,15 +260,17 @@ export default function DashboardScreen() {
            'Shred Permanently'
          );
          break;
-      case 'register-key':
-        handleCreateAndAssignPassword(folder.id, folder.name); break;
-      case 'assign-key':
-        if (accessKeys.length === 0) {
-          Alert.alert('No Access Keys', 'Create an access key in Settings first.');
-        } else {
-          setKeyPickerTarget({ id: folder.id, name: folder.name });
-        }
+       case 'register-key':
+        handleOpenKeyModal(folder.id, folder.name);
         break;
+       case 'assign-key':
+         if (accessKeys.length === 0) {
+           Alert.alert('No Access Keys', 'Create an access key in Settings first.');
+         } else {
+           setKeyPickerTarget({ type: 'folder', id: folder.id, name: folder.name });
+           setShowPasswordPicker(true);
+         }
+         break;
       case 'remove-key':
         if (folder.accessKeyId) {
           setPendingPasswordRemoval({
@@ -321,16 +300,6 @@ export default function DashboardScreen() {
     }
   };
 
-  const confirmRename = () => {
-    if (targetFolder) renameFolder(targetFolder.id, renameText.trim());
-    setShowRenameModal(false);
-  };
-
-  const confirmMove = (targetParentId: string) => {
-    if (targetFolder) moveFolder(targetFolder.id, targetParentId);
-    setShowMoveModal(false);
-  };
-
   const toggleFolderSelection = useCallback((folderId: string) => {
     setSelectedFolderIds(prev => prev.includes(folderId) ? prev.filter(id => id !== folderId) : [...prev, folderId]);
   }, []);
@@ -357,6 +326,18 @@ export default function DashboardScreen() {
       `Move all ${folders.length} vaults into retention trash?`,
       () => shredMultipleFolders(folders.map(f => f.id))
     );
+  };
+
+  const handleBulkAssignExistingKey = () => {
+    if (selectedFolderIds.length === 0) return;
+    setKeyPickerTarget({ type: 'bulk', id: 'bulk', name: 'selected vaults' });
+    setShowPasswordPicker(true);
+  };
+
+  const handleBulkCreateAndAssignKey = () => {
+    if (selectedFolderIds.length === 0) return;
+    setKeyCreateTarget({ id: 'bulk', name: `${selectedFolderIds.length} selected vaults` });
+    setShowCreateKeyModal(true);
   };
 
   const handleBulkCopy = () => {
@@ -443,7 +424,11 @@ export default function DashboardScreen() {
         <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', minWidth: 0 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.vaultNameRow}>
-              <Text style={[styles.vaultName, { color: dash.text, fontSize: font(14), marginBottom: 2 }]} numberOfLines={1}>{item.name}</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                {wrapAtLength(item.name, 60).map((line, index) => (
+                  <Text key={index} style={[styles.vaultName, { color: dash.text, fontSize: font(14), marginBottom: 2 }]}>{line}</Text>
+                ))}
+              </View>
               <View style={styles.vaultNameIcons}>
                 {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(12, 14, 16)} color={dash.accent} />}
                 {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: responsiveSize(10, 12, 14) }}>🔐</Text> : null}
@@ -545,7 +530,9 @@ export default function DashboardScreen() {
                   </View>
                 )}
               </View>
-              <Text style={[styles.vaultGridName, { color: dash.text, fontSize: font(13) }]} numberOfLines={1}>{item.name}</Text>
+              {wrapAtLength(item.name, 60).map((line, index) => (
+                <Text key={index} style={[styles.vaultGridName, { color: dash.text, fontSize: font(13) }]}>{line}</Text>
+              ))}
               <View style={styles.vaultGridIconsRow}>
                 {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(10, 12, 14)} color={dash.accent} />}
                 {item.isFavorite && <ShieldCheck size={responsiveSize(10, 12, 14)} color="#FBBF24" />}
@@ -645,46 +632,42 @@ export default function DashboardScreen() {
         <View style={[styles.section, { marginBottom: space(8) }]}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: dash.text, fontSize: font(18) }]}>My Vaults</Text>
-            {selectionMode ? (
-              <View style={styles.sectionActions}>
-                <TouchableOpacity onPress={handleSelectAllFolders} style={styles.textBtn}>
-                  <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>
-                    {selectedFolderIds.length === folders.length ? 'Deselect All' : 'Select All'}
-                  </Text>
-                </TouchableOpacity>
+             {selectionMode ? (
+               <View style={styles.sectionActions}>
+                 <TouchableOpacity onPress={handleSelectAllFolders} style={styles.iconActionPill}>
+                   <CheckSquare size={18} color={dash.text} strokeWidth={2.5} />
+                 </TouchableOpacity>
                  {selectedFolderIds.length > 0 && (
                    <>
-                     <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
-                       <Copy size={14} color={dash.text} strokeWidth={2.5} />
-                       <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Copy</Text>
+                     <TouchableOpacity onPress={handleBulkCopy} style={styles.iconActionPill}>
+                       <Copy size={18} color={dash.text} strokeWidth={2.5} />
                      </TouchableOpacity>
-                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
-                        <Scissors size={14} color={dash.text} strokeWidth={2.5} />
-                        <Text style={{ color: dash.text, fontSize: font(13), fontWeight: '700' }}>Cut</Text>
-                      </TouchableOpacity>
-                      {clipboard && (
-                        <TouchableOpacity onPress={handlePasteToRoot} style={styles.textBtn}>
-                          <ClipboardCheck size={14} color={dash.accent} strokeWidth={2.5} />
-                          <Text style={{ color: dash.accent, fontSize: font(13), fontWeight: '700' }}>Paste</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity onPress={handleBulkShredFolders} style={styles.textBtnDanger}>
-                       <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Delete</Text>
-                      </TouchableOpacity>
+                     <TouchableOpacity onPress={handleBulkCut} style={styles.iconActionPill}>
+                       <Scissors size={18} color={dash.text} strokeWidth={2.5} />
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={handleBulkShredFolders} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                       <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={handleBulkAssignExistingKey} style={styles.iconActionPill}>
+                       <Key size={18} color={dash.accent} strokeWidth={2.5} />
+                     </TouchableOpacity>
+                     <TouchableOpacity onPress={handleBulkCreateAndAssignKey} style={styles.iconActionPill}>
+                       <ShieldCheck size={18} color={dash.accent} strokeWidth={2.5} />
+                     </TouchableOpacity>
                    </>
                  )}
                  <TouchableOpacity onPress={handleDeleteAllFolders} style={styles.textBtnDanger}>
                    <Text style={{ color: colors.error, fontSize: font(13), fontWeight: '700' }}>Delete All</Text>
                  </TouchableOpacity>
-                <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                  <Text style={{ color: dash.textMuted, fontSize: font(13), fontWeight: '700' }}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity onPress={() => router.push('/(main)/favorites')}>
-                <Text style={[styles.seeAll, { color: dash.textMuted, fontSize: font(13) }]}>See all</Text>
-              </TouchableOpacity>
-            )}
+                 <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
+                   <Text style={{ color: dash.textMuted, fontSize: font(13), fontWeight: '700' }}>Cancel</Text>
+                 </TouchableOpacity>
+               </View>
+              ) : (
+               <TouchableOpacity onPress={() => router.push('/(main)/search')}>
+                 <Text style={[styles.seeAll, { color: dash.textMuted, fontSize: font(13) }]}>See all</Text>
+               </TouchableOpacity>
+             )}
           </View>
 
           {folders.length === 0 ? (
@@ -795,13 +778,21 @@ export default function DashboardScreen() {
       )}
 
       <AccessKeyPicker
-        visible={!!keyPickerTarget}
-        onClose={() => setKeyPickerTarget(null)}
+        visible={showPasswordPicker}
+        onClose={() => { setShowPasswordPicker(false); setKeyPickerTarget(null); }}
         onSelectPassword={async (passwordId: string) => {
           if (!keyPickerTarget) return;
-          await assignFolderAccessKey(keyPickerTarget.id, passwordId);
+          if (keyPickerTarget.type === 'bulk') {
+            for (const folderId of selectedFolderIds) {
+              await assignFolderAccessKey(folderId, passwordId);
+            }
+            Alert.alert('Access Key Assigned', `Access key has been assigned to ${selectedFolderIds.length} vaults.`);
+          } else {
+            await assignFolderAccessKey(keyPickerTarget.id, passwordId);
+            Alert.alert('Access Key Assigned', 'The selected access key is now registered.');
+          }
+          setShowPasswordPicker(false);
           setKeyPickerTarget(null);
-          Alert.alert('Access Key Assigned', 'The selected access key is now registered.');
         }}
       />
 
@@ -813,6 +804,7 @@ export default function DashboardScreen() {
           targetId={unlockTarget?.id ?? pendingPasswordRemoval?.id ?? ''}
           targetType={unlockTarget?.type ?? pendingPasswordRemoval?.type ?? 'folder'}
           accessKeyId={unlockTarget?.accessKeyId ?? pendingPasswordRemoval?.accessKeyId ?? ''}
+          mode="unlock"
           onClose={() => {
             setShowUnlockModal(false);
             setUnlockTarget(null);
@@ -832,177 +824,17 @@ export default function DashboardScreen() {
         />
       )}
 
-      {/* Access Key Registration Modal */}
-      <Modal visible={showCreatePasswordModal} transparent animationType="fade" onRequestClose={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View style={[modalS.centeredCard, { backgroundColor: dash.surface }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pms.content}>
-              <Text style={[pms.title, { color: dash.text }]}>Access Key Registration</Text>
-              
-              <View style={[pms.targetRow, { backgroundColor: dash.bg, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' }]}>
-                <FileText size={16} color={dash.textMuted} strokeWidth={2} />
-                <Text style={[pms.targetChipText, { color: dash.textMuted }]}>for {createPasswordTarget?.name}</Text>
-              </View>
+      <AccessKeyRegistrationModal
+        visible={showCreateKeyModal}
+        target={keyCreateTarget ? { ...keyCreateTarget, type: keyCreateTarget.id === 'bulk' ? 'bulk' : 'folder' } : null}
+        selectedItemIds={selectedFolderIds}
+        itemTypes={Object.fromEntries(selectedFolderIds.map(id => [id, 'folder']))}
+        onClose={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+        onSuccess={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+        assignFolderAccessKey={assignFolderAccessKey}
+        assignFileAccessKey={() => Promise.resolve()}
+      />
 
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Password Label</Text>
-                <TextInput
-                  style={[pms.input, { backgroundColor: dash.bg, color: dash.text }]}
-                  placeholder="e.g. Personal Vault Password"
-                  placeholderTextColor={dash.textMuted}
-                  value={newPasswordLabel}
-                  onChangeText={setNewPasswordLabel}
-                />
-              </View>
-
-              <View style={{ marginBottom: 24 }}>
-                <View style={pms.labelRow}>
-                  <Text style={[pms.label, { color: dash.text, marginBottom: 0 }]}>Description</Text>
-                  <View style={[pms.optionalBadge, { backgroundColor: dash.bg, borderColor: dash.border, borderWidth: 1 }]}>
-                    <Text style={[pms.optionalBadgeText, { color: dash.textMuted }]}>optional</Text>
-                  </View>
-                </View>
-                <TextInput
-                  style={[pms.input, { backgroundColor: dash.bg, color: dash.text, minHeight: 100, textAlignVertical: 'top' }]}
-                  placeholder="What is this password used for?"
-                  placeholderTextColor={dash.textMuted}
-                  value={newPasswordDescription}
-                  onChangeText={setNewPasswordDescription}
-                  multiline
-                />
-              </View>
-
-              <View style={[pms.sectionDivider, { backgroundColor: 'transparent' }]}>
-                <View style={[pms.dividerLine, { backgroundColor: dash.border }]} />
-                <Text style={[pms.sectionLabel, { color: dash.textMuted }]}>SECURITY</Text>
-                <View style={[pms.dividerLine, { backgroundColor: dash.border }]} />
-              </View>
-
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Create Password</Text>
-                <View style={{ position: 'relative' }}>
-                   <TextInput
-                    style={[pms.input, { backgroundColor: dash.bg, color: dash.text, paddingRight: 50 }]}
-                    placeholder="Enter a strong password"
-                    placeholderTextColor={dash.textMuted}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    secureTextEntry={!showNewPassword}
-                  />
-                  <TouchableOpacity
-                    style={pms.eyeButton}
-                    onPress={() => setShowNewPassword(!showNewPassword)}
-                  >
-                    {showNewPassword ? <Eye size={18} color={dash.textMuted} strokeWidth={2} /> : <EyeOff size={18} color={dash.textMuted} strokeWidth={2} />}
-                  </TouchableOpacity>
-                </View>
-                {newPassword.length > 0 && (
-                  <View style={{ marginTop: 10, gap: 6 }}>
-                    <View style={{ height: 4, borderRadius: 2, backgroundColor: dash.border, overflow: 'hidden' }}>
-                      <View style={{ height: '100%', borderRadius: 2, backgroundColor: newStrengthColor, width: newStrengthWidth }} />
-                    </View>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: newStrengthColor, textTransform: 'capitalize' }}>{newStrengthLabel} password</Text>
-                  </View>
-                )}
-                {newPassword.length > 0 && (
-                  <View style={[pms.validationBox, { backgroundColor: 'rgba(255,69,58,0.06)', borderWidth: 1, borderColor: 'rgba(255,69,58,0.12)' }]}>
-                    <Text style={[pms.validationTitle, { color: dash.textMuted }]}>Password Requirements</Text>
-                    {getPasswordValidationMessages(newPassword).messages.map((msg, idx) => (
-                      <View key={idx} style={pms.validationItem}>
-                        <Text style={[pms.validationIcon, { color: msg.valid ? '#34C759' : colors.error }]}>{msg.valid ? '✓' : '✗'}</Text>
-                        <Text style={[pms.validationText, { color: msg.valid ? dash.textMuted : colors.error }]}>{msg.text}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[pms.label, { color: dash.text, marginBottom: 8 }]}>Confirm Password</Text>
-                <View style={{ position: 'relative' }}>
-                   <TextInput
-                    style={[pms.input, { backgroundColor: dash.bg, color: dash.text, paddingRight: 50 }]}
-                    placeholder="Confirm your password"
-                    placeholderTextColor={dash.textMuted}
-                    value={newConfirmPassword}
-                    onChangeText={setNewConfirmPassword}
-                    secureTextEntry={!showNewConfirmPassword}
-                  />
-                  <TouchableOpacity
-                    style={pms.eyeButton}
-                    onPress={() => setShowNewConfirmPassword(!showNewConfirmPassword)}
-                  >
-                    {showNewConfirmPassword ? <Eye size={18} color={dash.textMuted} strokeWidth={2} /> : <EyeOff size={18} color={dash.textMuted} strokeWidth={2} />}
-                  </TouchableOpacity>
-                </View>
-                {newConfirmPassword.length > 0 && newPassword !== newConfirmPassword && (
-                  <Text style={{ fontSize: 12, color: colors.error, marginTop: 8, fontWeight: '600' }}>Passwords do not match</Text>
-                )}
-              </View>
-
-              <View style={pms.actions}>
-                <TouchableOpacity onPress={() => { setShowCreatePasswordModal(false); setCreatePasswordTarget(null); setNewPasswordLabel(''); setNewPasswordDescription(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); }} style={[pms.cancelBtn, { backgroundColor: dash.bg }]}>
-                  <X size={18} color={dash.text} strokeWidth={2.5} />
-                  <Text style={[pms.cancelText, { color: dash.text }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmCreateAndAssignPassword} style={[pms.primaryBtn, { backgroundColor: dash.fabBg }]}>
-                  <ShieldCheck size={18} color={dash.fabText} strokeWidth={2.5} />
-                  <Text style={[pms.primaryText, { color: dash.fabText }]}>Create Password</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-
-
-      {showRenameModal && (
-        <Modal transparent animationType="fade">
-          <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: dash.surface, paddingHorizontal: space(5), paddingVertical: space(6), paddingBottom: 32 }]}>
-              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[modalS.title, { color: dash.text }]}>Rename Vault</Text>
-              <TextInput
-                style={[modalS.input, { borderColor: dash.border, color: dash.text, backgroundColor: dash.bg }]}
-                value={renameText}
-                onChangeText={setRenameText}
-                autoFocus
-              />
-              <View style={modalS.btnRow}>
-                <TouchableOpacity onPress={() => setShowRenameModal(false)} style={[modalS.btn, { borderColor: dash.border, borderWidth: 1 }]}>
-                  <Text style={{ color: dash.text, fontWeight: '700' }}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmRename} style={[modalS.btn, { backgroundColor: dash.fabBg }]}>
-                  <Text style={{ color: dash.fabText, fontWeight: '700' }}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {showMoveModal && (
-        <Modal transparent animationType="fade">
-          <View style={modalS.overlay}>
-            <View style={[modalS.sheet, { backgroundColor: dash.surface, paddingHorizontal: space(5), paddingVertical: space(6), paddingBottom: 32 }]}>
-              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[modalS.title, { color: dash.text }]}>Move Vault</Text>
-              {moveDestinations.length === 0 ? (
-                <Text style={[styles.emptyText, { color: dash.textMuted, paddingVertical: 12 }]}>
-                  No other vaults available to move into.
-                </Text>
-              ) : (
-                moveDestinations.map(f => (
-                  <TouchableOpacity key={f.id} style={[styles.actionSheetItem, { borderBottomColor: dash.border, paddingHorizontal: space(5), paddingVertical: space(4) }]} onPress={() => confirmMove(f.id)}>
-                    <Text style={[styles.actionSheetLabel, { color: dash.text }]}>📁  {f.name}</Text>
-                  </TouchableOpacity>
-                ))
-              )}
-            </View>
-          </View>
-        </Modal>
-      )}
     </SafeAreaView>
   );
 }
@@ -1055,6 +887,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontWeight: '700', letterSpacing: -0.3 },
   seeAll: { fontWeight: '600' },
   sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
+  iconActionPill: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   textBtn: { paddingHorizontal: 12, paddingVertical: 8 },
   textBtnDanger: { paddingHorizontal: 12, paddingVertical: 8 },
   cancelBtn: { paddingHorizontal: 12, paddingVertical: 8 },

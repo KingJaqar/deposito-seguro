@@ -1,6 +1,6 @@
 // File: src/app/(main)/search.tsx
 import { router } from 'expo-router';
-import { FileText, Folder, Image, Lock, Music, Play, Search, Smartphone, Star, Undo2, X, Trash2, MoreVertical } from 'lucide-react-native';
+import { FileText, Folder, Image, Lock, Music, Play, Search, Smartphone, Star, Undo2, X, Trash2, MoreVertical, CheckSquare, Copy, Scissors, Key, ShieldCheck } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Image as RNImage } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
@@ -8,11 +8,23 @@ import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
+import { AccessKeyRegistrationModal } from '../../components/AccessKeyRegistrationModal';
 import { AccessKeyUnlockModal } from '../../components/AccessKeyUnlockModal';
+import { useRename } from '../../contexts/RenameContext';
+import { useMove } from '../../contexts/MoveVaultContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { getFileType } from '../../utils/getFileType';
+
+const wrapAtLength = (text: string, maxLength = 60): string[] => {
+  if (!text) return [];
+  const lines: string[] = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    lines.push(text.slice(i, i + maxLength));
+  }
+  return lines;
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
@@ -20,8 +32,9 @@ const SCREEN_PADDING = 24;
 export default function SearchScreen() {
   const { colors, space, font, radius, isTablet, screenPadding, bottomTabSpacing, headerPaddingTop } = useTheme();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
+  const { accessKeys } = useSettingsStore();
   const { files, folders, clipboard, undoInfo,
-    toggleFavorite, softDeleteFile, shredFile, assignFileEncryptionKey, hydrateVault,
+    toggleFavorite, toggleFolderFavorite, softDeleteFile, deleteFolder, shredFile, shredFolder, assignFileEncryptionKey, hydrateVault,
     duplicateFile, duplicateFolder,
     copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
     assignFileAccessKey, removeFileAccessKey,
@@ -44,6 +57,8 @@ export default function SearchScreen() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const { openMoveModal, setOnMove } = useMove();
+  const { openRenameModal, setOnRename } = useRename();
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [targetItem, setTargetItem] = useState<any>(null);
@@ -52,11 +67,10 @@ export default function SearchScreen() {
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [unlockTarget, setUnlockTarget] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string; onUnlock?: () => void } | null>(null);
   const [pendingPasswordRemoval, setPendingPasswordRemoval] = useState<{ type: 'file' | 'folder'; id: string; name: string; accessKeyId: string } | null>(null);
-  const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
-  const [showCreatePasswordModal, setShowCreatePasswordModal] = useState(false);
-  const [createPasswordTarget, setCreatePasswordTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+  const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' | 'bulk' } | null>(null);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string; targetType: 'file' | 'folder' | 'bulk' } | null>(null);
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
-  const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
@@ -144,6 +158,50 @@ export default function SearchScreen() {
     exitSelectionMode();
   };
 
+  const handleBulkSoftDelete = () => {
+    if (selectedIds.length === 0) return;
+    confirmDestructive(
+      'Move to Trash',
+      `Move ${selectedIds.length} items into retention trash?`,
+      async () => {
+        for (const id of selectedIds) {
+          const file = filteredFiles.find(f => f.id === id);
+          const folder = filteredFolders.find(f => f.id === id);
+          if (file) await softDeleteFile(id);
+          else if (folder) await deleteFolder(id);
+        }
+        exitSelectionMode();
+      },
+      'Move to Trash'
+    );
+  };
+
+  const handleBulkAssignExistingKey = () => {
+    if (selectedIds.length === 0) return;
+    setKeyPickerTarget({ id: 'bulk', name: 'selected items', type: 'bulk' });
+  };
+
+  const handleBulkCreateAndAssignKey = () => {
+    if (selectedIds.length === 0) return;
+    setKeyCreateTarget({ id: 'bulk', name: `${selectedIds.length} selected items`, targetType: 'bulk' });
+    setShowCreateKeyModal(true);
+  };
+
+  const handleDeleteAll = () => {
+    const totalItems = filteredFiles.length + filteredFolders.length;
+    if (totalItems === 0) return;
+    confirmDestructive(
+      'Delete Everything',
+      `Move ALL ${totalItems} items into retention trash?`,
+      async () => {
+        for (const file of filteredFiles) await softDeleteFile(file.id);
+        for (const folder of filteredFolders) await deleteFolder(folder.id);
+        exitSelectionMode();
+      },
+      'Delete All'
+    );
+  };
+
   const handleFileNavigate = (file: any) => {
     if (file.hasAccessKey && file.accessKeyId) {
       setUnlockTarget({
@@ -197,8 +255,24 @@ export default function SearchScreen() {
   const handleFileAction = (file: any, action: string) => {
     setShowFileMenu(false);
     switch (action) {
-      case 'rename': setTargetItem(file); setRenameText(file.name); setShowRenameModal(true); break;
-      case 'move': Alert.alert('Move', 'Select a destination folder to move this file.'); break;
+      case 'rename':
+        openRenameModal({ id: file.id, name: file.name, type: 'file' });
+        setOnRename((newName: string) => {
+          useVaultStore().renameFile(file.id, newName.trim());
+        });
+        break;
+      case 'move':
+        setOnMove((destinationFolderId: string | null) => {
+          if (destinationFolderId !== null) {
+            useVaultStore().moveFileToFolder(file.id, destinationFolderId);
+          }
+        });
+        openMoveModal(
+          { id: file.id, name: file.name, type: 'file' },
+          folders.filter(f => f.id !== file.folderId).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+          file.folderId
+        );
+        break;
       case 'export': Alert.alert('Export', 'Export functionality available from the file viewer.'); break;
       case 'favorite': toggleFavorite(file.id); break;
       case 'copy':
@@ -225,7 +299,7 @@ export default function SearchScreen() {
           'Permanently Shred'
         );
         break;
-      case 'register-key': setCreatePasswordTarget({ id: file.id, name: file.name, type: 'file' }); setShowCreatePasswordModal(true); break;
+      case 'register-key': setKeyCreateTarget({ id: file.id, name: file.name, targetType: 'file' }); setShowCreateKeyModal(true); break;
       case 'assign-key': if (accessKeys.length === 0) { Alert.alert('No Access Keys', 'Create an access key in Settings first.'); } else { setKeyPickerTarget({ id: file.id, name: file.name, type: 'file' }); } break;
       case 'remove-key':
         setPendingPasswordRemoval({
@@ -242,10 +316,26 @@ export default function SearchScreen() {
   const handleFolderAction = (folder: any, action: string) => {
     setShowFolderMenu(false);
     switch (action) {
-      case 'rename': setTargetItem(folder); setRenameText(folder.name); setShowRenameModal(true); break;
-      case 'move': Alert.alert('Move', 'Select a destination folder to move this folder.'); break;
+      case 'rename':
+        openRenameModal({ id: folder.id, name: folder.name, type: 'folder' });
+        setOnRename((newName: string) => {
+          useVaultStore().renameFolder(folder.id, newName.trim());
+        });
+        break;
+      case 'move':
+        setOnMove((destinationFolderId: string | null) => {
+          if (destinationFolderId !== null) {
+            useVaultStore().moveFolder(folder.id, destinationFolderId);
+          }
+        });
+        openMoveModal(
+          { id: folder.id, name: folder.name, type: 'folder' },
+          folders.filter(f => f.id !== folder.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
+          folder.parentId
+        );
+        break;
       case 'export': Alert.alert('Export', 'Export functionality available from the folder view.'); break;
-      case 'favorite': toggleFavorite(folder.id); break;
+      case 'favorite': toggleFolderFavorite(folder.id); break;
       case 'open': router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } }); break;
       case 'copy':
         copyToClipboard([folder.id], [], null);
@@ -268,18 +358,18 @@ export default function SearchScreen() {
         confirmDestructive(
           'Move to Trash',
           `Move "${folder.name}" into retention trash?`,
-          () => softDeleteFile(folder.id)
+          () => deleteFolder(folder.id)
         );
         break;
       case 'shred':
         confirmDestructive(
           'Permanently Shred',
           `Shred "${folder.name}" permanently?`,
-          () => shredFile(folder.id),
+          () => shredFolder(folder.id),
           'Permanently Shred'
         );
         break;
-      case 'register-key': setCreatePasswordTarget({ id: folder.id, name: folder.name, type: 'folder' }); setShowCreatePasswordModal(true); break;
+      case 'register-key': setKeyCreateTarget({ id: folder.id, name: folder.name, targetType: 'folder' }); setShowCreateKeyModal(true); break;
       case 'assign-key': if (accessKeys.length === 0) { Alert.alert('No Access Keys', 'Create an access key in Settings first.'); } else { setKeyPickerTarget({ id: folder.id, name: folder.name, type: 'folder' }); } break;
       case 'remove-key':
         setPendingPasswordRemoval({
@@ -408,18 +498,28 @@ export default function SearchScreen() {
                     } else {
                       setSelectedIds(prev => [...prev, ...folderIds.filter(id => !prev.includes(id))]);
                     }
-                  }} style={styles.textBtn}>
-                    <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
-                      {filteredFolders.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
-                    </Text>
+                  }} style={styles.iconActionPill}>
+                    <CheckSquare size={18} color={dash.text} strokeWidth={2.5} />
                   </TouchableOpacity>
                   {selectedIds.length > 0 && (
                     <>
-                      <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
-                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                      <TouchableOpacity onPress={handleBulkCopy} style={styles.iconActionPill}>
+                        <Copy size={18} color={dash.text} strokeWidth={2.5} />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
-                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                      <TouchableOpacity onPress={handleBulkCut} style={styles.iconActionPill}>
+                        <Scissors size={18} color={dash.text} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkSoftDelete} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                        <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkAssignExistingKey} style={styles.iconActionPill}>
+                        <Key size={18} color={dash.accent} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkCreateAndAssignKey} style={styles.iconActionPill}>
+                        <ShieldCheck size={18} color={dash.accent} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleDeleteAll} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                        <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
                       </TouchableOpacity>
                     </>
                   )}
@@ -461,7 +561,11 @@ export default function SearchScreen() {
                           </View>
                         )}
                       </View>
-                      <Text style={[styles.iconGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                      <View>
+                        {wrapAtLength(item.name, 60).map((line, index) => (
+                          <Text key={index} style={[styles.iconGridName, { color: dash.text }]}>{line}</Text>
+                        ))}
+                      </View>
                       <View style={styles.iconGridIconsRow}>
                         {item.isFavorite && <Star size={12} color="#FBBF24" />}
                       </View>
@@ -487,6 +591,7 @@ export default function SearchScreen() {
                           }
                           handleFolderNavigate(item);
                         }}
+                        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
                         activeOpacity={0.7}
                       >
                       <View style={[styles.folderIconContainer, { backgroundColor: dash.surface }]}>
@@ -494,7 +599,11 @@ export default function SearchScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={[styles.folderTitleText, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            {wrapAtLength(item.name, 60).map((line, index) => (
+                              <Text key={index} style={[styles.folderTitleText, { color: dash.text }]}>{line}</Text>
+                            ))}
+                          </View>
                           {item.hasAccessKey && item.accessKeyId && <Lock size={14} color={dash.accent} strokeWidth={2} style={{ marginLeft: 6 }} />}
                           {item.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                         </View>
@@ -544,32 +653,28 @@ export default function SearchScreen() {
                     } else {
                       setSelectedIds(prev => [...prev, ...fileIds.filter(id => !prev.includes(id))]);
                     }
-                  }} style={styles.textBtn}>
-                    <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
-                      {filteredFiles.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
-                    </Text>
+                  }} style={styles.iconActionPill}>
+                    <CheckSquare size={18} color={dash.text} strokeWidth={2.5} />
                   </TouchableOpacity>
                   {selectedIds.length > 0 && (
                     <>
-                      <TouchableOpacity onPress={handleBulkCopy} style={styles.textBtn}>
-                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Copy</Text>
+                      <TouchableOpacity onPress={handleBulkCopy} style={styles.iconActionPill}>
+                        <Copy size={18} color={dash.text} strokeWidth={2.5} />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={handleBulkCut} style={styles.textBtn}>
-                        <Text style={{ color: dash.text, fontSize: 13, fontWeight: '700' }}>Cut</Text>
+                      <TouchableOpacity onPress={handleBulkCut} style={styles.iconActionPill}>
+                        <Scissors size={18} color={dash.text} strokeWidth={2.5} />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => {
-                        if (selectedIds.length === 0) return;
-                        confirmDestructive(
-                          'Move to Trash',
-                          `Move ${selectedIds.length} items to trash?`,
-                          () => {
-                            selectedIds.forEach(id => softDeleteFile(id));
-                            exitSelectionMode();
-                          },
-                          'Move to Trash'
-                        );
-                      }} style={styles.textBtnDanger}>
-                        <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Delete</Text>
+                      <TouchableOpacity onPress={handleBulkSoftDelete} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                        <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkAssignExistingKey} style={styles.iconActionPill}>
+                        <Key size={18} color={dash.accent} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleBulkCreateAndAssignKey} style={styles.iconActionPill}>
+                        <ShieldCheck size={18} color={dash.accent} strokeWidth={2.5} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleDeleteAll} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}>
+                        <Trash2 size={18} color={colors.error} strokeWidth={2.5} />
                       </TouchableOpacity>
                     </>
                   )}
@@ -637,7 +742,11 @@ export default function SearchScreen() {
                           </View>
                         )}
                       </View>
-                      <Text style={[styles.iconGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                      <View>
+                        {wrapAtLength(item.name, 60).map((line, index) => (
+                          <Text key={index} style={[styles.iconGridName, { color: dash.text }]}>{line}</Text>
+                        ))}
+                      </View>
                       <View style={styles.iconGridIconsRow}>
                         {item.isFavorite && <Star size={12} color="#FBBF24" />}
                       </View>
@@ -664,6 +773,7 @@ export default function SearchScreen() {
                         }
                         handleFileNavigate(item);
                       }}
+                      onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
                       activeOpacity={0.7}
                     >
                       <View style={[styles.fileIconContainer, { backgroundColor: dash.surface }]}>
@@ -673,7 +783,11 @@ export default function SearchScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={[styles.fileTitleText, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            {wrapAtLength(item.name, 60).map((line, index) => (
+                              <Text key={index} style={[styles.fileTitleText, { color: dash.text }]}>{line}</Text>
+                            ))}
+                          </View>
                           {item.hasAccessKey && item.accessKeyId && <Lock size={14} color={dash.accent} strokeWidth={2} style={{ marginLeft: 6 }} />}
                           {item.isFavorite && <Star size={14} color="#FBBF24" strokeWidth={2} style={{ marginLeft: 4 }} />}
                         </View>
@@ -741,7 +855,11 @@ export default function SearchScreen() {
           <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
             <View style={[{ backgroundColor: dash.surface, borderRadius: space(5), padding: space(6), borderWidth: 1, borderColor: dash.border, alignSelf: 'center', width: '100%' }, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
               <View style={{ width: space(10), height: space(1), borderRadius: 1, backgroundColor: dash.border, alignSelf: 'center', marginBottom: space(4) }} />
-              <Text style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{targetItem.name}</Text>
+              <View>
+                {wrapAtLength(targetItem.name, 60).map((line, index) => (
+                  <Text key={index} style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{line}</Text>
+                ))}
+              </View>
               {(() => {
                 const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
                 const baseItems = [
@@ -779,7 +897,11 @@ export default function SearchScreen() {
           <TouchableOpacity style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }} onPress={() => setShowFolderMenu(false)} activeOpacity={1}>
             <View style={[{ backgroundColor: dash.surface, borderRadius: space(5), padding: space(6), borderWidth: 1, borderColor: dash.border, alignSelf: 'center', width: '100%' }, { paddingBottom: space(9), maxWidth: isTablet ? 520 : '100%' }]}>
               <View style={{ width: space(10), height: space(1), borderRadius: 1, backgroundColor: dash.border, alignSelf: 'center', marginBottom: space(4) }} />
-              <Text style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{targetItem.name}</Text>
+              <View>
+                {wrapAtLength(targetItem.name, 60).map((line, index) => (
+                  <Text key={index} style={[{ color: dash.text, fontSize: font(18), fontWeight: '700', marginBottom: space(4) }]}>{line}</Text>
+                ))}
+              </View>
               {(() => {
                 const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
                 const hasClipboard = !!clipboard;
@@ -809,11 +931,6 @@ export default function SearchScreen() {
                   <Text style={[{ color: item.color, fontSize: font(15), fontWeight: '500' }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
-              {clipboard && (
-                <TouchableOpacity style={{ paddingVertical: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: dash.border }} onPress={() => handleFolderAction(targetItem, 'paste')}>
-                  <Text style={[{ color: dash.accent, fontSize: font(15), fontWeight: '500' }]}>Paste Here</Text>
-                </TouchableOpacity>
-              )}
             </View>
           </TouchableOpacity>
         </Modal>
@@ -826,6 +943,7 @@ export default function SearchScreen() {
           targetId={unlockTarget?.id ?? pendingPasswordRemoval?.id ?? ''}
           targetType={unlockTarget?.type ?? pendingPasswordRemoval?.type ?? 'file'}
           accessKeyId={unlockTarget?.accessKeyId ?? pendingPasswordRemoval?.accessKeyId ?? ''}
+          mode="unlock"
           onClose={() => {
             setShowUnlockModal(false);
             setUnlockTarget(null);
@@ -849,18 +967,37 @@ export default function SearchScreen() {
         />
       )}
 
-      <AccessKeyPicker
-        visible={!!keyPickerTarget}
-        onClose={() => setKeyPickerTarget(null)}
-        onSelectPassword={async (passwordId: string) => {
-          if (!keyPickerTarget) return;
-          if (keyPickerTarget.type === 'file') {
+    <AccessKeyRegistrationModal
+      visible={showCreateKeyModal}
+      target={keyCreateTarget ? { id: keyCreateTarget.id, name: keyCreateTarget.name, type: keyCreateTarget.targetType } : null}
+      selectedItemIds={keyCreateTarget?.targetType === 'bulk' ? selectedIds : [keyCreateTarget?.id ?? '']}
+      itemTypes={{ ...Object.fromEntries(filteredFiles.filter(f => selectedIds.includes(f.id)).map(f => [f.id, 'file'])), ...Object.fromEntries(filteredFolders.filter(f => selectedIds.includes(f.id)).map(f => [f.id, 'folder'])) }}
+      onClose={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+      onSuccess={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+      assignFolderAccessKey={assignFolderAccessKey}
+      assignFileAccessKey={assignFileAccessKey}
+    />
+    <AccessKeyPicker
+      visible={!!keyPickerTarget}
+      onClose={() => setKeyPickerTarget(null)}
+      onSelectPassword={async (passwordId: string) => {
+        if (!keyPickerTarget) return;
+        if (keyPickerTarget.type === 'bulk') {
+            for (const id of selectedIds) {
+              const file = filteredFiles.find(f => f.id === id);
+              const folder = filteredFolders.find(f => f.id === id);
+              if (file) await assignFileAccessKey(id, passwordId);
+              else if (folder) await assignFolderAccessKey(id, passwordId);
+            }
+            Alert.alert('Access Key Assigned', `Access key has been assigned to ${selectedIds.length} items.`);
+          } else if (keyPickerTarget.type === 'file') {
             await assignFileAccessKey(keyPickerTarget.id, passwordId);
+            Alert.alert('Access Key Assigned', 'The selected access key is now registered.');
           } else {
             await assignFolderAccessKey(keyPickerTarget.id, passwordId);
+            Alert.alert('Access Key Assigned', 'The selected access key is now registered.');
           }
           setKeyPickerTarget(null);
-          Alert.alert('Access Key Assigned', 'The selected access key is now registered.');
         }}
       />
     </View>
@@ -934,7 +1071,8 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
   seeAll: { fontSize: 13, fontWeight: '600' },
-  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  sectionActions: { flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
+  iconActionPill: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
   textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
   cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
@@ -981,4 +1119,43 @@ const styles = StyleSheet.create({
 const modalS = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
   handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  centeredOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+  centeredCard: { width: '90%', maxWidth: 400, maxHeight: '80%', borderRadius: 24, padding: 20, alignItems: 'center' },
+  centeredTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20, letterSpacing: -0.3 },
+  centeredInput: { width: '100%', borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, fontSize: 15 },
+  centeredBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+});
+
+const pms = StyleSheet.create({
+  content: { width: '100%', alignItems: 'stretch' },
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 },
+  targetRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 28, gap: 10 },
+  targetChip: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+  targetChipText: { fontSize: 13, fontWeight: '600' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+  optionalBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginLeft: 8 },
+  optionalBadgeText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  input: { width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15 },
+  inputIconRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  passwordWrapper: { position: 'relative' },
+  eyeButton: { position: 'absolute', right: 14, top: '50%', marginTop: -12, padding: 6 },
+  sectionDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 28 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginHorizontal: 16 },
+  strengthRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 10 },
+  strengthBar: { height: 4, borderRadius: 2, flex: 1, overflow: 'hidden' },
+  strengthFill: { height: '100%', borderRadius: 2 },
+  strengthText: { fontSize: 11, fontWeight: '600' },
+  validationBox: { marginTop: 10, padding: 12, borderRadius: 12 },
+  validationTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
+  validationItem: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  validationIcon: { fontSize: 12, marginRight: 8, fontWeight: '700', width: 16, textAlign: 'center' },
+  validationText: { fontSize: 12, fontWeight: '500' },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 32 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  cancelText: { fontSize: 15, fontWeight: '700' },
+  primaryBtn: { flex: 1.2, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  primaryText: { fontSize: 15, fontWeight: '700' },
 });

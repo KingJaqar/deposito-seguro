@@ -1,9 +1,13 @@
 // File: src/app/_layout.tsx
 import { Slot } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect, useCallback } from 'react';
-import { setBackgroundColorAsync } from 'expo-system-ui';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import { setBackgroundColorAsync } from 'expo-system-ui';
+import { useCallback, useEffect } from 'react';
+import { MoveVaultModalWrapper } from '../components/MoveVaultModalWrapper';
+import { RenameModalWrapper } from '../components/RenameModalWrapper';
+import { MoveProvider } from '../contexts/MoveVaultContext';
+import { RenameProvider } from '../contexts/RenameContext';
 import { CustomThemeProvider } from '../contexts/ThemeContext';
 import { UnlockProvider } from '../contexts/UnlockContext';
 import { useSettingsStore } from '../store/settingsStore';
@@ -49,12 +53,18 @@ export default function RootLayout() {
 
    const statusBarStyle = disguiseMode === 'calculator' ? 'light' : 'auto';
 
-   return (
-     <CustomThemeProvider>
-       <UnlockProvider>
-         <StatusBar style={statusBarStyle} />
-         <Slot />
-       </UnlockProvider>
-     </CustomThemeProvider>
-   );
+    return (
+      <CustomThemeProvider>
+      <RenameProvider>
+        <MoveProvider>
+          <UnlockProvider>
+            <StatusBar style={statusBarStyle} />
+            <Slot />
+            <RenameModalWrapper />
+            <MoveVaultModalWrapper />
+          </UnlockProvider>
+        </MoveProvider>
+      </RenameProvider>
+      </CustomThemeProvider>
+    );
  }

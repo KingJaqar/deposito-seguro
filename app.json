@@ -21,23 +21,33 @@
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleIcons": {
           "CFBundlePrimaryIcon": {
-            "CFBundleIconFiles": ["icon"]
+            "CFBundleIconFiles": [
+              "icon"
+            ]
           },
           "CFBundleAlternateIcons": {
             "default": {
-              "CFBundleIconFiles": ["icon"],
+              "CFBundleIconFiles": [
+                "icon"
+              ],
               "UIPrerenderedIcon": false
             },
             "calculator-icon-black-white": {
-              "CFBundleIconFiles": ["calculator-icon-black-white"],
+              "CFBundleIconFiles": [
+                "calculator-icon-black-white"
+              ],
               "UIPrerenderedIcon": false
             },
             "calculator-icon-black-orange": {
-              "CFBundleIconFiles": ["calculator-icon-black-orange"],
+              "CFBundleIconFiles": [
+                "calculator-icon-black-orange"
+              ],
               "UIPrerenderedIcon": false
             },
             "calculator-icon-black-red": {
-              "CFBundleIconFiles": ["calculator-icon-black-red"],
+              "CFBundleIconFiles": [
+                "calculator-icon-black-red"
+              ],
               "UIPrerenderedIcon": false
             }
           }
@@ -60,7 +70,8 @@
     "plugins": [
       "expo-router",
       "expo-sharing",
-      "expo-video"
+      "expo-video",
+      "expo-splash-screen"
     ],
     "extra": {
       "router": {
