@@ -44,12 +44,12 @@ export function DestructiveConfirmModal({ state, onClose, style }: Props) {
     width: '100%',
     maxWidth: isTablet ? 480 : 360,
     borderRadius: radius(12),
-    paddingVertical: space(6),
+    paddingVertical: space(7),
     paddingHorizontal: space(5),
     alignItems: 'center',
     backgroundColor: isDark ? '#2A2A2A' : colors.surface,
     borderWidth: 1,
-    borderColor: isDark ? colors.borderLight : colors.borderLight,
+    borderColor: isDark ? colors.borderLight : colors.border,
   };
 
   return (
@@ -61,13 +61,13 @@ export function DestructiveConfirmModal({ state, onClose, style }: Props) {
             <Trash2 size={24} color="#EF4444" strokeWidth={2.5} />
           </View>
 
-          <Text style={[styles.title, { marginBottom: space(1) }]}>{state.title}</Text>
-          <Text style={[styles.message, { marginBottom: space(8), lineHeight: 20 }]}>{state.message}</Text>
+          <Text style={[styles.title, { marginBottom: space(2), color: isDark ? '#fff' : colors.text }]}>{state.title}</Text>
+          <Text style={[styles.message, { marginBottom: space(8), color: isDark ? 'rgba(255,255,255,0.75)' : colors.textSecondary, lineHeight: 22 }]}>{state.message}</Text>
 
-          <View style={[styles.row, { gap: space(3) }]}>
-             <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose} accessibilityRole="button" accessibilityLabel="Cancel">
-               <X size={18} color="#fff" strokeWidth={2.5} />
-               <Text style={styles.cancelText} numberOfLines={1}>Cancel</Text>
+          <View style={[styles.row, { gap: space(4) }]}>
+             <TouchableOpacity style={[styles.btn, styles.cancel, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : colors.borderLight }]} onPress={onClose} accessibilityRole="button" accessibilityLabel="Cancel">
+                <X size={18} color={isDark ? '#fff' : colors.textSecondary} strokeWidth={2.5} />
+                <Text style={[styles.cancelText, { color: isDark ? '#fff' : colors.textSecondary }]} numberOfLines={1}>Cancel</Text>
              </TouchableOpacity>
              <TouchableOpacity
                style={[styles.btn, styles.confirm]}

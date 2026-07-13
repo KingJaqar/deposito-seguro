@@ -52,6 +52,12 @@ export interface RestoreResult {
   error?: string;
 }
 
+export interface BackupEstimate {
+  totalFiles: number;
+  totalSize: number;
+  estimatedZipSize: number;
+}
+
 export class EnhancedBackupService {
   private static readonly BACKUP_FOLDER_NAME = 'Deposito Seguro Backup Files';
   private static readonly BACKUP_PREFIX = 'DepoS_Backup_';
@@ -454,6 +460,126 @@ export class EnhancedBackupService {
       await this.cleanupTempFiles(tempDir);
 
       // Step 12: Share backup
+      onProgress?.('Backup complete! Sharing...', 100);
+      await this.shareBackup(backupPath);
+
+      const fileInfo = await FileSystem.getInfoAsync(backupPath);
+      const fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
+
+      return {
+        success: true,
+        backupPath,
+        backupName: backupFilename,
+        fileSize,
+        validation,
+      };
+    } catch (e: any) {
+      // Cleanup on error
+      if (tempDir) {
+        await this.cleanupTempFiles(tempDir);
+      }
+      if (backupPath) {
+        await FileSystem.deleteAsync(backupPath, { idempotent: true });
+      }
+
+      // Log full error for debugging but return sanitized message to user
+      console.error('Backup failed:', e);
+      return {
+        success: false,
+        error: 'Backup operation failed. Please try again.',
+      };
+    }
+  }
+
+  // Calculate estimated backup size without creating the backup
+  static async calculateBackupSize(): Promise<BackupEstimate> {
+    const vaultState = useVaultStore.getState();
+    const files = vaultState.files || [];
+    const nonTrashFiles = files.filter(f => !f.isTrash);
+
+    const totalFiles = nonTrashFiles.length;
+    const totalSize = nonTrashFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+    
+    // Estimate ZIP compression (typically 10-30% reduction for encrypted files)
+    // Encrypted files don't compress well, so estimate ~95% of original size
+    const estimatedZipSize = Math.round(totalSize * 0.95);
+
+    return {
+      totalFiles,
+      totalSize,
+      estimatedZipSize,
+    };
+  }
+
+  // Create backup in a pre-selected folder (used after folder picker confirmation)
+  static async createBackupInFolder(
+    folderPath: string,
+    onProgress?: (message: string, progress: number) => void
+  ): Promise<BackupResult> {
+    let tempDir = '';
+    let backupPath = '';
+
+    try {
+      // Step 1: Request permissions
+      onProgress?.('Requesting storage permissions...', 0);
+      const hasPermission = await this.requestStoragePermission();
+      if (!hasPermission) {
+        return {
+          success: false,
+          error: 'Storage permission denied',
+        };
+      }
+
+      // Step 2: Ensure backup folder exists
+      onProgress?.('Preparing backup folder...', 5);
+      const backupFolderPath = await this.ensureBackupFolder(folderPath);
+
+      // Step 3: Get next backup filename
+      const backupFilename = await this.getNextBackupFilename(backupFolderPath);
+      backupPath = `${backupFolderPath}${backupFilename}`;
+
+      // Step 4: Create manifest
+      onProgress?.('Creating backup manifest...', 10);
+      const manifest = await this.createBackupManifest();
+
+      // Step 5: Create temp directory
+      tempDir = await this.createTempBackupDir();
+
+      // Step 6: Copy vault files
+      onProgress?.('Copying vault files...', 15);
+      await this.copyVaultFilesToTemp(tempDir, (current, total) => {
+        const progress = 15 + (current / total) * 50;
+        onProgress?.(`Copying files: ${current}/${total}`, progress);
+      });
+
+      // Step 7: Write manifest
+      onProgress?.('Writing manifest...', 65);
+      await this.writeManifestToTemp(tempDir, manifest);
+
+      // Step 8: Create archive
+      onProgress?.('Creating backup archive...', 70);
+      await this.createZipArchive(tempDir, backupPath, (progress) => {
+        onProgress?.('Creating archive...', 70 + (progress * 0.25));
+      });
+
+      // Step 9: Validate backup
+      onProgress?.('Validating backup...', 95);
+      const validation = await this.validateBackup(backupPath);
+
+      if (!validation.zipExists || !validation.sizeGreaterThanZero || !validation.manifestExists) {
+        // Cleanup failed backup
+        await FileSystem.deleteAsync(backupPath, { idempotent: true });
+        return {
+          success: false,
+          error: 'Backup validation failed',
+          validation,
+        };
+      }
+
+      // Step 10: Cleanup
+      await this.cleanupTempFiles(tempDir);
+
+      // Step 11: Share backup
       onProgress?.('Backup complete! Sharing...', 100);
       await this.shareBackup(backupPath);
 

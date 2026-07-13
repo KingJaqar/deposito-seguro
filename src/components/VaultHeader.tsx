@@ -1,5 +1,6 @@
 // File path: src/components/VaultHeader.tsx
 
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
@@ -23,17 +24,15 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
   };
 
   const containerStyle: ViewStyle = {
-    borderBottomColor: colors.borderLight,
-    backgroundColor: colors.glass,
-    paddingTop: headerPaddingTop,
-    paddingHorizontal: space(4),
-    minHeight: isTablet ? 72 : 64,
-  };
+  backgroundColor: colors.glass,
+  paddingTop: headerPaddingTop,
+  paddingHorizontal: space(4),
+  paddingBottom: space(3),
+  minHeight: isTablet ? 84 : 72,
+};
 
   return (
-    <View
-      style={[styles.container, containerStyle, style]}
-    >
+    <View style={[styles.container, containerStyle, style, { shadowColor: colors.text }]}>
       <View style={styles.content}>
         {showBack && (
           <TouchableOpacity
@@ -46,10 +45,10 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
             <View
               style={[
                 styles.backIconWrap,
-                { backgroundColor: `${colors.primary}15` },
+                { backgroundColor: `${colors.primary}14`, shadowColor: colors.primary },
               ]}
             >
-              <Text style={styles.backIcon}>←</Text>
+              <Ionicons name="chevron-back" size={19} color={colors.primary} />
             </View>
           </TouchableOpacity>
         )}
@@ -60,14 +59,12 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
           </Text>
         </View>
 
-        {rightButton && (
-          <View style={styles.rightBtn}>
-            {rightButton}
-          </View>
-        )}
+        {rightButton ? (
+          <View style={styles.rightBtn}>{rightButton}</View>
+        ) : showBack ? (
+          <View style={styles.rightSpacer} />
+        ) : null}
       </View>
-
-      <View style={[styles.gradientLine, { backgroundColor: colors.primary, opacity: 0.3 }]} />
     </View>
   );
 };
@@ -76,9 +73,12 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
     justifyContent: 'space-between',
     zIndex: 100,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   content: {
     flex: 1,
@@ -86,41 +86,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backBtn: {
-    marginRight: 8,
+    marginRight: 14,
   },
   backIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backIcon: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: -1,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 1,
   },
   titleContainer: {
     flex: 1,
     flexShrink: 1,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.5,
-    textAlign: 'center',
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    textAlign: 'left',
     flexShrink: 1,
   },
   rightBtn: {
-    marginLeft: 'auto',
+    marginLeft: 12,
     flexShrink: 0,
   },
-  gradientLine: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
+  rightSpacer: {
+    width: 38,
   },
 });

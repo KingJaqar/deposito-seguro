@@ -15,6 +15,7 @@ const CALC_OP_BG = '#FFFFFF';
 const CALC_SCI_BG = '#2D2D2D';
 const CALC_TEXT = '#FFFFFF';
 const CALC_OP_TEXT = '#000000';
+const CALC_SPLASH_BG = CALC_BG;
 
 const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
   default: { equalBg: '#FFFFFF' },
@@ -22,6 +23,14 @@ const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
   orange: { equalBg: '#FF9F0A' },
   red: { equalBg: '#FF453A' },
 };
+
+const BUTTON_LAYOUT = [
+  ['AC', '±', '%', '÷'],
+  ['7', '8', '9', '×'],
+  ['4', '5', '6', '-'],
+  ['1', '2', '3', '+'],
+  ['0', '.', '⌫', '='],
+];
 
 export default function LoginScreen() {
   const { colors, isDark, font, space, isTablet } = useTheme();
@@ -54,7 +63,13 @@ export default function LoginScreen() {
   const [showTransitionSplash, setShowTransitionSplash] = useState(false);
   const pinInputRef = useRef<TextInput>(null);
   const isCalc = disguiseMode === 'calculator';
-  const calcTheme = CALC_THEME_COLORS[disguiseIconTheme] || CALC_THEME_COLORS.default;
+
+  const calcTheme = useMemo(
+    () => CALC_THEME_COLORS[disguiseIconTheme] || CALC_THEME_COLORS.default,
+    [disguiseIconTheme]
+  );
+
+  const buttonLayout = useMemo(() => BUTTON_LAYOUT, []);
 
   const stdTheme = {
     bg: isDark ? '#000000' : colors.background,
@@ -133,7 +148,7 @@ export default function LoginScreen() {
   const evaluateExpression = (expr: string): string | null => {
     const trimmed = expr.trim();
     if (!trimmed) return null;
-    if (!/^[\d+\-*/.()%\s^×÷]+$/.test(trimmed)) return null;
+    if (!/^[\d+\-*/.()%\s ^×÷]+$/.test(trimmed)) return null;
 
     try {
       let sanitized = trimmed
@@ -392,14 +407,14 @@ export default function LoginScreen() {
 
   if (showTransitionSplash) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#2D2D2D' }}>
+      <View style={{ flex: 1, backgroundColor: CALC_SPLASH_BG }}>
         <View style={styles.transitionSplash}>
           <View style={styles.transitionSplashLogoContainer}>
             <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
           </View>
           <Text style={styles.transitionSplashTitle}>Deposito Seguro</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -447,17 +462,11 @@ export default function LoginScreen() {
             </View>
 
             <View style={[styles.buttonGrid, { paddingHorizontal: 8, paddingBottom: 20, gap: 8 }]}>
-              {[
-                ['AC', '±', '%', '÷'],
-                ['7', '8', '9', '×'],
-                ['4', '5', '6', '-'],
-                ['1', '2', '3', '+'],
-                ['0', '.', '⌫', '='],
-              ].map((row, ri) => (
+              {buttonLayout.map((row, ri) => (
                 <View key={`row-${ri}`} style={[styles.row, { gap: space(1), marginBottom: space(1) }]}>
                   {row.map((label, ci) => {
                     const btnKey = `btn-${ri}-${ci}`;
-                    const styleType: 'num' | 'func' | 'op' | 'equal' =
+                    const styleType: 'num' | 'func' | 'op' | 'equal' | 'sci' =
                       label === 'AC' || label === '±' || label === '%' || label === '⌫' ? 'func' :
                       ['÷', '×', '-', '+', '='].includes(label) ? (label === '=' ? 'equal' : 'op') : 'num';
                     const isOp = ['÷', '×', '-', '+'].includes(label);
@@ -535,6 +544,9 @@ export default function LoginScreen() {
               editable={false}
               showSoftInputOnFocus={false}
               autoFocus={false}
+              importantForAutofill="no"
+              autoComplete="off"
+              pointerEvents="none"
               returnKeyType="done"
               accessibilityLabel="PIN display"
             />

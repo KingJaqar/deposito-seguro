@@ -392,7 +392,7 @@ export function AccessKeyUnlockModal({
                 style={[
                   styles.submitBtn,
                   {
-                    backgroundColor: isFormValid ? (colors.fabBg ?? colors.primary) : (colors.dashboardBorder ?? colors.border),
+                    backgroundColor: '#000000',
                     opacity: isFormValid ? 1 : 0.6,
                     paddingVertical: 28,
                     borderRadius: 12,
@@ -405,8 +405,8 @@ export function AccessKeyUnlockModal({
                 accessibilityLabel={mode === 'unlock' ? 'Unlock' : 'Register'}
                 accessibilityState={{ disabled: !isFormValid }}
               >
-                <Lock size={16} color={colors.fabText ?? '#FFFFFF'} strokeWidth={2.5} />
-                <Text style={[styles.submitText, { color: colors.fabText ?? '#FFFFFF', fontSize: 15 }]}>
+                <Lock size={16} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={[styles.submitText, { color: '#FFFFFF', fontSize: 15 }]}>
                   {mode === 'unlock' ? 'Unlock' : 'Register'}
                 </Text>
               </TouchableOpacity>

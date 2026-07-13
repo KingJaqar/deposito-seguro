@@ -13,8 +13,11 @@ export default function RegisterScreen() {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [hint, setHint] = useState('');
+  const [isInitializing, setIsInitializing] = useState(false);
 
   const handleInitialization = async () => {
+    if (isInitializing) return;
+
     if (!pin || !confirmPin) {
       Alert.alert('Missing Parameters', 'Please complete all required fields.');
       return;
@@ -36,11 +39,16 @@ export default function RegisterScreen() {
       return;
     }
 
-    const completed = await initializeVault(pin, hint.trim());
-    if (completed) {
-      router.replace('/(main)/dashboard');
-    } else {
-      Alert.alert('Error', 'Failed to securely instantiate storage hashes.');
+    setIsInitializing(true);
+    try {
+      const completed = await initializeVault(pin, hint.trim());
+      if (completed) {
+        router.replace('/(main)/dashboard');
+      } else {
+        Alert.alert('Error', 'Failed to securely instantiate storage hashes.');
+      }
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -92,6 +100,7 @@ export default function RegisterScreen() {
               keyboardType="number-pad"
               maxLength={20}
               autoComplete="off"
+              editable={!isInitializing}
             />
 
             <Text style={[styles.label, labelStyle]}>Confirm PIN</Text>
@@ -105,6 +114,7 @@ export default function RegisterScreen() {
               keyboardType="number-pad"
               maxLength={20}
               autoComplete="off"
+              editable={!isInitializing}
             />
 
             <Text style={[styles.label, labelStyle]}>Password Security Hint</Text>
@@ -115,13 +125,15 @@ export default function RegisterScreen() {
               value={hint}
               onChangeText={setHint}
               autoComplete="off"
+              editable={!isInitializing}
             />
 
             <View style={{ marginTop: space(5) }}>
               <StyledButton
-                title="Lock & Build Vault Container"
+                title={isInitializing ? 'Initializing...' : 'Lock & Build Vault Container'}
                 onPress={handleInitialization}
                 style={{ width: '100%' }}
+                disabled={isInitializing}
               />
             </View>
           </View>

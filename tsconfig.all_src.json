@@ -1,15 +1,13 @@
-//tsconfig.json
-
 {
   "extends": "expo/tsconfig.base.json",
   "compilerOptions": {
     "strict": true,
     "jsx": "react-jsx",
+    "skipLibCheck": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     }
   },
-  "exclude": ["App.tsx", "dist"]
+  "include": ["src/**/*"],
+  "exclude": ["App.tsx"]
 }

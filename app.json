@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Deposito Seguro",
+    "name": "Calculator",
     "slug": "deposito-seguro",
     "version": "1.0.0",
     "scheme": "depositoseguro",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icons/calculator-icons/calculator-icon-black-white.png",
     "userInterfaceStyle": "automatic",
     "web": {
       "build": {
@@ -16,47 +16,14 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.anonymous.depositoseguro",
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow Deposito Seguro to access the camera to capture secure photos directly into the isolated sandbox.",
-        "NSPhotoLibraryUsageDescription": "Allow Deposito Seguro to import photos into your encrypted local partition.",
-        "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleIcons": {
-          "CFBundlePrimaryIcon": {
-            "CFBundleIconFiles": [
-              "icon"
-            ]
-          },
-          "CFBundleAlternateIcons": {
-            "default": {
-              "CFBundleIconFiles": [
-                "icon"
-              ],
-              "UIPrerenderedIcon": false
-            },
-            "calculator-icon-black-white": {
-              "CFBundleIconFiles": [
-                "calculator-icon-black-white"
-              ],
-              "UIPrerenderedIcon": false
-            },
-            "calculator-icon-black-orange": {
-              "CFBundleIconFiles": [
-                "calculator-icon-black-orange"
-              ],
-              "UIPrerenderedIcon": false
-            },
-            "calculator-icon-black-red": {
-              "CFBundleIconFiles": [
-                "calculator-icon-black-red"
-              ],
-              "UIPrerenderedIcon": false
-            }
-          }
-        }
+        "NSCameraUsageDescription": "Allow Calculator to access the camera to capture secure photos directly into the isolated sandbox.",
+        "NSPhotoLibraryUsageDescription": "Allow Calculator to import photos into your encrypted local partition.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "foregroundImage": "./assets/icons/calculator-icons/calculator-icon-black-white.png",
         "backgroundColor": "#121212"
       },
       "package": "com.anonymous.depositoseguro",
@@ -71,7 +38,8 @@
       "expo-router",
       "expo-sharing",
       "expo-video",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-font"
     ],
     "extra": {
       "router": {

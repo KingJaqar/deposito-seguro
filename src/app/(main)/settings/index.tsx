@@ -1,15 +1,19 @@
 // File: src/app/(main)/settings/index.tsx
-import { router } from 'expo-router';
-import { Calculator, Circle, Key, Lock, Moon, Palette, Pencil, Search, Sun } from 'lucide-react-native';
-import { ReactNode, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { Calculator, Circle, Key, Lock, Moon, Palette, Pencil, Search, Shield, Sun } from 'lucide-react-native';
+import { ReactNode, useEffect, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAuthModal';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { BackupService } from '../../../services/backup';
+import { Durations } from '../../../constants/animations';
+import { BackupService, BackupEstimate } from '../../../services/backup';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { setDisguiseIcon } from '../../../utils/disguiseIcon';
+import { setDisguiseIcon, setFlagSecure } from '../../../utils/disguiseIcon';
+import { FolderPicker } from '../../../components/FolderPicker';
+import { BackupConfirmDialog } from '../../../components/BackupConfirmDialog';
 
 interface SettingItem {
   id: string;
@@ -27,6 +31,32 @@ export default function SettingsCenterScreen() {
   const { themeMode, disguiseMode, updateSetting } = useSettingsStore();
   const { width } = useWindowDimensions();
 
+  const screenOpacity = useSharedValue(1);
+  const screenTranslateY = useSharedValue(0);
+  const hasAnimated = useSharedValue(false);
+
+  useFocusEffect(() => {
+    if (hasAnimated.value) return;
+    hasAnimated.value = true;
+
+    screenOpacity.value = 0;
+    screenTranslateY.value = 12;
+    screenOpacity.value = withTiming(1, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+    screenTranslateY.value = withTiming(0, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+  });
+
+  const screenAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: screenOpacity.value,
+    transform: [{ translateY: screenTranslateY.value }],
+    flex: 1,
+  }));
+
   const iconSize = clampSize(40, 56);
   const iconOptionSize = clampSize(64, 88);
   const iconOptionImageSize = clampSize(32, 48);
@@ -41,6 +71,10 @@ export default function SettingsCenterScreen() {
     border: colors.dashboardBorder ?? colors.border,
     fabBg: colors.fabBg ?? colors.primary,
     fabText: colors.fabText ?? '#FFFFFF',
+    primary: colors.primary,
+    success: colors.success,
+    error: colors.error,
+    warning: colors.warning,
   };
 
   const [query, setQuery] = useState('');
@@ -48,6 +82,7 @@ export default function SettingsCenterScreen() {
   const [showDisplayNameModal, setShowDisplayNameModal] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [disguiseIconTheme, setDisguiseIconTheme] = useState(useSettingsStore.getState().disguiseIconTheme);
+  const [screenshotProtection, setScreenshotProtection] = useState(useSettingsStore.getState().screenshotProtection);
 
   const handleAccessKeysPress = () => {
     setShowAccessKeyAuthModal(true);
@@ -58,26 +93,72 @@ export default function SettingsCenterScreen() {
     router.push('/(main)/settings/access-keys');
   };
 
+  const handleScreenshotProtectionChange = async (enabled: boolean) => {
+    setScreenshotProtection(enabled);
+    await updateSetting('screenshotProtection', enabled);
+    await setFlagSecure(enabled);
+  };
+
   const [backupProgress, setBackupProgress] = useState<{ message: string; progress: number } | null>(null);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [showBackupConfirm, setShowBackupConfirm] = useState(false);
+  const [selectedBackupPath, setSelectedBackupPath] = useState<string | null>(null);
+  const [backupEstimate, setBackupEstimate] = useState<BackupEstimate | null>(null);
+  const [isCalculatingEstimate, setIsCalculatingEstimate] = useState(false);
+  const [backupResult, setBackupResult] = useState<{ success: boolean; backupName?: string; fileSize?: number; error?: string } | null>(null);
 
   const handleExport = async () => {
-    setBackupProgress({ message: 'Starting backup...', progress: 0 });
+    // Step 1: Calculate estimated backup size
+    setIsCalculatingEstimate(true);
+    try {
+      const estimate = await BackupService.calculateBackupSize();
+      setBackupEstimate(estimate);
+    } catch (e) {
+      console.warn('Failed to calculate backup estimate:', e);
+    }
+    setIsCalculatingEstimate(false);
+
+    // Step 2: Request permission
+    const hasPermission = await BackupService.requestStoragePermission();
+    if (!hasPermission) {
+      Alert.alert('Permission Denied', 'Storage permission is required to create backups.');
+      return;
+    }
+
+    // Step 3: Show folder picker
+    setShowFolderPicker(true);
+  };
+
+  const handleFolderSelected = async (folderPath: string) => {
+    setSelectedBackupPath(folderPath);
+    setShowFolderPicker(false);
+    setShowBackupConfirm(true);
+  };
+
+  const handleBackupConfirm = async () => {
+    if (!selectedBackupPath) return;
     
-    const result = await BackupService.createBackup((message, progress) => {
+    setShowBackupConfirm(false);
+    setBackupProgress({ message: 'Starting backup...', progress: 0 });
+    setBackupResult(null);
+
+    const result = await BackupService.createBackupInFolder(selectedBackupPath, (message, progress) => {
       setBackupProgress({ message, progress });
     });
 
     setBackupProgress(null);
+    setBackupResult({
+      success: result.success,
+      backupName: result.backupName,
+      fileSize: result.fileSize,
+      error: result.error,
+    });
+  };
 
-    if (result.success) {
-      Alert.alert(
-        'Backup Complete',
-        `Backup saved as ${result.backupName}\nSize: ${(result.fileSize || 0 / 1024).toFixed(2)} KB`,
-        [{ text: 'OK' }]
-      );
-    } else {
-      Alert.alert('Backup Error', result.error || 'Failed to create backup.');
-    }
+  const handleBackupResultDismiss = () => {
+    setBackupResult(null);
+    setSelectedBackupPath(null);
+    setBackupEstimate(null);
   };
 
   const handleImport = async () => {
@@ -181,6 +262,20 @@ export default function SettingsCenterScreen() {
         },
       ] as SettingItem[],
     },
+    {
+      title: 'Security',
+      items: [
+        {
+          id: 'screenshot-protection',
+          title: 'Screenshot Protection',
+          description: 'Block screenshots and screen recording',
+          icon: <Circle size={22} strokeWidth={2} fill={dash.accent} color={dash.accent} />,
+          type: 'toggle' as const,
+          value: screenshotProtection,
+          onValueChange: handleScreenshotProtectionChange,
+        },
+      ] as SettingItem[],
+    },
   ];
 
   const SettingCard = ({ item }: { item: SettingItem }) => {
@@ -249,6 +344,7 @@ export default function SettingsCenterScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: dash.bg }]}>
+      <Animated.View style={screenAnimatedStyle}>
       <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
         <View style={styles.headerTextBlock}>
           <Text style={[styles.headerTitle, { color: dash.text, fontSize: font(24) }]} numberOfLines={1}>Settings</Text>
@@ -257,6 +353,7 @@ export default function SettingsCenterScreen() {
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={styles.scrollBody}
         showsVerticalScrollIndicator={false}
       >
@@ -383,6 +480,7 @@ export default function SettingsCenterScreen() {
 
         <View style={{ height: bottomTabSpacing }} />
       </ScrollView>
+      </Animated.View>
 
       <AnimatedTabBar />
       <AccessKeyScreenAuthModal
@@ -396,26 +494,28 @@ export default function SettingsCenterScreen() {
         <View style={[styles.modalOverlay, { padding: space(6) }]}>
           <View style={[styles.modalCard, { backgroundColor: dash.surface, padding: space(6), alignItems: 'center' }]}>
             <Text style={[styles.modalTitle, { color: dash.text, fontSize: font(18) }]}>
-              {backupProgress?.progress === 100 ? 'Complete!' : 'Processing...'}
+              {backupProgress?.progress && backupProgress.progress >= 100 ? 'Complete!' : 'Processing...'}
             </Text>
             <Text style={[styles.modalSubtitle, { color: dash.textMuted, fontSize: font(14), marginBottom: space(5), textAlign: 'center' }]}>
               {backupProgress?.message || 'Please wait...'}
             </Text>
             
             {/* Progress Bar */}
-            <View style={[styles.progressBarTrack, { backgroundColor: dash.border, height: 8, borderRadius: 4, width: '100%', overflow: 'hidden' }]}>
-              <View 
-                style={[
-                  styles.progressBarFill, 
-                  { 
-                    backgroundColor: dash.accent, 
-                    height: '100%', 
-                    width: `${backupProgress?.progress || 0}%`,
-                    borderRadius: 4,
-                  }
-                ]} 
-              />
-            </View>
+            {(!backupProgress?.progress || backupProgress.progress < 100) && (
+              <View style={[styles.progressBarTrack, { backgroundColor: dash.border, height: 8, borderRadius: 4, width: '100%', overflow: 'hidden' }]}>
+                <View 
+                  style={[
+                    styles.progressBarFill, 
+                    { 
+                      backgroundColor: dash.accent, 
+                      height: '100%', 
+                      width: `${backupProgress?.progress || 0}%`,
+                      borderRadius: 4,
+                    }
+                  ]} 
+                />
+              </View>
+            )}
             
             <Text style={[styles.progressText, { color: dash.textMuted, fontSize: font(12), marginTop: space(3) }]}>
               {Math.round(backupProgress?.progress || 0)}%
@@ -423,6 +523,79 @@ export default function SettingsCenterScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Backup Result Modal (Success/Error) */}
+      <Modal visible={backupResult !== null} transparent animationType="fade" onRequestClose={() => handleBackupResultDismiss()}>
+        <View style={[styles.modalOverlay, { padding: space(6) }]}>
+          <View style={[styles.modalCard, { backgroundColor: dash.surface, padding: space(6), alignItems: 'center' }]}>
+            {backupResult?.success ? (
+              <>
+                <View style={[styles.resultIcon, { backgroundColor: `${dash.success}15` }]}>
+                  <Text style={{ fontSize: 48 }}>✅</Text>
+                </View>
+                <Text style={[styles.modalTitle, { color: dash.success, fontSize: font(20) }]}>Backup Complete</Text>
+                <Text style={[styles.modalSubtitle, { color: dash.text, fontSize: font(14), marginBottom: space(3), textAlign: 'center' }]}>
+                  Backup saved successfully
+                </Text>
+                <Text style={[styles.resultDetail, { color: dash.textMuted, fontSize: font(13), textAlign: 'center', marginBottom: space(2) }]}>
+                  {backupResult.backupName}
+                </Text>
+                <Text style={[styles.resultDetail, { color: dash.textMuted, fontSize: font(13), textAlign: 'center', marginBottom: space(5) }]}>
+                  Size: {(backupResult.fileSize ? (backupResult.fileSize / 1024 / 1024).toFixed(2) : '0.00')} MB
+                </Text>
+                <TouchableOpacity
+                  style={[styles.resultActionBtn, { backgroundColor: dash.primary, marginTop: space(2) }]}
+                  onPress={handleBackupResultDismiss}
+                >
+                  <Text style={[styles.resultActionText, { color: '#FFFFFF', fontSize: font(15) }]}>Done</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={[styles.resultIcon, { backgroundColor: `${dash.error}15` }]}>
+                  <Text style={{ fontSize: 48 }}>❌</Text>
+                </View>
+                <Text style={[styles.modalTitle, { color: dash.error, fontSize: font(20) }]}>Backup Failed</Text>
+                <Text style={[styles.modalSubtitle, { color: dash.text, fontSize: font(14), marginBottom: space(3), textAlign: 'center' }]}>
+                  {backupResult?.error || 'Unknown error occurred'}
+                </Text>
+                <View style={[styles.resultButtonRow, { gap: space(3), marginTop: space(2), width: '100%' }]}>
+                  <TouchableOpacity
+                    style={[styles.resultActionBtn, { backgroundColor: dash.surfaceHover, borderColor: dash.border, borderWidth: 1, flex: 1 }]}
+                    onPress={handleBackupResultDismiss}
+                  >
+                    <Text style={[styles.resultActionText, { color: dash.text, fontSize: font(15) }]}>Dismiss</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.resultActionBtn, { backgroundColor: dash.primary, flex: 1 }]}
+                    onPress={() => { handleBackupResultDismiss(); handleExport(); }}
+                  >
+                    <Text style={[styles.resultActionText, { color: '#FFFFFF', fontSize: font(15) }]}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Folder Picker Modal */}
+      <FolderPicker
+        visible={showFolderPicker}
+        onClose={() => setShowFolderPicker(false)}
+        onSelect={handleFolderSelected}
+      />
+
+      {/* Backup Confirmation Dialog */}
+      <BackupConfirmDialog
+        visible={showBackupConfirm}
+        onClose={() => { setShowBackupConfirm(false); setSelectedBackupPath(null); }}
+        onConfirm={handleBackupConfirm}
+        folderPath={selectedBackupPath || ''}
+        estimatedSize={backupEstimate?.estimatedZipSize}
+        estimatedFileCount={backupEstimate?.totalFiles}
+        isLoading={isCalculatingEstimate}
+      />
 
       <Modal visible={showDisplayNameModal} transparent animationType="fade" onRequestClose={() => setShowDisplayNameModal(false)}>
         <View style={[styles.modalOverlay, { padding: space(6) }]}>
@@ -632,5 +805,29 @@ const styles = StyleSheet.create({
   progressBarFill: {},
   progressText: {
     fontWeight: '600',
+  },
+  resultIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  resultDetail: {
+    fontWeight: '500',
+  },
+  resultActionBtn: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  resultActionText: {
+    fontWeight: '700',
+  },
+  resultButtonRow: {
+    flexDirection: 'row',
   },
 });

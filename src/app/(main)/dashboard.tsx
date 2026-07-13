@@ -154,7 +154,11 @@ export default function DashboardScreen() {
 
   const vaultAccentPalette = useMemo(() => ['#A78BFA', '#60A5FA', '#34D399', '#FB7185', '#FBBF24', '#F472B6'], []);
 
-  const handleVaultPress = (folder: any) => {
+  const toggleFolderSelection = useCallback((folderId: string) => {
+    setSelectedFolderIds(prev => prev.includes(folderId) ? prev.filter(id => id !== folderId) : [...prev, folderId]);
+  }, []);
+
+  const handleVaultPress = useCallback((folder: any) => {
     if (selectionMode) {
       toggleFolderSelection(folder.id);
       return;
@@ -175,7 +179,7 @@ export default function DashboardScreen() {
     } else {
       router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
     }
-  };
+  }, [selectionMode, toggleFolderSelection, setUnlockTarget, setShowUnlockModal]);
 
   const rootFolders = useMemo(() => folders.filter(f => !f.parentId), [folders]);
   const subFolders = useMemo(() => folders.filter(f => !!f.parentId), [folders]);
@@ -300,10 +304,6 @@ export default function DashboardScreen() {
     }
   };
 
-  const toggleFolderSelection = useCallback((folderId: string) => {
-    setSelectedFolderIds(prev => prev.includes(folderId) ? prev.filter(id => id !== folderId) : [...prev, folderId]);
-  }, []);
-
   const handleSelectAllFolders = () => {
     const allIds = folders.map(f => f.id);
     setSelectedFolderIds(selectedFolderIds.length === allIds.length ? [] : allIds);
@@ -379,7 +379,7 @@ export default function DashboardScreen() {
         <Text style={[styles.categoryCount, { color: dash.textMuted, fontSize: font(11) }]}>{item.count} files</Text>
       </Pressable>
     );
-  }, [dash.surface, dash.text, dash.textMuted, isTablet, space, font, responsiveSize]);
+  }, [dash.surface, dash.text, dash.textMuted, space, font, responsiveSize]);
 
   const VaultTile = useCallback(({ item, index, gridWidth }: { item: any; index: number; gridWidth?: number }) => {
     const stats = folderStatsMap[item.id] || { count: 0, size: 0 };
@@ -429,7 +429,7 @@ export default function DashboardScreen() {
                   <Text key={index} style={[styles.vaultName, { color: dash.text, fontSize: font(14), marginBottom: 2 }]}>{line}</Text>
                 ))}
               </View>
-              <View style={styles.vaultNameIcons}>
+              <View style={[styles.vaultNameIcons, { alignSelf: 'flex-start' }]}>
                 {(item.hasAccessKey || item.accessKeyId) && <Lock size={responsiveSize(12, 14, 16)} color={dash.accent} />}
                 {item.isEncrypted && item.encryptionKeyId ? <Text style={{ fontSize: responsiveSize(10, 12, 14) }}>🔐</Text> : null}
                 {item.isFavorite ? <ShieldCheck size={responsiveSize(12, 14, 16)} color="#FBBF24" /> : null}
@@ -461,20 +461,21 @@ export default function DashboardScreen() {
         </View>
       </Pressable>
     );
-  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, toggleFolderSelection, vaultAccentPalette, handleVaultPress, responsiveSize]);
+  }, [dash.surface, dash.accent, dash.fabText, dash.text, dash.textMuted, folderStatsMap, selectedFolderIds, selectionMode, vaultAccentPalette, handleVaultPress, responsiveSize, font, space]);
 
    const vaultGap = space(6);
    const categoryGap = space(6);
    const categoryColumns = gridColumns('small-icons', 100);
    const categoryItemWidth = gridItemWidth(categoryColumns, categoryGap, screenPadding);
-   const getVaultColumns = useCallback((mode: string) => {
-     const w = width - screenPadding * 2;
-     if (mode === 'list') return 1;
-     if (mode === 'small-icons') return 5;
-     if (mode === 'medium-icons') return 3;
-     if (w > 900 || isTablet) return 4;
-     return 2;
-   }, [width, screenPadding, isTablet]);
+  const getVaultColumns = useCallback((mode: string) => {
+    const w = width - screenPadding * 2;
+    if (mode === 'list') return 1;
+    if (mode === 'small-icons') return 5;
+    if (mode === 'medium-icons') return 3;
+    if (mode === 'large-icons') return 2;
+    if (w > 900 || isTablet) return 4;
+    return 2;
+  }, [width, screenPadding, isTablet]);
 
   const getVaultItemWidth = useCallback((mode: string) => {
     const cols = getVaultColumns(mode);
@@ -491,9 +492,9 @@ export default function DashboardScreen() {
           const width = itemWidth;
           if (viewMode === 'list') {
             return (
-               <View key={item.id} style={{ width }}>
-                <VaultTile item={item} index={i + accentOffset} gridWidth={width} />
-              </View>
+               <View key={item.id} style={{ width, flexDirection: 'row' }}>
+                 <VaultTile item={item} index={i + accentOffset} gridWidth={width} />
+               </View>
             );
           }
 
@@ -515,7 +516,7 @@ export default function DashboardScreen() {
               ]}
             >
               <TouchableOpacity
-                onPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+                onPress={(e) => { e.stopPropagation(); setTargetFolder(item); setShowFolderMenu(true); }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 activeOpacity={0.7}
                 style={styles.gridMenuIcon}

@@ -1,9 +1,9 @@
 // File: src/components/AnimatedTabBar.tsx
 import { router, usePathname } from 'expo-router';
 import { Home, LucideIcon, Search, Settings, Star, Trash2 } from 'lucide-react-native';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../contexts/ThemeContext';
 import { Durations } from '../constants/animations';
 
@@ -35,6 +35,18 @@ function TabButton({
    const scale = useSharedValue(isActive ? 1.15 : 1);
    const glow = useSharedValue(isActive ? 0.6 : 0);
 
+  useEffect(() => {
+    scale.value = withTiming(isActive ? 1.15 : 1, {
+      duration: Durations.tabSwitch,
+      easing: Easing.out(Easing.quad),
+    });
+    glow.value = withTiming(isActive ? 0.6 : 0, {
+      duration: Durations.tabSwitch,
+      easing: Easing.out(Easing.quad),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive]);
+
    const animatedStyle = useAnimatedStyle(() => ({
      transform: [{ scale: scale.value }],
    }));
@@ -50,17 +62,19 @@ function TabButton({
       <TouchableOpacity
         style={[styles.tabBtn, { minWidth }]}
         activeOpacity={0.75}
-       onPress={onPress}
-       onPressIn={() => {
-         scale.value = withTiming(0.95, {
-           duration: Durations.fast,
-         });
-       }}
-       onPressOut={() => {
-         scale.value = withTiming(isActive ? 1.15 : 1, {
-           duration: Durations.tabSwitch,
-         });
-       }}
+        onPress={onPress}
+        onPressIn={() => {
+          // eslint-disable-next-line react-hooks/immutability
+          scale.value = withTiming(0.95, {
+            duration: Durations.fast,
+          });
+        }}
+        onPressOut={() => {
+          // eslint-disable-next-line react-hooks/immutability
+          scale.value = withTiming(isActive ? 1.15 : 1, {
+            duration: Durations.tabSwitch,
+          });
+        }}
        hitSlop={{ top: 8, bottom: 8, left: 6, right: 16 }}
        accessibilityRole="tab"
        accessibilityState={{ selected: isActive }}
@@ -80,6 +94,14 @@ function TabButton({
   function CentralSearchButton({ onPress, isActive, iconSize, containerSize, marginTop }: { onPress: () => void; isActive?: boolean; iconSize: number; containerSize: number; marginTop: number }) {
     const scale = useSharedValue(isActive ? 1.15 : 1);
 
+    useEffect(() => {
+      scale.value = withTiming(isActive ? 1.15 : 1, {
+        duration: Durations.tabSwitch,
+        easing: Easing.out(Easing.quad),
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isActive]);
+
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [{ scale: scale.value }],
     }));
@@ -91,11 +113,13 @@ function TabButton({
             onPress={onPress}
             activeOpacity={0.88}
             onPressIn={() => {
+              // eslint-disable-next-line react-hooks/immutability
               scale.value = withTiming(0.90, {
                 duration: Durations.tabSwitch,
               });
             }}
             onPressOut={() => {
+              // eslint-disable-next-line react-hooks/immutability
               scale.value = withTiming(isActive ? 1.15 : 1, {
                 duration: Durations.tabSwitch,
               });

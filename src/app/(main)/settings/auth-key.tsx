@@ -1,12 +1,16 @@
-import { useState } from 'react';
+// file: src/app/(main)/settings/auth-key.tsx
+
+import { useCallback, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, EyeOff, Key, Lock, ShieldCheck } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuthStore } from '../../../store/authStore';
 import { validatePin } from '../../../utils/accessKeyValidation';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Durations } from '../../../constants/animations';
 
 export default function AuthKeyScreen() {
   const { isDark, colors, space, screenPadding, bottomTabSpacing, headerPaddingTop, font, isTablet, clampSize, radius } = useTheme();
@@ -33,6 +37,33 @@ export default function AuthKeyScreen() {
   const LABEL_H = clampSize(18, 22);
   const ICON_OUTER = clampSize(56, 72);
   const ICON_INNER = clampSize(48, 64);
+
+  const screenOpacity = useSharedValue(0);
+  const screenTranslateY = useSharedValue(12);
+  const hasAnimated = useSharedValue(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasAnimated.value) return;
+      hasAnimated.value = true;
+
+      screenOpacity.value = withTiming(1, {
+        duration: Durations.normal,
+        easing: Easing.out(Easing.quad),
+      });
+      screenTranslateY.value = withTiming(0, {
+        duration: Durations.normal,
+        easing: Easing.out(Easing.quad),
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
+
+  const screenAnimatedStyle = useAnimatedStyle(() => ({
+    flex: 1,
+    opacity: screenOpacity.value,
+    transform: [{ translateY: screenTranslateY.value }],
+  }));
 
   const handleVerify = async () => {
     if (!verifyPassword.trim()) {
@@ -122,6 +153,7 @@ export default function AuthKeyScreen() {
   if (!isConfigured) {
     return (
       <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
+        <Animated.View style={screenAnimatedStyle}>
         <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Text style={[styles.backIcon, { color: colors.text }]}>←</Text>
@@ -139,7 +171,9 @@ export default function AuthKeyScreen() {
             </Text>
           </View>
         </View>
+
         <AnimatedTabBar />
+        </Animated.View>
       </SafeAreaView>
     );
   }
@@ -147,6 +181,7 @@ export default function AuthKeyScreen() {
   if (!isVerified) {
     return (
       <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
+        <Animated.View style={screenAnimatedStyle}>
         <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={[styles.backIcon, { color: colors.text }]}>←</Text>
@@ -223,12 +258,14 @@ export default function AuthKeyScreen() {
         </KeyboardAvoidingView>
 
         <AnimatedTabBar />
+        </Animated.View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
+      <Animated.View style={screenAnimatedStyle}>
       <View style={[styles.header, { paddingHorizontal: screenPadding, paddingTop: headerPaddingTop }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={[styles.backIcon, { color: colors.text }]}>←</Text>
@@ -443,6 +480,7 @@ export default function AuthKeyScreen() {
       </KeyboardAvoidingView>
 
       <AnimatedTabBar />
+      </Animated.View>
     </SafeAreaView>
   );
 }

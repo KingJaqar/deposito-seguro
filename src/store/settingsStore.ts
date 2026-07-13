@@ -25,10 +25,7 @@ interface SettingsState {
   authKey: AuthKey | null;
 
   hydrateSettings: () => Promise<void>;
-  updateSetting: <K extends keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createAccessKey' | 'deleteAccessKey' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>>(
-    key: K,
-    val: SettingsState[K]
-  ) => Promise<void>;
+  updateSetting: (key: SettingsSettingKey, val: unknown) => Promise<void>;
   createAccessKey: (label: string, password: string, description?: string) => Promise<AccessKeyMetadata | null>;
   accessKeyExists: (label: string) => boolean;
   deleteAccessKey: (accessKeyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
@@ -41,6 +38,7 @@ interface SettingsState {
   changeAuthKey: (currentPassword: string, newPassword: string) => boolean;
   updateAuthKeyHint: (hint: string) => void;
   deleteAuthKeyHint: () => void;
+  lockTransientMemory: () => void;
 }
 
 const SETTINGS_KEY = sanitizeSecureStoreKey('@vault_settings');
@@ -67,7 +65,9 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
   return loadedKeys;
 };
 
-const PERSIST_KEYS: (keyof Omit<SettingsState, 'hydrateSettings' | 'updateSetting' | 'createAccessKey' | 'deleteAccessKey' | 'createEncryptionKey' | 'deleteEncryptionKey' | 'encryptionKeyExists'>)[] = [
+type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'accessKeys' | 'encryptionKeys' | 'authKey';
+
+const PERSIST_KEYS: SettingsSettingKey[] = [
   'themeMode',
   'disguiseMode',
   'viewMode',
@@ -392,5 +392,12 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       console.error('Encryption key deletion failed', e);
       return 'not-found';
     }
+  },
+  lockTransientMemory: () => {
+    set((state) => ({
+      encryptionKeys: state.encryptionKeys.map(k => ({ ...k, key: '' })),
+      accessKeys: state.accessKeys.map(k => ({ ...k, password: '' })),
+      authKey: state.authKey ? { ...state.authKey, password: '' } : null,
+    }));
   },
 }));

@@ -10,6 +10,7 @@ interface AuthState {
   securityHint: string;
   pinLength: number;
   lastActiveTimestamp: number;
+  isLoading: boolean;
   checkSetup: () => Promise<void>;
   initializeVault: (password: string, hint: string) => Promise<boolean>;
   authenticate: (password: string) => Promise<boolean>;
@@ -35,7 +36,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   securityHint: '',
   pinLength: 6,
   lastActiveTimestamp: Date.now(),
+  isLoading: false,
   checkSetup: async () => {
+    set({ isLoading: true });
     try {
       const pHash = isWeb 
         ? await AsyncStorage.getItem('MASTER_PASSWORD_HASH') 
@@ -47,9 +50,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ? await AsyncStorage.getItem('PIN_LENGTH')
         : await SecureStore.getItemAsync(SECURE_KEYS.PIN_LENGTH);
       const pinLen = pinLenRaw ? parseInt(pinLenRaw, 10) : 6;
-      set({ isConfigured: !!pHash, securityHint: hint || '', pinLength: Number.isFinite(pinLen) && pinLen > 0 ? pinLen : 6 });
+      set({ isConfigured: !!pHash, securityHint: hint || '', pinLength: Number.isFinite(pinLen) && pinLen > 0 ? pinLen : 6, isLoading: false });
     } catch (e) {
       console.error('checkSetup error', e);
+      set({ isLoading: false });
     }
   },
   initializeVault: async (password, hint) => {

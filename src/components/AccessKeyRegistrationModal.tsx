@@ -354,7 +354,7 @@ export function AccessKeyRegistrationModal({
                   ]}
                 >
                   <X size={18} color={dash.text} strokeWidth={2.5} />
-                  <Text style={[modalS.cancelText, { color: dash.text, fontSize: f(15), fontWeight: '700' }]}>Cancel</Text>
+                  <Text style={[modalS.cancelText, { color: dash.text, fontSize: f(13), fontWeight: '700' }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={handleConfirm}
@@ -362,7 +362,7 @@ export function AccessKeyRegistrationModal({
                   style={[
                     modalS.primaryBtn,
                     {
-                      backgroundColor: isFormValid ? dash.fabBg : dash.border,
+                      backgroundColor: '#000000',
                       paddingVertical: s(3),
                       borderRadius: s(3),
                       alignItems: 'center',
@@ -374,8 +374,8 @@ export function AccessKeyRegistrationModal({
                     },
                   ]}
                 >
-                  <ShieldCheck size={18} color={dash.fabText} strokeWidth={2.5} />
-                  <Text style={[modalS.primaryText, { color: dash.fabText, fontSize: f(15), fontWeight: '700' }]}>
+                  <ShieldCheck size={18} color="#FFFFFF" strokeWidth={2.5} />
+                  <Text style={[modalS.primaryText, { color: '#FFFFFF', fontSize: f(13), fontWeight: '600' }]}>
                     Create Password
                   </Text>
                 </TouchableOpacity>

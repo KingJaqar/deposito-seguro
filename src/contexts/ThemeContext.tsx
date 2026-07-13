@@ -25,7 +25,7 @@ import {
   type Breakpoint,
 } from '../utils/responsive';
 
-const ThemeContext = createContext<typeof Palette.dark | null>(null);
+const ThemeContext = createContext<ThemeColors | null>(null);
 
 export interface ShadowToken {
   shadowColor: string;
@@ -36,7 +36,7 @@ export interface ShadowToken {
 }
 
 interface ResponsiveThemeValues {
-  spacing: typeof spacingScale;
+  spacing: Record<SpacingKey, number>;
   space: (key: SpacingKey) => number;
   screenPadding: number;
   headerPaddingTop: number;
@@ -164,7 +164,7 @@ interface UseThemeReturn {
   isDark: boolean;
   themeMode: string;
   toggleTheme: () => void;
-  spacing: typeof spacingScale;
+  spacing: Record<SpacingKey, number>;
   space: (key: SpacingKey) => number;
   screenPadding: number;
   headerPaddingTop: number;

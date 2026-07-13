@@ -1,11 +1,12 @@
 // src/app/(main)/folder/[id].tsx
 import * as DocumentPicker from 'expo-document-picker';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { CheckSquare, Clipboard, Copy, Eye, EyeOff, FileText, Folder, Image, Key, Lock, Scissors, ShieldCheck, Star, Trash2, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, Image as RNImage, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AccessKeyPicker } from '../../../components/AccessKeyPicker';
 import { AccessKeyRegistrationModal } from '../../../components/AccessKeyRegistrationModal';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
@@ -18,6 +19,7 @@ import { useMove } from '../../../contexts/MoveVaultContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useFileSystemQuery } from '../../../hooks/useFileSystemQuery';
 import { SecureCrypto } from '../../../security/crypto';
+import { Durations, EasingCurves } from '../../../constants/animations';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
@@ -52,6 +54,26 @@ export default function FolderDetailsScreen() {
   const { matchedFiles, matchedFolders } = useFileSystemQuery(id);
   const { openRenameModal, setOnRename } = useRename();
   const { openMoveModal, setOnMove } = useMove();
+
+  const screenOpacity = useSharedValue(1);
+  const screenTranslateY = useSharedValue(0);
+  const hasAnimated = useSharedValue(false);
+
+  useFocusEffect(() => {
+    if (hasAnimated.value) return;
+    hasAnimated.value = true;
+
+    screenOpacity.value = 0;
+    screenTranslateY.value = 12;
+    screenOpacity.value = withTiming(1, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+    screenTranslateY.value = withTiming(0, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+  });
 
   // Maintain authentic cross-platform layout selectors
   const [selectionMode, setSelectionMode] = useState(false);
@@ -589,9 +611,15 @@ export default function FolderDetailsScreen() {
   const fabText = colors.fabText ?? '#FFFFFF';
   const textMuted = colors.textMuted;
 
+  const screenAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: screenOpacity.value,
+    transform: [{ translateY: screenTranslateY.value }],
+  }));
+
   return (
     <SafeAreaView style={st.root}>
-              {/* Immersive Dark Mode Top Header */}
+      <Animated.View style={screenAnimatedStyle}>
+        {/* Immersive Dark Mode Top Header */}
         <View style={st.topHeader}>
           <TouchableOpacity onPress={() => router.back()} style={st.backButton}>
             <Text style={st.headerIconText}>←</Text>
@@ -972,6 +1000,7 @@ export default function FolderDetailsScreen() {
         })
       )}
       </ScrollView>
+      </Animated.View>
 
       <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
 
@@ -1228,7 +1257,9 @@ export default function FolderDetailsScreen() {
   );
 }
 
-const useStyles = (colors: ReturnType<typeof useTheme>['colors'], isDark: boolean, theme: { space: ReturnType<typeof useTheme>['space']; font: ReturnType<typeof useTheme>['font']; responsiveSize: ReturnType<typeof useTheme>['responsiveSize']; isTablet: boolean; headerPaddingTop: number; bottomTabSpacing: number }) => {
+type UseTheme = ReturnType<typeof useTheme>;
+
+const useStyles = (colors: UseTheme['colors'], isDark: boolean, theme: { space: UseTheme['space']; font: UseTheme['font']; responsiveSize: UseTheme['responsiveSize']; isTablet: boolean; headerPaddingTop: number; bottomTabSpacing: number }) => {
   const bg = colors.background;
   const surface = colors.dashboardSurface ?? colors.surface;
   const iconBg = colors.vaultIconBg || colors.surface;

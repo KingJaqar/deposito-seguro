@@ -1,3 +1,5 @@
+// file: src/app/(main)/settings/access-keys.tsx
+
 import { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -5,7 +7,7 @@ import { AnimatedCard } from '../../../components/AnimatedCard';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import {
   Clipboard,
   Eye,
@@ -25,6 +27,8 @@ import {
   getPasswordStrength,
   validatePassword,
 } from '../../../utils/accessKeyValidation';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Durations } from '../../../constants/animations';
 
 export default function AccessKeysScreen() {
   const { colors, isDark, space, screenPadding, bottomTabSpacing, headerPaddingTop, font, isTablet, clampSize } = useTheme();
@@ -63,6 +67,31 @@ export default function AccessKeysScreen() {
     cancelBtnBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
     keyIconBoxBg: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
   }), [colors, isDark]);
+
+  const screenOpacity = useSharedValue(1);
+  const screenTranslateY = useSharedValue(0);
+  const hasAnimated = useSharedValue(false);
+
+  useFocusEffect(() => {
+    if (hasAnimated.value) return;
+    hasAnimated.value = true;
+
+    screenOpacity.value = 0;
+    screenTranslateY.value = 12;
+    screenOpacity.value = withTiming(1, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+    screenTranslateY.value = withTiming(0, {
+      duration: Durations.normal,
+      easing: Easing.out(Easing.quad),
+    });
+  });
+
+  const screenAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: screenOpacity.value,
+    transform: [{ translateY: screenTranslateY.value }],
+  }));
 
   const [passwordLabel, setPasswordLabel] = useState('');
   const [passwordDescription, setPasswordDescription] = useState('');
@@ -245,7 +274,8 @@ export default function AccessKeysScreen() {
         <View style={{ width: 32 }} />
       </View>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Animated.View style={screenAnimatedStyle}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={[styles.description, { color: theme.textMuted, fontSize: font(13) }]}>
           Create up to <Text style={{ color: theme.text, fontWeight: '800' }}>20 passwords</Text> to protect your folders and files. Stored securely and must meet strength requirements.
         </Text>
@@ -432,6 +462,7 @@ export default function AccessKeysScreen() {
 
         <View style={{ height: bottomTabSpacing }} />
       </ScrollView>
+      </Animated.View>
     </KeyboardAvoidingView>
       <AnimatedTabBar />
 
