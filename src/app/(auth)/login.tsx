@@ -410,7 +410,7 @@ export default function LoginScreen() {
       <View style={{ flex: 1, backgroundColor: CALC_SPLASH_BG }}>
         <View style={styles.transitionSplash}>
           <View style={styles.transitionSplashLogoContainer}>
-            <Image source={require('../../../assets/images/icon.png')} style={styles.transitionSplashImage} resizeMode="contain" />
+            <Image source={require('../../../assets/logo/DepoS_logo.png')} style={styles.transitionSplashImage} resizeMode="contain" />
           </View>
           <Text style={styles.transitionSplashTitle}>Deposito Seguro</Text>
         </View>

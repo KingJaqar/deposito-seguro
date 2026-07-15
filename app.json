@@ -42,9 +42,6 @@
       "expo-font"
     ],
     "extra": {
-      "router": {
-        "origin": "https://deposito-seguro.local,http://localhost:8081"
-      },
       "eas": {
         "projectId": "70c0d05e-eaac-4be3-8c76-b08ce480d6d2"
       }
