@@ -87,4 +87,6 @@ export interface VaultState {
   clipboard: ClipboardItem | null;
   undoInfo: UndoInfo | null;
   pasteInProgress: boolean;
+  _isVaultHydrated: boolean;
+  _vaultHydrationError: string | null;
 }

@@ -3,14 +3,15 @@ import { Slot } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { setBackgroundColorAsync } from 'expo-system-ui';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import { View, Text } from 'react-native';
 import { MoveVaultModalWrapper } from '../components/MoveVaultModalWrapper';
 import { RenameModalWrapper } from '../components/RenameModalWrapper';
 import { MoveProvider } from '../contexts/MoveVaultContext';
 import { RenameProvider } from '../contexts/RenameContext';
 import { CustomThemeProvider } from '../contexts/ThemeContext';
 import { UnlockProvider } from '../contexts/UnlockContext';
+import { HydrationProvider } from '../contexts/HydrationContext';
 import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
 import { initializeDisguiseIcon, setFlagSecure } from '../utils/disguiseIcon';
@@ -18,58 +19,53 @@ import { initializeDisguiseIcon, setFlagSecure } from '../utils/disguiseIcon';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-   const hydrateSettings = useSettingsStore((s) => s.hydrateSettings);
-   const hydrateVault = useVaultStore((s) => s.hydrateVault);
    const disguiseMode = useSettingsStore((s) => s.disguiseMode);
    const screenshotProtection = useSettingsStore((s) => s.screenshotProtection);
-   const [initError, setInitError] = useState<string | null>(null);
+   const settingsError = useSettingsStore((s) => s.hydrationError);
+   const vaultError = useVaultStore((s) => s._vaultHydrationError);
 
-    const hideSplash = useCallback(async () => {
-      try {
-        await SplashScreen.hideAsync();
-      } catch (e) {
-        // splash already hidden or not supported
-      }
-    }, []);
+   const hideSplash = useCallback(async () => {
+     try {
+       await SplashScreen.hideAsync();
+     } catch (e) {
+       // splash already hidden or not supported
+     }
+   }, []);
 
-    useEffect(() => {
-      let mounted = true;
-      const fallbackTimer = setTimeout(() => {
-        if (mounted) hideSplash().catch(() => {});
-      }, 3000);
+   useEffect(() => {
+     let mounted = true;
+     const timer = setTimeout(() => {
+       if (mounted) hideSplash().catch(() => {});
+     }, 500);
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Startup timeout')), 10000)
-      );
+     Promise.all([
+       useSettingsStore.getState().hydrateSettings(),
+       useVaultStore.getState().hydrateVault(),
+     ])
+       .then(async () => {
+         if (!mounted) return;
+         await initializeDisguiseIcon();
+         if (!mounted) return;
+         const currentMode = useSettingsStore.getState().disguiseMode;
+         if (currentMode === 'calculator') {
+           await setBackgroundColorAsync('#000000');
+         }
+       })
+       .catch((e) => {
+         if (!mounted) return;
+         console.error('Root init error', e);
+       })
+       .finally(() => {
+         if (!mounted) return;
+         clearTimeout(timer);
+         hideSplash().catch(() => {});
+       });
 
-      Promise.race([
-        Promise.all([hydrateSettings(), hydrateVault()]).then(async () => {
-          if (!mounted) return;
-          await initializeDisguiseIcon();
-          if (!mounted) return;
-          const currentMode = useSettingsStore.getState().disguiseMode;
-          if (currentMode === 'calculator') {
-            await setBackgroundColorAsync('#000000');
-          }
-        }),
-        timeoutPromise,
-      ])
-        .catch((e) => {
-          if (!mounted) return;
-          console.error('Root init error', e);
-          setInitError('Failed to initialize app data. Please restart the app.');
-        })
-        .finally(() => {
-          if (!mounted) return;
-          clearTimeout(fallbackTimer);
-          hideSplash().catch(() => {});
-        });
-
-      return () => {
-        mounted = false;
-        clearTimeout(fallbackTimer);
-      };
-    }, [hydrateSettings, hydrateVault, hideSplash]);
+     return () => {
+       mounted = false;
+       clearTimeout(timer);
+     };
+   }, [hideSplash]);
 
    useEffect(() => {
      if (screenshotProtection) {
@@ -77,30 +73,34 @@ export default function RootLayout() {
      }
    }, [screenshotProtection]);
 
-   const statusBarStyle = disguiseMode === 'calculator' ? 'light' : 'auto';
+   const combinedError = settingsError || vaultError;
 
-   if (initError) {
+   if (combinedError) {
      return (
        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
          <Text style={{ color: '#fff', fontSize: 16, textAlign: 'center', paddingHorizontal: 24 }}>
-           {initError}
+           {combinedError}
          </Text>
        </View>
      );
    }
 
+   const statusBarStyle = disguiseMode === 'calculator' ? 'light' : 'auto';
+
    return (
-     <CustomThemeProvider>
-     <RenameProvider>
-       <MoveProvider>
-         <UnlockProvider>
-           <StatusBar style={statusBarStyle} />
-           <Slot />
-           <RenameModalWrapper />
-           <MoveVaultModalWrapper />
-         </UnlockProvider>
-       </MoveProvider>
-     </RenameProvider>
-     </CustomThemeProvider>
+     <HydrationProvider>
+       <CustomThemeProvider>
+         <RenameProvider>
+           <MoveProvider>
+             <UnlockProvider>
+               <StatusBar style={statusBarStyle} />
+               <Slot />
+               <RenameModalWrapper />
+               <MoveVaultModalWrapper />
+             </UnlockProvider>
+           </MoveProvider>
+         </RenameProvider>
+       </CustomThemeProvider>
+     </HydrationProvider>
    );
  }

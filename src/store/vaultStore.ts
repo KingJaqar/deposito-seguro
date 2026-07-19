@@ -9,6 +9,7 @@ import { Alert } from 'react-native';
 
 interface VaultStoreActions extends VaultState {
   hydrateVault: () => Promise<void>;
+  isVaultHydrated: () => boolean;
   createFolder: (name: string, color?: string, icon?: string, isEncrypted?: boolean, parentId?: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   importFile: (sourceUri: string, targetFolderId: string, fileName: string, mimeType: string, size: number, encrypt: boolean, encryptionKeyId?: string) => Promise<void>;
@@ -110,7 +111,13 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   clipboard: null,
   undoInfo: null,
   pasteInProgress: false,
+  _isVaultHydrated: false,
+  _vaultHydrationError: null as string | null,
+  isVaultHydrated: () => get()._isVaultHydrated,
   hydrateVault: async () => {
+    const state = get();
+    if (state._isVaultHydrated) return;
+    set({ _isVaultHydrated: false, _vaultHydrationError: null });
     try {
       await StorageService.initializeSystemDirectories();
       const foldersRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_folders'));
@@ -120,9 +127,12 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         folders: foldersRaw ? JSON.parse(foldersRaw) : [],
         files: filesRaw ? JSON.parse(filesRaw) : [],
         clipboard: clipboardRaw ? JSON.parse(clipboardRaw) : null,
+        _isVaultHydrated: true,
+        _vaultHydrationError: null,
       });
     } catch (e) {
       console.error('Vault store context compilation failure', e);
+      set({ _isVaultHydrated: true, _vaultHydrationError: 'Vault hydration failed' });
     }
   },
   createFolder: async (name, color, icon, isEncrypted, parentId) => {

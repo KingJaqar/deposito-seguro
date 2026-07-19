@@ -23,6 +23,8 @@ interface SettingsState {
   accessKeys: AccessKeyMetadata[];
   encryptionKeys: EncryptionKeyMetadata[];
   authKey: AuthKey | null;
+  isHydrated: boolean;
+  hydrationError: string | null;
 
   hydrateSettings: () => Promise<void>;
   updateSetting: (key: SettingsSettingKey, val: unknown) => Promise<void>;
@@ -134,18 +136,27 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   accessKeys: [],
   encryptionKeys: [],
   authKey: null,
+  isHydrated: false,
+  hydrationError: null,
 
   hydrateSettings: async () => {
+    const state = useSettingsStore.getState();
+    if (state.isHydrated) return;
+
+    set({ isHydrated: false, hydrationError: null });
     try {
       const stored = await withAsyncStorageTimeout(AsyncStorage.getItem(SETTINGS_KEY));
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<SettingsState>;
         const accessKeys = parsed.accessKeys ? await loadAccessKeyValues(parsed.accessKeys) : [];
         const encryptionKeys = parsed.encryptionKeys ? await loadEncryptionKeyValues(parsed.encryptionKeys) : [];
-        set((state) => ({ ...state, ...parsed, accessKeys, encryptionKeys }));
+        set((state) => ({ ...state, ...parsed, accessKeys, encryptionKeys, isHydrated: true, hydrationError: null }));
+      } else {
+        set({ isHydrated: true, hydrationError: null });
       }
     } catch (e) {
       console.error('Settings store failed hydration sequence.', e);
+      set({ isHydrated: true, hydrationError: 'Settings hydration failed' });
     }
   },
 

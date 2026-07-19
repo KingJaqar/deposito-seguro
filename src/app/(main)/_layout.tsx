@@ -5,7 +5,6 @@ import { AppState, StyleSheet, View, Platform } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { useVaultStore } from '../../store/vaultStore';
 import { setDisguiseIcon } from '../../utils/disguiseIcon';
 
 export default function MainAppContainerLayout() {
@@ -14,12 +13,7 @@ export default function MainAppContainerLayout() {
   const appState = useRef(AppState.currentState);
   const { lastActiveTimestamp, updateActivity, terminateSession } = useAuthStore();
   const { autoLockDuration } = useSettingsStore();
-  const { hydrateVault } = useVaultStore();
   const { disguiseMode, disguiseIconTheme, lockTransientMemory } = useSettingsStore();
-
-  useEffect(() => {
-    hydrateVault();
-  }, [hydrateVault]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
