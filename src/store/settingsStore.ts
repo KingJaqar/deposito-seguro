@@ -45,24 +45,47 @@ const SETTINGS_KEY = sanitizeSecureStoreKey('@vault_settings');
 const ACCESS_KEY_PREFIX = 'access_key_';
 const ENCRYPTION_KEY_PREFIX = 'encryption_key_';
 
+const SECURE_STORE_TIMEOUT = 5000;
+
+const withSecureStoreTimeout = async <T>(promise: Promise<T>): Promise<T | null> => {
+  return Promise.race([
+    promise,
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(null), SECURE_STORE_TIMEOUT)),
+  ]);
+};
+
 const getSecureKeyPath = (id: string, prefix: string) => sanitizeSecureStoreKey(id, prefix);
 
 const loadAccessKeyValues = async (accessKeys: AccessKeyMetadata[]) => {
-  const loadedKeys: AccessKeyMetadata[] = [];
-  for (const ak of accessKeys) {
-    const storedValue = await SecureStore.getItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX));
-    loadedKeys.push(storedValue ? { ...ak, password: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) } : ak);
-  }
-  return loadedKeys;
+  const results = await Promise.allSettled(
+    accessKeys.map(async (ak) => {
+      const storedValue = await withSecureStoreTimeout(
+        SecureStore.getItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX))
+      );
+      return storedValue
+        ? { ...ak, password: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) }
+        : ak;
+    })
+  );
+  return results
+    .filter((r): r is PromiseFulfilledResult<AccessKeyMetadata> => r.status === 'fulfilled')
+    .map((r) => r.value);
 };
 
 const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) => {
-  const loadedKeys: EncryptionKeyMetadata[] = [];
-  for (const key of encryptionKeys) {
-    const storedValue = await SecureStore.getItemAsync(getSecureKeyPath(key.id, ENCRYPTION_KEY_PREFIX));
-    loadedKeys.push(storedValue ? { ...key, key: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) } : key);
-  }
-  return loadedKeys;
+  const results = await Promise.allSettled(
+    encryptionKeys.map(async (key) => {
+      const storedValue = await withSecureStoreTimeout(
+        SecureStore.getItemAsync(getSecureKeyPath(key.id, ENCRYPTION_KEY_PREFIX))
+      );
+      return storedValue
+        ? { ...key, key: storedValue, fingerprint: SecureCrypto.fingerprint(storedValue) }
+        : key;
+    })
+  );
+  return results
+    .filter((r): r is PromiseFulfilledResult<EncryptionKeyMetadata> => r.status === 'fulfilled')
+    .map((r) => r.value);
 };
 
 type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'accessKeys' | 'encryptionKeys' | 'authKey';

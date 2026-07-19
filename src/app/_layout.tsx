@@ -24,45 +24,46 @@ export default function RootLayout() {
    const screenshotProtection = useSettingsStore((s) => s.screenshotProtection);
    const [initError, setInitError] = useState<string | null>(null);
 
-   const hideSplash = useCallback(async () => {
-     try {
-       await SplashScreen.hideAsync();
-     } catch (e) {
-       // splash already hidden or not supported
-     }
-   }, []);
+    const hideSplash = useCallback(async () => {
+      try {
+        await SplashScreen.hideAsync();
+      } catch (e) {
+        // splash already hidden or not supported
+      }
+    }, []);
 
-   useEffect(() => {
-     let mounted = true;
-     const timer = setTimeout(() => {
-       if (mounted) hideSplash().catch(() => {});
-     }, 3000);
+    useEffect(() => {
+      let mounted = true;
+      const fallbackTimer = setTimeout(() => {
+        if (mounted) hideSplash().catch(() => {});
+      }, 3000);
 
-     Promise.all([hydrateSettings(), hydrateVault()])
-       .then(async () => {
-         if (!mounted) return;
-         await initializeDisguiseIcon();
-         if (!mounted) return;
-         const currentMode = useSettingsStore.getState().disguiseMode;
-         if (currentMode === 'calculator') {
-           await setBackgroundColorAsync('#000000');
-         }
-       })
-       .catch((e) => {
-         if (!mounted) return;
-         console.error('Root init error', e);
-         setInitError('Failed to initialize app data. Please restart the app.');
-       })
-       .finally(() => {
-         if (!mounted) return;
-         hideSplash().catch(() => {});
-       });
+      Promise.all([hydrateSettings(), hydrateVault()])
+        .then(async () => {
+          if (!mounted) return;
+          await initializeDisguiseIcon();
+          if (!mounted) return;
+          const currentMode = useSettingsStore.getState().disguiseMode;
+          if (currentMode === 'calculator') {
+            await setBackgroundColorAsync('#000000');
+          }
+        })
+        .catch((e) => {
+          if (!mounted) return;
+          console.error('Root init error', e);
+          setInitError('Failed to initialize app data. Please restart the app.');
+        })
+        .finally(() => {
+          if (!mounted) return;
+          clearTimeout(fallbackTimer);
+          hideSplash().catch(() => {});
+        });
 
-     return () => {
-       mounted = false;
-       clearTimeout(timer);
-     };
-   }, [hydrateSettings, hydrateVault, hideSplash]);
+      return () => {
+        mounted = false;
+        clearTimeout(fallbackTimer);
+      };
+    }, [hydrateSettings, hydrateVault, hideSplash]);
 
    useEffect(() => {
      if (screenshotProtection) {
