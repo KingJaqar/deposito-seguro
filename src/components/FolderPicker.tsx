@@ -96,7 +96,7 @@ export function FolderPicker({ visible, onClose, onSelect, initialPath }: Folder
   if (!visible) return null;
 
   return (
-    <Modal visible={true} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade">
       <SafeAreaView style={styles.overlay}>
         <View style={[styles.container, { backgroundColor: colors.surface, width: isTablet ? '80%' : '100%', maxWidth: 500 }]}>
           <View style={[styles.header, { borderBottomColor: colors.border }]}>

@@ -1,5 +1,5 @@
 import { X } from 'lucide-react-native';
-import { useRef } from 'react';
+import { useMemo } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -23,23 +23,12 @@ export const AnimatedActionSheet = ({
   snapPoints = [0.85],
 }: PlainActionSheetProps) => {
   const { isDark, space, font, radius, isTablet } = useTheme();
-  const mountedRef = useRef(false);
 
   const sheetBg = isDark ? '#2A2A2A' : '#FFFFFF';
   const textColor = isDark ? '#FFFFFF' : '#111111';
   const closeBtnBg = isDark ? '#2A2A2A' : '#F5F5F5';
 
-  if (visible && !mountedRef.current) {
-    mountedRef.current = true;
-  }
-  if (!visible && mountedRef.current) {
-    mountedRef.current = false;
-  }
-  if (!visible && !mountedRef.current) {
-    return null;
-  }
-
-  const sheetStyle: ViewStyle = {
+  const sheetStyle: ViewStyle = useMemo(() => ({
     backgroundColor: sheetBg,
     borderTopLeftRadius: radius(12),
     borderTopRightRadius: radius(12),
@@ -57,7 +46,11 @@ export const AnimatedActionSheet = ({
     shadowOpacity: 0.25,
     shadowRadius: 24,
     elevation: 16,
-  };
+  }), [space, radius, isTablet, sheetBg]);
+
+  if (!visible) {
+    return null;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>

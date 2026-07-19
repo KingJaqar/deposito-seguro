@@ -322,9 +322,10 @@ export default function DashboardScreen() {
   const handleDeleteAllFolders = () => {
     if (folders.length === 0) return;
     confirmDestructive(
-      'Delete All Vaults',
-      `Move all ${folders.length} vaults into retention trash?`,
-      () => shredMultipleFolders(folders.map(f => f.id))
+      'Permanently Delete All Vaults',
+      `Permanently delete all ${folders.length} vaults and their contents? This cannot be undone.`,
+      () => shredMultipleFolders(folders.map(f => f.id)),
+      'Delete All'
     );
   };
 

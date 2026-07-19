@@ -2,7 +2,7 @@
 import { router } from 'expo-router';
 import { FileText, Folder, Image, Lock, Music, Play, Search, Smartphone, Star, Undo2, X, Trash2, MoreVertical, CheckSquare, Copy, Scissors, Key, ShieldCheck } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Image as RNImage } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Image as RNImage, useWindowDimensions } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
@@ -26,11 +26,11 @@ const wrapAtLength = (text: string, maxLength = 60): string[] => {
   return lines;
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
 
 export default function SearchScreen() {
   const { colors, space, font, radius, isTablet, screenPadding, bottomTabSpacing, headerPaddingTop } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { accessKeys } = useSettingsStore();
   const { files, folders, clipboard, undoInfo,
@@ -39,6 +39,7 @@ export default function SearchScreen() {
     copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
     assignFileAccessKey, removeFileAccessKey,
     assignFolderAccessKey, removeFolderAccessKey,
+    renameFile, renameFolder, moveFileToFolder, moveFolder,
   } = useVaultStore();
 
   const dash = {
@@ -54,6 +55,7 @@ export default function SearchScreen() {
   };
 
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -78,13 +80,13 @@ export default function SearchScreen() {
   const allFolders = folders.filter((f: any) => !f.isTrash);
 
   const searchedFiles = allFiles.filter(f => {
-    if (!query.trim()) return true;
-    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+    if (!debouncedQuery.trim()) return true;
+    return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
   });
 
   const searchedFolders = allFolders.filter(f => {
-    if (!query.trim()) return true;
-    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+    if (!debouncedQuery.trim()) return true;
+    return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
   });
 
   const filteredFiles = searchedFiles.filter(f => {
@@ -120,9 +122,13 @@ export default function SearchScreen() {
   });
 
   const totalResults = filteredFolders.length + filteredFiles.length;
-  const showResults = query.trim().length > 0 || filteredFolders.length > 0 || filteredFiles.length > 0;
+  const showResults = debouncedQuery.trim().length > 0 || filteredFolders.length > 0 || filteredFiles.length > 0;
 
-  const SCREEN_WIDTH = Dimensions.get('window').width;
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 200);
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const getGridColumns = (mode: string) => {
     if (mode === 'list') return 1;
     if (mode === 'small-icons') return 5;
@@ -132,7 +138,7 @@ export default function SearchScreen() {
   const getGridItemWidth = (mode: string) => {
     const cols = getGridColumns(mode);
     const gap = 12;
-    return (SCREEN_WIDTH - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
+    return (screenWidth - screenPadding * 2 - gap * (cols - 1)) / cols;
   };
   const isGridMode = viewMode !== 'list';
   const gridColumns = getGridColumns(viewMode);
@@ -258,13 +264,13 @@ export default function SearchScreen() {
       case 'rename':
         openRenameModal({ id: file.id, name: file.name, type: 'file' });
         setOnRename((newName: string) => {
-          useVaultStore().renameFile(file.id, newName.trim());
+          renameFile(file.id, newName.trim());
         });
         break;
       case 'move':
         setOnMove((destinationFolderId: string | null) => {
           if (destinationFolderId !== null) {
-            useVaultStore().moveFileToFolder(file.id, destinationFolderId);
+            moveFileToFolder(file.id, destinationFolderId);
           }
         });
         openMoveModal(
@@ -319,13 +325,13 @@ export default function SearchScreen() {
       case 'rename':
         openRenameModal({ id: folder.id, name: folder.name, type: 'folder' });
         setOnRename((newName: string) => {
-          useVaultStore().renameFolder(folder.id, newName.trim());
+          renameFolder(folder.id, newName.trim());
         });
         break;
       case 'move':
         setOnMove((destinationFolderId: string | null) => {
           if (destinationFolderId !== null) {
-            useVaultStore().moveFolder(folder.id, destinationFolderId);
+            moveFolder(folder.id, destinationFolderId);
           }
         });
         openMoveModal(

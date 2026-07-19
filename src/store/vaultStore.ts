@@ -457,38 +457,44 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     });
   },
   removeFolderEncryptionKey: async (folderId) => {
-    // First, decrypt all files in this folder
     const { files, folders } = get();
     const folderFiles = files.filter(f => f.folderId === folderId && f.isEncrypted);
-    
-    // Decrypt each file in the folder
+    const decryptedPaths: { fileId: string; decryptedPath: string }[] = [];
+
     for (const file of folderFiles) {
       const encryptionKey = getEncryptionKey(file.encryptionKeyId);
       if (encryptionKey?.key && file.localPath) {
         try {
           const decryptedPath = await StorageService.decryptSandboxFile(file.localPath, encryptionKey.key);
-          // Update the file with decrypted path
-          set((state) => {
-            const updatedFiles = state.files.map(f => 
-              f.id === file.id 
-                ? { ...f, isEncrypted: false, encryptionKeyId: undefined, localPath: decryptedPath } 
-                : f
-            );
-            AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
-            return { files: updatedFiles };
-          });
+          decryptedPaths.push({ fileId: file.id, decryptedPath });
         } catch (err) {
           console.error(`Failed to decrypt file ${file.id} during folder encryption removal:`, err);
         }
       }
     }
-    
-    // Update the folder to remove encryption
+
     set((state) => {
-      const updatedFolders = state.folders.map(f => f.id === folderId ? { ...f, isEncrypted: false, encryptionKeyId: undefined } : f);
+      const updatedFiles = state.files.map(f => {
+        const decrypted = decryptedPaths.find(d => d.fileId === f.id);
+        if (decrypted) {
+          return { ...f, isEncrypted: false, encryptionKeyId: undefined, localPath: decrypted.decryptedPath };
+        }
+        if (f.folderId === folderId) {
+          return { ...f, isEncrypted: false, encryptionKeyId: undefined };
+        }
+        return f;
+      });
+      const updatedFolders = state.folders.map(f =>
+        f.id === folderId ? { ...f, isEncrypted: false, encryptionKeyId: undefined } : f
+      );
+      AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
       AsyncStorage.setItem('@vault_folders', JSON.stringify(updatedFolders)).catch(e => console.error(e));
-      return { folders: updatedFolders };
+      return { files: updatedFiles, folders: updatedFolders };
     });
+
+    for (const { decryptedPath } of decryptedPaths) {
+      await StorageService.removeSandboxFile(decryptedPath).catch(e => console.error(e));
+    }
   },
   removeFileEncryptionKey: async (fileId) => {
     const currentFile = get().files.find(f => f.id === fileId);

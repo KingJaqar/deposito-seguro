@@ -10,7 +10,6 @@ export default function OnboardingScreen() {
   const { colors, space, font, isTablet } = useTheme();
   const { width } = useWindowDimensions();
   const { checkSetup, isConfigured, isAuthenticated, isLoading } = useAuthStore();
-  const [showContent, setShowContent] = useState(false);
   const [setupTimedOut, setSetupTimedOut] = useState(false);
 
   useEffect(() => {
@@ -30,18 +29,12 @@ export default function OnboardingScreen() {
   }, [checkSetup, isLoading]);
 
   useEffect(() => {
-    if (!isLoading) {
-      setShowContent(true);
-    }
-  }, [isLoading]);
-
-  useEffect(() => {
-    if (showContent && isConfigured && isAuthenticated) {
+    if (!isLoading && isConfigured && isAuthenticated) {
       router.replace('/(main)/dashboard');
-    } else if (showContent && isConfigured && !isAuthenticated) {
+    } else if (!isLoading && isConfigured && !isAuthenticated) {
       router.replace('/(auth)/lock');
     }
-  }, [showContent, isConfigured, isAuthenticated]);
+  }, [isLoading, isConfigured, isAuthenticated]);
 
   const logoSize = isTablet ? 80 : width < 360 ? 48 : 64;
 

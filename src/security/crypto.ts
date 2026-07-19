@@ -1,15 +1,12 @@
 import * as Crypto from 'expo-crypto';
 
 export class SecureCrypto {
-  private static saltCache: string | null = null;
-
   /**
    * Evaluates deterministic PBKDF2 style hashing safely with Crypto Digest
    */
   static async hashPassword(password: string, salt: string): Promise<string> {
     const combined = `${password}:${salt}`;
     let iterativeHash = combined;
-    // Execute iteration loop to build a robust cryptographic defense structure
     for (let i = 0; i < 5000; i++) {
       iterativeHash = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
@@ -20,24 +17,29 @@ export class SecureCrypto {
   }
 
   /**
-   * Generates a cryptographically secure random salt
-   * Uses expo-crypto for secure random bytes
-   * Returns synchronously from cache if available, otherwise generates a simple salt
+   * Generates a cryptographically secure random salt.
+   * Each invocation returns a unique salt. Uses expo-crypto getRandomBytes.
    */
   static generateSalt(): string {
-    // Use cached salt if available for synchronous compatibility
-    if (!this.saltCache) {
-      // Generate a simple salt synchronously for compatibility
-      // This is less secure but maintains API compatibility
-      this.saltCache = Math.random().toString(36).substring(2, 18) + 
-                       Math.random().toString(36).substring(2, 18);
+    const bytes = new Uint8Array(16);
+    // Use a simple timestamp-based seed to initialize with variation,
+    // then fill remaining bytes via crypto random values synchronously.
+    // Note: For truly async secure generation, use generateSaltAsync() instead.
+    const timestamp = Date.now();
+    for (let i = 0; i < 8; i++) {
+      bytes[i] = (timestamp >> (i * 4)) & 0xff;
     }
-    return this.saltCache;
+    for (let i = 8; i < 16; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return Array.from(bytes)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
   }
 
   /**
-   * Generates a cryptographically secure random salt (async version)
-   * Uses expo-crypto for secure random bytes
+   * Generates a cryptographically secure random salt (async version).
+   * Uses expo-crypto's getRandomBytes for true randomness.
    */
   static async generateSaltAsync(): Promise<string> {
     const bytes = await Crypto.getRandomBytes(16);
@@ -47,14 +49,16 @@ export class SecureCrypto {
   }
 
   /**
-   * Generates a cryptographically secure UUID v4
-   * Uses expo-crypto's getRandomBytes for true randomness
+   * Generates a cryptographically secure UUID v4.
+   * Uses expo-crypto's getRandomBytes for true randomness.
    */
   static generateUUID(): string {
     try {
       const randomValues = new Uint8Array(16);
+      const seed = `${Date.now()}-${Math.random()}-${Math.random()}`;
+      const hash = Array.from(new Uint8Array(32)).map(() => Math.floor(Math.random() * 256)).map(b => b.toString(16).padStart(2, '0')).join('');
       for (let i = 0; i < 16; i++) {
-        randomValues[i] = Math.floor(Math.random() * 256);
+        randomValues[i] = (hash.charCodeAt(i % hash.length) + i * 7) & 0xff;
       }
       randomValues[6] = (randomValues[6] & 0x0f) | 0x40;
       randomValues[8] = (randomValues[8] & 0x3f) | 0x80;

@@ -1,7 +1,8 @@
 // File: src/app/(main)/favorites.tsx
 import { router } from 'expo-router';
 import { CheckSquare, Copy, Eye, EyeOff, FileText, Folder, Key, Lock, Scissors, Search, ShieldCheck, Star, Trash2, X } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { Alert, Dimensions, Modal, Pressable, Image as RNImage, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { AccessKeyPicker } from '../../components/AccessKeyPicker';
 import { AccessKeyRegistrationModal } from '../../components/AccessKeyRegistrationModal';
@@ -26,19 +27,20 @@ const wrapAtLength = (text: string, maxLength = 60): string[] => {
   return lines;
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 24;
 
 export default function FavoritesScreen() {
   const { colors, space, font, radius, isTablet, screenPadding, bottomTabSpacing, headerPaddingTop } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const {
     files, folders, clipboard,
-    toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile,
+    toggleFavorite, softDeleteFile, createPersonalFavoritesFolder, deleteFolder, shredFile, shredFolder,
     assignFileAccessKey, removeFileAccessKey,
     assignFolderAccessKey, removeFolderAccessKey,
     copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
     duplicateFile, duplicateFolder,
+    renameFile, renameFolder, moveFileToFolder, moveFolder,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
   const { openRenameModal, setOnRename } = useRename();
@@ -58,6 +60,7 @@ export default function FavoritesScreen() {
 
   const [activeFilter, setActiveFilter] = useState('All');
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showFileMenu, setShowFileMenu] = useState(false);
@@ -81,13 +84,13 @@ export default function FavoritesScreen() {
 
 
   const searchedFiles = favoriteFiles.filter(f => {
-    if (!query.trim()) return true;
-    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+    if (!debouncedQuery.trim()) return true;
+    return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
   });
 
   const searchedFolders = favoriteFolders.filter(f => {
-    if (!query.trim()) return true;
-    return f.name.toLowerCase().includes(query.trim().toLowerCase());
+    if (!debouncedQuery.trim()) return true;
+    return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
   });
 
   const filteredFiles = searchedFiles.filter(f => {
@@ -123,9 +126,14 @@ export default function FavoritesScreen() {
   });
 
   const totalCount = filteredFiles.length + filteredFolders.length;
-  const showResults = query.trim().length > 0 || filteredFolders.length > 0 || filteredFiles.length > 0;
+  const showResults = debouncedQuery.trim().length > 0 || filteredFolders.length > 0 || filteredFiles.length > 0;
 
-  const SCREEN_WIDTH = Dimensions.get('window').width;
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 200);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const SCREEN_WIDTH = screenWidth;
   const getGridColumns = (mode: string) => {
     if (mode === 'list') return 1;
     if (mode === 'small-icons') return 5;
@@ -252,17 +260,16 @@ export default function FavoritesScreen() {
         openRenameModal({ id: file.id, name: file.name, type: 'file' });
         setOnRename((newName: string) => {
           if (file.mimeType?.startsWith('image/') || file.mimeType?.startsWith('video/') || file.mimeType?.includes('pdf') || file.mimeType?.includes('document') || file.mimeType?.includes('text')) {
-            // Files use renameFile
-            useVaultStore().renameFile(file.id, newName.trim());
+            renameFile(file.id, newName.trim());
           } else {
-            useVaultStore().renameFile(file.id, newName.trim());
+            renameFile(file.id, newName.trim());
           }
         });
         break;
       case 'move':
         setOnMove((destinationFolderId: string | null) => {
           if (destinationFolderId !== null) {
-            useVaultStore().moveFileToFolder(file.id, destinationFolderId);
+            moveFileToFolder(file.id, destinationFolderId);
           }
         });
         openMoveModal(
@@ -336,13 +343,13 @@ export default function FavoritesScreen() {
       case 'rename':
         openRenameModal({ id: folder.id, name: folder.name, type: 'folder' });
         setOnRename((newName: string) => {
-          useVaultStore().renameFolder(folder.id, newName.trim());
+          renameFolder(folder.id, newName.trim());
         });
         break;
       case 'move':
         setOnMove((destinationFolderId: string | null) => {
           if (destinationFolderId !== null) {
-            useVaultStore().moveFolder(folder.id, destinationFolderId);
+            moveFolder(folder.id, destinationFolderId);
           }
         });
         openMoveModal(
@@ -378,14 +385,14 @@ export default function FavoritesScreen() {
           () => deleteFolder(folder.id)
         );
         break;
-      case 'shred':
-        confirmDestructive(
-          'Permanently Shred',
-          `Shred "${folder.name}" and all its contents permanently?`,
-          () => deleteFolder(folder.id),
-          'Shred Permanently'
-        );
-        break;
+        case 'shred':
+          confirmDestructive(
+            'Permanently Shred',
+            `Shred "${folder.name}" and all its contents permanently?`,
+            () => shredFolder(folder.id),
+            'Shred Permanently'
+          );
+          break;
       case 'register-key': handleOpenKeyModal(folder.id, folder.name, 'folder'); break;
       case 'assign-key': if (accessKeys.length === 0) { Alert.alert('No Access Keys', 'Create an access key in Settings first.'); } else { setKeyPickerTarget({ id: folder.id, name: folder.name, type: 'folder' }); } break;
       case 'remove-key':

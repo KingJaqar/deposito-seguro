@@ -578,7 +578,7 @@ export default function TrashScreen() {
                 keyExtractor={(item) =>
                   item.type === 'section' ? `section-${item.label}` : item.file.id
                 }
-                scrollEnabled={false}
+                nestedScrollEnabled
                 contentContainerStyle={{ paddingBottom: 140 }}
                 renderItem={({ item }) => {
                   if (item.type === 'section') {

@@ -1,7 +1,6 @@
-import { useState, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Modal as RNModal, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { useTheme } from '../contexts/ThemeContext';
 import { Durations } from '../constants/animations';
 
 interface AnimatedModalProps {
@@ -12,7 +11,7 @@ interface AnimatedModalProps {
    closeOnBackdropPress?: boolean;
    children: React.ReactNode;
    style?: ViewStyle;
- }
+  }
 
 export const AnimatedModal = ({
    visible,
@@ -23,13 +22,10 @@ export const AnimatedModal = ({
    children,
    style,
  }: AnimatedModalProps) => {
-   const { space } = useTheme();
-   const [internalVisible, setInternalVisible] = useState(false);
    const backdropOpacityVal = useSharedValue(0);
    const sheetTranslateY = useSharedValue(400);
    const cardScale = useSharedValue(0.9);
    const cardOpacity = useSharedValue(0);
-   const mountedRef = useRef(false);
 
    const animateIn = () => {
      'worklet';
@@ -94,20 +90,20 @@ export const AnimatedModal = ({
      opacity: cardOpacity.value,
    }));
 
-   if (visible && !mountedRef.current) {
-     mountedRef.current = true;
-     setTimeout(() => {
-       animateIn();
-     }, 10);
-   }
+    const animateInRef = useRef(animateIn);
 
-   if (!visible && mountedRef.current) {
-     mountedRef.current = false;
-   }
+    useEffect(() => {
+      animateInRef.current = animateIn;
+    });
 
-   if (!visible && !mountedRef.current) {
-     return null;
-   }
+    useEffect(() => {
+      if (visible) {
+        const timer = setTimeout(() => {
+          animateInRef.current();
+        }, 10);
+        return () => clearTimeout(timer);
+      }
+    }, [visible]);
 
    return (
      <RNModal

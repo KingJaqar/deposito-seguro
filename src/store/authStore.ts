@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
@@ -20,7 +21,7 @@ interface AuthState {
   deleteSecurityHint: () => Promise<void>;
 }
 
-const isWeb = typeof window !== 'undefined';
+const isWeb = Platform.OS === 'web';
 
 // Sanitized SecureStore keys
 const SECURE_KEYS = {
@@ -28,6 +29,15 @@ const SECURE_KEYS = {
   MASTER_PASSWORD_SALT: sanitizeSecureStoreKey('MASTER_PASSWORD_SALT'),
   SECURITY_HINT: sanitizeSecureStoreKey('SECURITY_HINT'),
   PIN_LENGTH: sanitizeSecureStoreKey('PIN_LENGTH'),
+};
+
+const SECURE_STORE_TIMEOUT = 5000;
+
+const withSecureStoreTimeout = async <T>(promise: Promise<T>): Promise<T | null> => {
+  return Promise.race([
+    promise,
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(null), SECURE_STORE_TIMEOUT)),
+  ]);
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -40,15 +50,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   checkSetup: async () => {
     set({ isLoading: true });
     try {
-      const pHash = isWeb 
-        ? await AsyncStorage.getItem('MASTER_PASSWORD_HASH') 
-        : await SecureStore.getItemAsync(SECURE_KEYS.MASTER_PASSWORD_HASH);
+      const pHash = isWeb
+        ? await AsyncStorage.getItem('MASTER_PASSWORD_HASH')
+        : await withSecureStoreTimeout(SecureStore.getItemAsync(SECURE_KEYS.MASTER_PASSWORD_HASH));
       const hint = isWeb
         ? await AsyncStorage.getItem('SECURITY_HINT')
-        : await SecureStore.getItemAsync(SECURE_KEYS.SECURITY_HINT);
+        : await withSecureStoreTimeout(SecureStore.getItemAsync(SECURE_KEYS.SECURITY_HINT));
       const pinLenRaw = isWeb
         ? await AsyncStorage.getItem('PIN_LENGTH')
-        : await SecureStore.getItemAsync(SECURE_KEYS.PIN_LENGTH);
+        : await withSecureStoreTimeout(SecureStore.getItemAsync(SECURE_KEYS.PIN_LENGTH));
       const pinLen = pinLenRaw ? parseInt(pinLenRaw, 10) : 6;
       set({ isConfigured: !!pHash, securityHint: hint || '', pinLength: Number.isFinite(pinLen) && pinLen > 0 ? pinLen : 6, isLoading: false });
     } catch (e) {

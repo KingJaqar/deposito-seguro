@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "Calculator",
     "slug": "deposito-seguro",
@@ -40,8 +40,7 @@
       "expo-sharing",
       "expo-video",
       "expo-splash-screen",
-      "expo-font",
-      "expo-secure-store"
+      "expo-font"
     ],
     "updates": {
       "enabled": false
@@ -53,4 +52,3 @@
     }
   }
 }
-

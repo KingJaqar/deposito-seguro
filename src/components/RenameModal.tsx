@@ -1,5 +1,5 @@
 import { X } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -15,15 +15,15 @@ export interface RenameModalProps {
   title?: string;
 }
 
-export function RenameModal({ visible, onClose, item, onRename, title }: RenameModalProps) {
-  const { colors, space, font, isTablet } = useTheme();
-  const [renameText, setRenameText] = useState('');
-
-  useEffect(() => {
-    if (item) {
-      setRenameText(item.name);
-    }
-  }, [item]);
+function RenameModalContent({ item, onClose, onRename, title, colors, isTablet }: {
+  item: { id: string; name: string; type: 'file' | 'folder' };
+  onClose: () => void;
+  onRename: (newName: string) => void;
+  title?: string;
+  colors: any;
+  isTablet: boolean;
+}) {
+  const [renameText, setRenameText] = useState(item.name);
 
   const handleRename = () => {
     if (renameText.trim()) {
@@ -38,82 +38,94 @@ export function RenameModal({ visible, onClose, item, onRename, title }: RenameM
     onClose();
   };
 
-  if (!item) return null;
-
   const modalTitle = title || (item.type === 'folder' ? 'Rename Vault' : 'Rename File');
   const placeholder = item.type === 'folder' ? 'Vault name' : 'File name';
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.dashboardSurface ?? colors.surface }]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: colors.dashboardText ?? colors.text }]} numberOfLines={1}>
+          {modalTitle}
+        </Text>
+        <TouchableOpacity
+          onPress={handleCancel}
+          style={[styles.closeButton, { backgroundColor: colors.dashboardBg ?? colors.background }]}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <X size={20} color={colors.dashboardText ?? colors.text} strokeWidth={2.5} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.currentNameChip, { backgroundColor: colors.dashboardBg ?? colors.background }]}>
+        <Text style={[styles.currentNameLabel, { color: colors.dashboardTextMuted ?? colors.textMuted }]}>
+          Current: {item.name}
+        </Text>
+      </View>
+
+      <TextInput
+        style={[
+          styles.input,
+          {
+            borderColor: colors.dashboardBorder ?? colors.border,
+            color: colors.dashboardText ?? colors.text,
+            backgroundColor: colors.dashboardBg ?? colors.background,
+          },
+        ]}
+        placeholder={placeholder}
+        placeholderTextColor={colors.dashboardTextMuted ?? colors.textMuted}
+        value={renameText}
+        onChangeText={setRenameText}
+        autoFocus
+        returnKeyType="done"
+        onSubmitEditing={handleRename}
+      />
+
+      <View style={styles.actions}>
+        <TouchableOpacity
+          onPress={handleCancel}
+          style={[styles.button, styles.cancelButton, { borderColor: colors.dashboardBorder ?? colors.border }]}
+        >
+          <Text style={[styles.buttonText, { color: colors.dashboardText ?? colors.text }]}>
+            Cancel
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handleRename}
+          style={[styles.button, styles.confirmButton, { backgroundColor: colors.fabBg ?? colors.primary }]}
+        >
+          <Text style={[styles.buttonText, { color: colors.fabText ?? '#FFFFFF' }]}>
+            Rename
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+export function RenameModal({ visible, onClose, item, onRename, title }: RenameModalProps) {
+  const { colors, space, font, isTablet } = useTheme();
+
+  if (!item) return null;
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={handleCancel}
+      onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={[styles.container, { backgroundColor: colors.dashboardSurface ?? colors.surface }]}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.dashboardText ?? colors.text }]} numberOfLines={1}>
-              {modalTitle}
-            </Text>
-            <TouchableOpacity
-              onPress={handleCancel}
-              style={[styles.closeButton, { backgroundColor: colors.dashboardBg ?? colors.background }]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <X size={20} color={colors.dashboardText ?? colors.text} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Current name display */}
-          <View style={[styles.currentNameChip, { backgroundColor: colors.dashboardBg ?? colors.background }]}>
-            <Text style={[styles.currentNameLabel, { color: colors.dashboardTextMuted ?? colors.textMuted }]}>
-              Current: {item.name}
-            </Text>
-          </View>
-
-          {/* Input */}
-          <TextInput
-            style={[
-              styles.input,
-              {
-                borderColor: colors.dashboardBorder ?? colors.border,
-                color: colors.dashboardText ?? colors.text,
-                backgroundColor: colors.dashboardBg ?? colors.background,
-              },
-            ]}
-            placeholder={placeholder}
-            placeholderTextColor={colors.dashboardTextMuted ?? colors.textMuted}
-            value={renameText}
-            onChangeText={setRenameText}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={handleRename}
-          />
-
-          {/* Actions */}
-          <View style={styles.actions}>
-            <TouchableOpacity
-              onPress={handleCancel}
-              style={[styles.button, styles.cancelButton, { borderColor: colors.dashboardBorder ?? colors.border }]}
-            >
-              <Text style={[styles.buttonText, { color: colors.dashboardText ?? colors.text }]}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleRename}
-              style={[styles.button, styles.confirmButton, { backgroundColor: colors.fabBg ?? colors.primary }]}
-            >
-              <Text style={[styles.buttonText, { color: colors.fabText ?? '#FFFFFF' }]}>
-                Rename
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <RenameModalContent
+          key={item.id}
+          item={item}
+          onClose={onClose}
+          onRename={onRename}
+          title={title}
+          colors={colors}
+          isTablet={isTablet}
+        />
       </View>
     </Modal>
   );

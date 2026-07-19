@@ -25,7 +25,7 @@ export function ClipboardBar({
   const clipboard = useVaultStore((s) => s.clipboard);
   const undoInfo = useVaultStore((s) => s.undoInfo);
   const clearClipboard = useVaultStore((s) => s.clearClipboard);
-  const [showUndo, setShowUndo] = useState(false);
+  const showUndo = undoInfo && clipboard?.mode === 'cut';
 
   const resolvedBg = backgroundColor ?? colors.surface;
   const resolvedText = textColor ?? colors.text;
@@ -42,16 +42,6 @@ export function ClipboardBar({
     marginBottom: 12,
     gap: 10,
   } as ViewStyle), [space]);
-
-  useEffect(() => {
-    if (undoInfo && clipboard?.mode === 'cut') {
-      setShowUndo(true);
-      const timer = setTimeout(() => setShowUndo(false), 5000);
-      return () => clearTimeout(timer);
-    } else {
-      setShowUndo(false);
-    }
-  }, [undoInfo, clipboard?.mode]);
 
   if (!clipboard) return null;
 

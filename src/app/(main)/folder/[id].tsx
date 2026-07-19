@@ -1125,14 +1125,6 @@ export default function FolderDetailsScreen() {
                     { action: 'assign-key', label: 'Assign Existing Access Key', color: primary }
                   );
                 }
-                if (hasPassword) {
-                  baseItems.splice(3, 0, { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error });
-                } else {
-                  baseItems.splice(3, 0,
-                    { action: 'create-password', label: 'Assign and Create Access Key', color: primary },
-                    { action: 'assign-password', label: 'Assign Existing Access Key', color: primary }
-                  );
-                }
                 return baseItems;
               })().map(item => (
                 <TouchableOpacity key={item.action} style={st.fileMenuItem} onPress={() => handleFolderAction(item.action)}>
