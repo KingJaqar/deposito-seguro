@@ -14,7 +14,6 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   FlatList,
   Image as RNImage,
   Modal,
@@ -24,7 +23,8 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  useWindowDimensions
 } from 'react-native';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { CategoryTint } from '../../constants/Colors';
@@ -33,7 +33,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCREEN_PADDING = 20;
 
 type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
@@ -131,6 +130,7 @@ function getFileVisual(item: TrashedFile) {
 
 export default function TrashScreen() {
   const { colors, isDark } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
 
@@ -247,7 +247,6 @@ export default function TrashScreen() {
     setShowFilters(!showFilters);
   };
 
-  const SCREEN_WIDTH = Dimensions.get('window').width;
   const getGridColumns = (mode: string) => {
     if (mode === 'list') return 1;
     if (mode === 'small-icons') return 5;
@@ -257,7 +256,7 @@ export default function TrashScreen() {
   const getGridItemWidth = (mode: string) => {
     const cols = getGridColumns(mode);
     const gap = 12;
-    return (SCREEN_WIDTH - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
+    return (screenWidth - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
   };
   const isGridMode = viewMode !== 'list';
   const gridColumns = getGridColumns(viewMode);

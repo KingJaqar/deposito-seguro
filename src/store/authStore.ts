@@ -68,7 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   initializeVault: async (password, hint) => {
     try {
-      const salt = SecureCrypto.generateSalt();
+      const salt = await SecureCrypto.generateSaltAsync();
       const hash = await SecureCrypto.hashPassword(password, salt);
       if (isWeb) {
         await AsyncStorage.setItem('MASTER_PASSWORD_HASH', hash);

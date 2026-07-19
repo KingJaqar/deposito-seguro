@@ -88,7 +88,7 @@ export class SecureCrypto {
 
   static async generateEncryptionKey(customKey?: string): Promise<string> {
     if (customKey?.trim()) {
-      const salt = await SecureCrypto.generateSalt();
+      const salt = await SecureCrypto.generateSaltAsync();
       return SecureCrypto.hashPassword(customKey.trim(), salt);
     }
 
