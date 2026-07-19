@@ -7,7 +7,7 @@ export class SecureCrypto {
   static async hashPassword(password: string, salt: string): Promise<string> {
     const combined = `${password}:${salt}`;
     let iterativeHash = combined;
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 1000; i++) {
       iterativeHash = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         iterativeHash

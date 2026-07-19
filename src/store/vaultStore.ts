@@ -57,6 +57,15 @@ interface VaultStoreActions extends VaultState {
   addToPersonalFavoritesFolder: (folderId: string) => Promise<void>;
 }
 
+const ASYNC_STORAGE_TIMEOUT = 5000;
+
+const withAsyncStorageTimeout = async <T>(promise: Promise<T>): Promise<T | null> => {
+  return Promise.race([
+    promise,
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(null), ASYNC_STORAGE_TIMEOUT)),
+  ]);
+};
+
 const processSequentially = async (items: string[], action: (id: string) => Promise<void>, onProgress?: (current: number, total: number) => void) => {
     for (let i = 0; i < items.length; i++) {
       onProgress?.(i + 1, items.length);
@@ -104,9 +113,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   hydrateVault: async () => {
     try {
       await StorageService.initializeSystemDirectories();
-      const foldersRaw = await AsyncStorage.getItem('@vault_folders');
-      const filesRaw = await AsyncStorage.getItem('@vault_files');
-      const clipboardRaw = await AsyncStorage.getItem('@vault_clipboard');
+      const foldersRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_folders'));
+      const filesRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_files'));
+      const clipboardRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_clipboard'));
       set({
         folders: foldersRaw ? JSON.parse(foldersRaw) : [],
         files: filesRaw ? JSON.parse(filesRaw) : [],

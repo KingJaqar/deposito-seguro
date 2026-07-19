@@ -38,8 +38,12 @@ export default function RootLayout() {
         if (mounted) hideSplash().catch(() => {});
       }, 3000);
 
-      Promise.all([hydrateSettings(), hydrateVault()])
-        .then(async () => {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Startup timeout')), 10000)
+      );
+
+      Promise.race([
+        Promise.all([hydrateSettings(), hydrateVault()]).then(async () => {
           if (!mounted) return;
           await initializeDisguiseIcon();
           if (!mounted) return;
@@ -47,7 +51,9 @@ export default function RootLayout() {
           if (currentMode === 'calculator') {
             await setBackgroundColorAsync('#000000');
           }
-        })
+        }),
+        timeoutPromise,
+      ])
         .catch((e) => {
           if (!mounted) return;
           console.error('Root init error', e);

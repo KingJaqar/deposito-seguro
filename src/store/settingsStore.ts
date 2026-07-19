@@ -46,11 +46,19 @@ const ACCESS_KEY_PREFIX = 'access_key_';
 const ENCRYPTION_KEY_PREFIX = 'encryption_key_';
 
 const SECURE_STORE_TIMEOUT = 5000;
+const ASYNC_STORAGE_TIMEOUT = 5000;
 
 const withSecureStoreTimeout = async <T>(promise: Promise<T>): Promise<T | null> => {
   return Promise.race([
     promise,
     new Promise<T | null>((resolve) => setTimeout(() => resolve(null), SECURE_STORE_TIMEOUT)),
+  ]);
+};
+
+const withAsyncStorageTimeout = async <T>(promise: Promise<T>): Promise<T | null> => {
+  return Promise.race([
+    promise,
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(null), ASYNC_STORAGE_TIMEOUT)),
   ]);
 };
 
@@ -129,7 +137,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   hydrateSettings: async () => {
     try {
-      const stored = await AsyncStorage.getItem(SETTINGS_KEY);
+      const stored = await withAsyncStorageTimeout(AsyncStorage.getItem(SETTINGS_KEY));
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<SettingsState>;
         const accessKeys = parsed.accessKeys ? await loadAccessKeyValues(parsed.accessKeys) : [];
