@@ -12,6 +12,7 @@ import { RenameProvider } from '../contexts/RenameContext';
 import { CustomThemeProvider } from '../contexts/ThemeContext';
 import { UnlockProvider } from '../contexts/UnlockContext';
 import { HydrationProvider } from '../contexts/HydrationContext';
+import { useLockoutStore } from '../store/lockoutStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
 import { initializeDisguiseIcon, setFlagSecure } from '../utils/disguiseIcon';
@@ -41,6 +42,7 @@ export default function RootLayout() {
      Promise.all([
        useSettingsStore.getState().hydrateSettings(),
        useVaultStore.getState().hydrateVault(),
+       useLockoutStore.getState().hydrateLockouts(),
      ])
        .then(async () => {
          if (!mounted) return;

@@ -4,6 +4,16 @@ import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
+import { useLockoutStore } from './lockoutStore';
+
+/**
+ * Lockout key for the master vault PIN (S-1 remediation — see
+ * plans/deposito-seguro-audit-report.md §10). There's only one master PIN
+ * per vault, so a single fixed key is enough; exported so login.tsx/
+ * auth-key.tsx can show a "locked out, try again in Ns" message instead of
+ * a generic failure alert.
+ */
+export const PIN_LOCKOUT_KEY = 'vault:pin';
 
 interface AuthState {
   isConfigured: boolean;
@@ -88,6 +98,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   authenticate: async (password) => {
+    // S-1: brute-force lockout, enforced here so every caller (standard PIN
+    // entry, the calculator-disguise auth path, and the auth-key management
+    // screen) is protected even if a caller doesn't check lockout itself.
+    if (useLockoutStore.getState().isLockedOut(PIN_LOCKOUT_KEY)) {
+      return false;
+    }
     try {
       const storedHash = isWeb
         ? await AsyncStorage.getItem('MASTER_PASSWORD_HASH')
@@ -97,10 +113,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         : await SecureStore.getItemAsync(SECURE_KEYS.MASTER_PASSWORD_SALT);
       if (!storedHash || !salt) return false;
       const verifyHash = await SecureCrypto.hashPassword(password, salt);
-      if (verifyHash === storedHash) {
+      // S-7: constant-time comparison of the derived hash.
+      if (SecureCrypto.secureCompare(verifyHash, storedHash)) {
+        useLockoutStore.getState().resetAttempts(PIN_LOCKOUT_KEY);
         set({ isAuthenticated: true, lastActiveTimestamp: Date.now() });
         return true;
       }
+      useLockoutStore.getState().recordFailedAttempt(PIN_LOCKOUT_KEY);
       return false;
     } catch {
       return false;

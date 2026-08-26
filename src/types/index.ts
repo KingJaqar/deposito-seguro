@@ -13,11 +13,6 @@ export interface AccessKeyMetadata {
   createdAt: number;
 }
 
-export interface AuthKey {
-  password: string;
-  hint?: string;
-}
-
 // Legacy encryption key type for backward compatibility
 export interface EncryptionKeyMetadata {
   id: string;

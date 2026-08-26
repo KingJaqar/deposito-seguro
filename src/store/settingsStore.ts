@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
-import { DisguiseMode, DisguiseIconTheme, EncryptionKeyMetadata, AccessKeyMetadata, AuthKey, GridListView, ThemeMode } from '../types';
+import { DisguiseMode, DisguiseIconTheme, EncryptionKeyMetadata, AccessKeyMetadata, GridListView, ThemeMode } from '../types';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
 
 interface SettingsState {
@@ -22,7 +22,6 @@ interface SettingsState {
   disguiseIconTheme: DisguiseIconTheme;
   accessKeys: AccessKeyMetadata[];
   encryptionKeys: EncryptionKeyMetadata[];
-  authKey: AuthKey | null;
   isHydrated: boolean;
   hydrationError: string | null;
 
@@ -35,11 +34,7 @@ interface SettingsState {
   createEncryptionKey: (name: string, customKey?: string, description?: string) => Promise<EncryptionKeyMetadata | null>;
   encryptionKeyExists: (name: string) => boolean;
   deleteEncryptionKey: (keyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
-  setAuthKey: (password: string, hint?: string) => void;
-  verifyAuthKey: (password: string) => boolean;
-  changeAuthKey: (currentPassword: string, newPassword: string) => boolean;
-  updateAuthKeyHint: (hint: string) => void;
-  deleteAuthKeyHint: () => void;
+  restoreKeysFromBackup: (accessKeys: AccessKeyMetadata[], encryptionKeys: EncryptionKeyMetadata[]) => Promise<void>;
   lockTransientMemory: () => void;
 }
 
@@ -98,7 +93,7 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
     .map((r) => r.value);
 };
 
-type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'accessKeys' | 'encryptionKeys' | 'authKey';
+type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'accessKeys' | 'encryptionKeys';
 
 const PERSIST_KEYS: SettingsSettingKey[] = [
   'themeMode',
@@ -116,8 +111,38 @@ const PERSIST_KEYS: SettingsSettingKey[] = [
   'disguiseIconTheme',
   'accessKeys',
   'encryptionKeys',
-  'authKey',
 ];
+
+/**
+ * Builds the AsyncStorage snapshot for the settings store.
+ *
+ * S-2 remediation: `accessKeys`/`encryptionKeys` carry a raw secret
+ * (`password`/`key`) that must live ONLY in SecureStore. Previously this
+ * function (inlined at every call site) persisted those secrets into
+ * AsyncStorage's plaintext JSON blob too — a duplicate, weaker-guarantee
+ * copy of the same secret, extractable via `adb backup`-style tooling.
+ * `loadAccessKeyValues`/`loadEncryptionKeyValues` already re-hydrate the
+ * real secret from SecureStore on load, so redacting it here loses nothing.
+ */
+function buildPersistSnapshot(state: SettingsState): Partial<SettingsState> {
+  const snapshot = PERSIST_KEYS.reduce((acc, k) => {
+    (acc as Record<string, unknown>)[k] = (state as unknown as Record<string, unknown>)[k];
+    return acc;
+  }, {} as Partial<SettingsState>);
+  if (snapshot.accessKeys) {
+    snapshot.accessKeys = snapshot.accessKeys.map((ak) => ({ ...ak, password: '' }));
+  }
+  if (snapshot.encryptionKeys) {
+    snapshot.encryptionKeys = snapshot.encryptionKeys.map((ek) => ({ ...ek, key: '' }));
+  }
+  return snapshot;
+}
+
+function persistSnapshot(state: SettingsState) {
+  AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(buildPersistSnapshot(state))).catch(
+    (err) => console.error('Settings persist error:', err)
+  );
+}
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   themeMode: 'dark',
@@ -127,7 +152,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   encryptionDefault: false,
   accentColor: '#0A84FF',
   fontSizeMultiplier: 1.0,
-  screenshotProtection: false,
+  // S-9: default to on — a vault app should protect screenshots/recent-apps
+  // thumbnails out of the box, not require the user to discover and enable it.
+  screenshotProtection: true,
   clipboardClearEnabled: false,
   fakeCrashEnabled: false,
   showHiddenFiles: false,
@@ -135,7 +162,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   disguiseIconTheme: 'default',
   accessKeys: [],
   encryptionKeys: [],
-  authKey: null,
   isHydrated: false,
   hydrationError: null,
 
@@ -163,23 +189,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   updateSetting: async (key, val) => {
     set((state) => {
       const updated = { ...state, [key]: val };
-      const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = (updated as any)[k];
-        return acc;
-      }, {} as Partial<SettingsState>);
-      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-        (err) => console.error('Settings persist error:', err)
-      );
+      persistSnapshot(updated);
       return updated;
     });
   },
 
   createAccessKey: async (label, password, description) => {
     const normalizedLabel = label.trim();
-    
-    // Generate UUID asynchronously for cryptographic security
-    const id = await SecureCrypto.generateUUID();
-    
+    const id = SecureCrypto.generateUUID();
+
     let created: AccessKeyMetadata | null = null;
     set((state) => {
       if (state.accessKeys.length >= 20) {
@@ -199,13 +217,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         createdAt: Date.now(),
       };
       const accessKeys = [...state.accessKeys, accessKey];
-      const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
-        return acc;
-      }, {} as Partial<SettingsState>);
-      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-        (err) => console.error('Settings persist error:', err)
-      );
+      persistSnapshot({ ...state, accessKeys });
       SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), password).catch(
         (err) => console.error('Access key secure storage error:', err)
       );
@@ -242,13 +254,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         }
 
         deleted = true;
-        const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-          (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
-          return acc;
-        }, {} as Partial<SettingsState>);
-        AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-          (err) => console.error('Settings persist error:', err)
-        );
+        persistSnapshot({ ...state, accessKeys });
         SecureStore.deleteItemAsync(getSecureKeyPath(accessKeyId, ACCESS_KEY_PREFIX)).catch(
           (err) => console.error('Access key secure deletion error:', err)
         );
@@ -281,11 +287,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       };
       const accessKeys = [...state.accessKeys];
       accessKeys[idx] = accessKey;
-      const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = ({ ...state, accessKeys } as any)[k];
-        return acc;
-      }, {} as Partial<SettingsState>);
-      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch((err) => console.error('Settings persist error:', err));
+      persistSnapshot({ ...state, accessKeys });
       SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), updatedPassword).catch(
         (err) => console.error('Access key secure storage error:', err)
       );
@@ -295,65 +297,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     return updated;
   },
 
-  setAuthKey: (password: string, hint?: string) => {
-    const authKey: AuthKey = { password, hint };
-    set({ authKey });
-    const snapshot = { authKey };
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-      (err) => console.error('Settings persist error:', err)
-    );
-  },
-
-  verifyAuthKey: (password: string): boolean => {
-    return useSettingsStore.getState().authKey?.password === password;
-  },
-
-  changeAuthKey: (currentPassword: string, newPassword: string): boolean => {
-    const current = useSettingsStore.getState().authKey;
-    if (!current || current.password !== currentPassword) {
-      return false;
-    }
-    const updatedAuthKey: AuthKey = { password: newPassword, hint: current.hint };
-    set({ authKey: updatedAuthKey });
-    const snapshot = { authKey: updatedAuthKey };
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-      (err) => console.error('Settings persist error:', err)
-    );
-    return true;
-  },
-
-  updateAuthKeyHint: (hint: string) => {
-    const current = useSettingsStore.getState().authKey;
-    if (!current) return;
-    const updatedAuthKey: AuthKey = { ...current, hint };
-    set({ authKey: updatedAuthKey });
-    const snapshot = { authKey: updatedAuthKey };
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-      (err) => console.error('Settings persist error:', err)
-    );
-  },
-
-  deleteAuthKeyHint: () => {
-    const current = useSettingsStore.getState().authKey;
-    if (!current) return;
-    const updatedAuthKey: AuthKey = { ...current, hint: undefined };
-    set({ authKey: updatedAuthKey });
-    const snapshot = { authKey: updatedAuthKey };
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-      (err) => console.error('Settings persist error:', err)
-    );
-  },
-
   createEncryptionKey: async (name, customKey, description) => {
     const normalizedLabel = name.trim();
-    
-    // Generate UUIDs asynchronously for cryptographic security
-    const id = await SecureCrypto.generateUUID();
-    const keyId = await SecureCrypto.generateUUID();
-    const salt = await SecureCrypto.generateSaltAsync();
-    
-    const key = customKey || SecureCrypto.xorTransform(keyId, salt);
-    
+    const id = SecureCrypto.generateUUID();
+    const key = await SecureCrypto.generateEncryptionKey(customKey);
+
     let created: EncryptionKeyMetadata | null = null;
     set((state) => {
       if (state.encryptionKeys.length >= 20) {
@@ -373,13 +321,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         createdAt: Date.now(),
       };
       const encryptionKeys = [...state.encryptionKeys, encryptionKey];
-      const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-        (acc as any)[k] = ({ ...state, encryptionKeys } as any)[k];
-        return acc;
-      }, {} as Partial<SettingsState>);
-      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-        (err) => console.error('Settings persist error:', err)
-      );
+      persistSnapshot({ ...state, encryptionKeys });
       SecureStore.setItemAsync(getSecureKeyPath(encryptionKey.id, ENCRYPTION_KEY_PREFIX), key).catch(
         (err) => console.error('Encryption key secure storage error:', err)
       );
@@ -416,13 +358,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         }
 
         deleted = true;
-        const snapshot = PERSIST_KEYS.reduce((acc, k) => {
-          (acc as any)[k] = ({ ...state, encryptionKeys } as any)[k];
-          return acc;
-        }, {} as Partial<SettingsState>);
-        AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot)).catch(
-          (err) => console.error('Settings persist error:', err)
-        );
+        persistSnapshot({ ...state, encryptionKeys });
         SecureStore.deleteItemAsync(getSecureKeyPath(encryptionKeyId, ENCRYPTION_KEY_PREFIX)).catch(
           (err) => console.error('Encryption key secure deletion error:', err)
         );
@@ -435,11 +371,37 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       return 'not-found';
     }
   },
+  /**
+   * Restores access/encryption key metadata AND their real secret values
+   * from a decrypted backup (Phase 3 — full portable backup, see
+   * plans/deposito-seguro-audit-report.md §20). Writes each raw secret to
+   * SecureStore (never AsyncStorage — consistent with S-2) and updates
+   * in-memory + the (redacted) AsyncStorage snapshot the same way every
+   * other mutation in this store does.
+   */
+  restoreKeysFromBackup: async (accessKeys, encryptionKeys) => {
+    await Promise.all([
+      ...accessKeys.map((ak) =>
+        SecureStore.setItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX), ak.password).catch((err) =>
+          console.error('Restore: failed to write access key to SecureStore', err)
+        )
+      ),
+      ...encryptionKeys.map((ek) =>
+        SecureStore.setItemAsync(getSecureKeyPath(ek.id, ENCRYPTION_KEY_PREFIX), ek.key).catch((err) =>
+          console.error('Restore: failed to write encryption key to SecureStore', err)
+        )
+      ),
+    ]);
+    set((state) => {
+      const updated = { ...state, accessKeys, encryptionKeys };
+      persistSnapshot(updated);
+      return updated;
+    });
+  },
   lockTransientMemory: () => {
     set((state) => ({
       encryptionKeys: state.encryptionKeys.map(k => ({ ...k, key: '' })),
       accessKeys: state.accessKeys.map(k => ({ ...k, password: '' })),
-      authKey: state.authKey ? { ...state.authKey, password: '' } : null,
     }));
   },
 }));

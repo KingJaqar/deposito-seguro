@@ -9,10 +9,9 @@ import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAut
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { Durations } from '../../../constants/animations';
-import { BackupService, BackupEstimate } from '../../../services/backup';
+import { BackupService, BackupEstimate, BackupFolderHandle } from '../../../services/backup';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { setDisguiseIcon, setFlagSecure } from '../../../utils/disguiseIcon';
-import { FolderPicker } from '../../../components/FolderPicker';
 import { BackupConfirmDialog } from '../../../components/BackupConfirmDialog';
 
 interface SettingItem {
@@ -100,12 +99,17 @@ export default function SettingsCenterScreen() {
   };
 
   const [backupProgress, setBackupProgress] = useState<{ message: string; progress: number } | null>(null);
-  const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [showBackupConfirm, setShowBackupConfirm] = useState(false);
-  const [selectedBackupPath, setSelectedBackupPath] = useState<string | null>(null);
+  const [selectedBackupFolder, setSelectedBackupFolder] = useState<BackupFolderHandle | null>(null);
   const [backupEstimate, setBackupEstimate] = useState<BackupEstimate | null>(null);
   const [isCalculatingEstimate, setIsCalculatingEstimate] = useState(false);
   const [backupResult, setBackupResult] = useState<{ success: boolean; backupName?: string; fileSize?: number; error?: string } | null>(null);
+
+  // Restore-passphrase prompt state (I-3 / Phase 3: full portable backup —
+  // shown when a picked backup carries encrypted key material).
+  const [showRestorePassphrase, setShowRestorePassphrase] = useState(false);
+  const [restorePassphraseInput, setRestorePassphraseInput] = useState('');
+  const [pendingRestoreUri, setPendingRestoreUri] = useState<string | null>(null);
 
   const handleExport = async () => {
     // Step 1: Calculate estimated backup size
@@ -125,24 +129,20 @@ export default function SettingsCenterScreen() {
       return;
     }
 
-    // Step 3: Show folder picker
-    setShowFolderPicker(true);
-  };
-
-  const handleFolderSelected = async (folderPath: string) => {
-    setSelectedBackupPath(folderPath);
-    setShowFolderPicker(false);
+    // Step 3: Real folder picker (Android: Storage Access Framework; iOS: app sandbox — see backupService.ts)
+    const folder = await BackupService.pickBackupFolder();
+    if (!folder) return;
+    setSelectedBackupFolder(folder);
     setShowBackupConfirm(true);
   };
 
-  const handleBackupConfirm = async () => {
-    if (!selectedBackupPath) return;
-    
-    setShowBackupConfirm(false);
+  const handleBackupConfirm = async (passphrase: string | undefined) => {
+    if (!selectedBackupFolder) return;
+
     setBackupProgress({ message: 'Starting backup...', progress: 0 });
     setBackupResult(null);
 
-    const result = await BackupService.createBackupInFolder(selectedBackupPath, (message, progress) => {
+    const result = await BackupService.createBackupInFolder(selectedBackupFolder, passphrase, (message, progress) => {
       setBackupProgress({ message, progress });
     });
 
@@ -157,16 +157,25 @@ export default function SettingsCenterScreen() {
 
   const handleBackupResultDismiss = () => {
     setBackupResult(null);
-    setSelectedBackupPath(null);
+    setSelectedBackupFolder(null);
     setBackupEstimate(null);
   };
 
-  const handleImport = async () => {
-    const result = await BackupService.importBackup((message, progress) => {
+  const runRestore = async (backupUri: string, passphrase: string | undefined) => {
+    setBackupProgress({ message: 'Starting restore...', progress: 0 });
+    const result = await BackupService.restoreBackup(backupUri, passphrase, (message, progress) => {
       setBackupProgress({ message, progress });
     });
-
     setBackupProgress(null);
+
+    if (result.needsPassphrase) {
+      setPendingRestoreUri(backupUri);
+      setShowRestorePassphrase(true);
+      if (passphrase) {
+        Alert.alert('Incorrect Passphrase', 'That passphrase did not decrypt this backup’s keys. Try again, or restore without keys.');
+      }
+      return;
+    }
 
     if (result.success) {
       Alert.alert(
@@ -176,6 +185,37 @@ export default function SettingsCenterScreen() {
       );
     } else {
       Alert.alert('Restore Error', result.error || 'Failed to restore backup.');
+    }
+  };
+
+  const handleImport = async () => {
+    const backupUri = await BackupService.pickBackupFile();
+    if (!backupUri) return;
+    await runRestore(backupUri, undefined);
+  };
+
+  const handleRestorePassphraseSubmit = async () => {
+    const uri = pendingRestoreUri;
+    const passphrase = restorePassphraseInput;
+    setShowRestorePassphrase(false);
+    setRestorePassphraseInput('');
+    setPendingRestoreUri(null);
+    if (uri) await runRestore(uri, passphrase);
+  };
+
+  const handleRestorePassphraseSkip = async () => {
+    const uri = pendingRestoreUri;
+    setShowRestorePassphrase(false);
+    setRestorePassphraseInput('');
+    setPendingRestoreUri(null);
+    // The vault structure/files were already restored during the initial
+    // runRestore() call above (that happens before the passphrase check) —
+    // nothing left to do here except inform the user keys weren't restored.
+    if (uri) {
+      Alert.alert(
+        'Restore Complete (Keys Skipped)',
+        'Vault structure and files were restored. Access/encryption keys were not, since no passphrase was provided — protected content will only open if the matching keys already exist on this device.'
+      );
     }
   };
 
@@ -579,23 +619,52 @@ export default function SettingsCenterScreen() {
         </View>
       </Modal>
 
-      {/* Folder Picker Modal */}
-      <FolderPicker
-        visible={showFolderPicker}
-        onClose={() => setShowFolderPicker(false)}
-        onSelect={handleFolderSelected}
-      />
-
       {/* Backup Confirmation Dialog */}
       <BackupConfirmDialog
         visible={showBackupConfirm}
-        onClose={() => { setShowBackupConfirm(false); setSelectedBackupPath(null); }}
+        onClose={() => { setShowBackupConfirm(false); setSelectedBackupFolder(null); }}
         onConfirm={handleBackupConfirm}
-        folderPath={selectedBackupPath || ''}
+        folderLabel={selectedBackupFolder?.label || ''}
         estimatedSize={backupEstimate?.estimatedZipSize}
         estimatedFileCount={backupEstimate?.totalFiles}
         isLoading={isCalculatingEstimate}
       />
+
+      {/* Restore Passphrase Prompt — shown when a picked backup carries encrypted key material */}
+      <Modal visible={showRestorePassphrase} transparent animationType="fade" onRequestClose={handleRestorePassphraseSkip}>
+        <View style={[styles.modalOverlay, { padding: space(6) }]}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={handleRestorePassphraseSkip} activeOpacity={1} />
+          <View style={[styles.modalCard, { backgroundColor: dash.surface, padding: space(6) }]}>
+            <Text style={[styles.modalTitle, { color: dash.text, fontSize: font(20) }]}>Backup Passphrase Needed</Text>
+            <Text style={[styles.modalSubtitle, { color: dash.textMuted, fontSize: font(14), marginBottom: space(5), lineHeight: font(14) * 1.4 }]}>
+              This backup includes encrypted access/encryption keys. Enter the passphrase used when it was created to restore them, or skip to restore files without keys.
+            </Text>
+            <TextInput
+              style={[styles.modalInput, { color: dash.text, borderColor: dash.border, backgroundColor: dash.bg, paddingHorizontal: space(4), paddingVertical: space(3), fontSize: font(15), marginBottom: space(5) }]}
+              value={restorePassphraseInput}
+              onChangeText={setRestorePassphraseInput}
+              placeholder="Backup passphrase"
+              placeholderTextColor={dash.textMuted}
+              secureTextEntry
+              autoFocus
+            />
+            <View style={[styles.modalButtonRow, { gap: space(3) }]}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { backgroundColor: dash.surfaceHover, paddingVertical: space(3) }]}
+                onPress={handleRestorePassphraseSkip}
+              >
+                <Text style={[styles.modalCancelText, { color: dash.text, fontSize: font(15) }]}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, { backgroundColor: colors.primary, paddingVertical: space(3) }]}
+                onPress={handleRestorePassphraseSubmit}
+              >
+                <Text style={[styles.modalSaveText, { fontSize: font(15) }]}>Restore Keys</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={showDisplayNameModal} transparent animationType="fade" onRequestClose={() => setShowDisplayNameModal(false)}>
         <View style={[styles.modalOverlay, { padding: space(6) }]}>

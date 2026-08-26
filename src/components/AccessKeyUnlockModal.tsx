@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Eye, EyeOff, Key, Lock, X } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { SecureCrypto } from '../security/crypto';
 import { LOCKOUT_DURATION_MS, MAX_PASSWORD_ATTEMPTS, useLockoutStore } from '../store/lockoutStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { AccessKeyMetadata } from '../types';
@@ -75,7 +76,8 @@ export function AccessKeyUnlockModal({
       return;
     }
 
-    if (password === targetPassword.password) {
+    if (SecureCrypto.secureCompare(password, targetPassword.password)) {
+      resetAttempts(lockoutKey);
       onUnlockSuccess();
     } else {
       const { newAttempts, remaining, isLockedOut: nowLockedOut } = recordFailedAttempt(lockoutKey);

@@ -1,5 +1,5 @@
 // File: src/app/(main)/_layout.tsx
-import { Slot, useRouter } from 'expo-router';
+import { Redirect, Slot, useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, StyleSheet, View, Platform } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
@@ -11,7 +11,7 @@ export default function MainAppContainerLayout() {
   const router = useRouter();
   const colors = useThemeColors();
   const appState = useRef(AppState.currentState);
-  const { lastActiveTimestamp, updateActivity, terminateSession } = useAuthStore();
+  const { isAuthenticated, lastActiveTimestamp, updateActivity, terminateSession } = useAuthStore();
   const { autoLockDuration } = useSettingsStore();
   const { disguiseMode, disguiseIconTheme, lockTransientMemory } = useSettingsStore();
 
@@ -44,6 +44,15 @@ export default function MainAppContainerLayout() {
       subscription.remove();
     };
   }, [lastActiveTimestamp, autoLockDuration, terminateSession, router, updateActivity, disguiseMode, disguiseIconTheme, lockTransientMemory]);
+
+  // I-1: render-time auth guard. Previously route protection relied
+  // entirely on the (auth) screens funneling navigation into (main)/* —
+  // nothing here actually checked `isAuthenticated`, so any future deep
+  // link, restored navigation state, or new code path landing directly on
+  // a (main) route would bypass the lock screen entirely.
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/lock" />;
+  }
 
   return (
     <View style={[styles.wrapper, { backgroundColor: colors.background }]} onTouchStart={updateActivity}>

@@ -132,7 +132,7 @@ export default function FolderDetailsScreen() {
       const asset = pickerResult.assets[0];
       const safeName = sanitizeFilename(asset.name);
       if (Platform.OS === 'web') {
-        const tempName = `${SecureCrypto.generateSalt()}_${safeName}`;
+        const tempName = `${SecureCrypto.generateUUID()}_${safeName}`;
         await StorageService.storeWebFile(asset.uri, tempName);
         await importFile(asset.uri, id, safeName, asset.mimeType || 'application/octet-stream', asset.size || 0, false);
       } else {

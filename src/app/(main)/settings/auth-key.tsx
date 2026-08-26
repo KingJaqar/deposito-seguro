@@ -7,7 +7,8 @@ import { Eye, EyeOff, Key, Lock, ShieldCheck } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { useAuthStore } from '../../../store/authStore';
+import { PIN_LOCKOUT_KEY, useAuthStore } from '../../../store/authStore';
+import { useLockoutStore } from '../../../store/lockoutStore';
 import { validatePin } from '../../../utils/accessKeyValidation';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Durations } from '../../../constants/animations';
@@ -75,6 +76,11 @@ export default function AuthKeyScreen() {
       Alert.alert('Invalid PIN', pinValidation.message);
       return;
     }
+    if (useLockoutStore.getState().isLockedOut(PIN_LOCKOUT_KEY)) {
+      const remaining = useLockoutStore.getState().getRemainingLockoutTime(PIN_LOCKOUT_KEY);
+      Alert.alert('Too Many Attempts', `Try again in ${remaining}s.`);
+      return;
+    }
     setIsVerifying(true);
     try {
       const success = await authenticate(verifyPassword);
@@ -95,6 +101,11 @@ export default function AuthKeyScreen() {
   const handleChangeAuthKey = async () => {
     if (!currentPassword.trim()) {
       Alert.alert('Current Password Required', 'Please enter your current authentication key.');
+      return;
+    }
+    if (useLockoutStore.getState().isLockedOut(PIN_LOCKOUT_KEY)) {
+      const remaining = useLockoutStore.getState().getRemainingLockoutTime(PIN_LOCKOUT_KEY);
+      Alert.alert('Too Many Attempts', `Try again in ${remaining}s.`);
       return;
     }
     setIsChanging(true);

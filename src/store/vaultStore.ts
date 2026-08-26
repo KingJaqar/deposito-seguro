@@ -16,7 +16,7 @@ interface VaultStoreActions extends VaultState {
   toggleFavorite: (fileId: string) => Promise<void>;
   toggleFolderFavorite: (folderId: string, markFavorite?: boolean) => Promise<void>;
   softDeleteFile: (fileId: string) => Promise<void>;
-  restoreFileFromTrash: (fileId: string) => Promise<void>;
+  restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean }>;
   permanentlyDeleteFile: (fileId: string) => Promise<void>;
   permanentlyDeleteFiles: (fileIds: string[]) => Promise<void>;
   clearEverythingState: () => void;
@@ -105,6 +105,54 @@ const encryptFileWithKey = async (file: FileMetadata, keyId: string) => {
   return finalPath;
 };
 
+/**
+ * I-11 remediation (plans/deposito-seguro-audit-report.md §11/§20): every
+ * mutation used to fire `AsyncStorage.setItem(...).catch(console.error)`
+ * without awaiting it, so `await store.someAction()` could resolve before
+ * the write even landed — a write failure was silently swallowed and
+ * in-memory state could desync from disk with zero indication to the
+ * caller. `commitVaultState` applies the in-memory update immediately (so
+ * the UI stays responsive) and then awaits the corresponding AsyncStorage
+ * write(s), throwing if they fail so an awaiting caller's existing
+ * try/catch (e.g. folder/[id].tsx's import flow) can surface a real error
+ * instead of silently believing the mutation persisted.
+ */
+const persistFolders = async (folders: FolderMetadata[]): Promise<void> => {
+  try {
+    await AsyncStorage.setItem('@vault_folders', JSON.stringify(folders));
+  } catch (e) {
+    console.error('Failed to persist folders', e);
+    throw e;
+  }
+};
+
+const persistFiles = async (files: FileMetadata[]): Promise<void> => {
+  try {
+    await AsyncStorage.setItem('@vault_files', JSON.stringify(files));
+  } catch (e) {
+    console.error('Failed to persist files', e);
+    throw e;
+  }
+};
+
+type VaultPatch = { folders?: FolderMetadata[]; files?: FileMetadata[] };
+type VaultSetFn = (updater: (state: VaultStoreActions) => VaultPatch) => void;
+
+const commitVaultState = async (set: VaultSetFn, updater: (state: VaultStoreActions) => VaultPatch): Promise<VaultPatch> => {
+  let patch: VaultPatch = {};
+  set((state) => {
+    patch = updater(state);
+    return patch;
+  });
+  const writes: Promise<void>[] = [];
+  if (patch.folders) writes.push(persistFolders(patch.folders));
+  if (patch.files) writes.push(persistFiles(patch.files));
+  if (writes.length > 0) {
+    await Promise.all(writes);
+  }
+  return patch;
+};
+
 export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   folders: [],
   files: [],
@@ -156,32 +204,32 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       createdAt: Date.now(),
       parentId
     };
-    set((state) => {
-      const folders = [...state.folders, newFolder];
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({ folders: [...state.folders, newFolder] }));
   },
   deleteFolder: async (folderId) => {
-    set((state) => {
+    await commitVaultState(set, (state) => {
       const folders = state.folders.filter(f => f.id !== folderId);
       const files = state.files.map(f => f.folderId === folderId ? { ...f, isTrash: true, deletedAt: Date.now() } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
       return { folders, files };
     });
   },
   importFile: async (sourceUri, targetFolderId, fileName, mimeType, size, encrypt, encryptionKeyId) => {
     const targetId = SecureCrypto.generateUUID();
     const sandboxFilename = `${targetId}_${fileName}`;
-    
+
     const internalPath = await StorageService.copyToSandbox(sourceUri, sandboxFilename);
     let finalPath = internalPath;
+    // I-2: only mark a file as encrypted when encryption actually ran, not
+    // merely because it was requested — previously `isEncrypted: encrypt`
+    // was set unconditionally, so a resolution failure (missing key) left
+    // a plaintext file wearing a false "encrypted" badge.
+    let didEncrypt = false;
 
     if (encrypt && encryptionKeyId) {
       const encryptionKey = useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === encryptionKeyId)?.key;
       if (encryptionKey) {
         finalPath = await StorageService.encryptSandboxFile(internalPath, encryptionKey);
+        didEncrypt = true;
       }
     }
 
@@ -192,54 +240,54 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       size,
       mimeType,
       localPath: finalPath,
-      isEncrypted: encrypt,
-      encryptionKeyId,
+      isEncrypted: didEncrypt,
+      encryptionKeyId: didEncrypt ? encryptionKeyId : undefined,
       isFavorite: false,
       isTrash: false,
       importedAt: Date.now()
     };
 
-    set((state) => {
-      const files = [...state.files, newFile];
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({ files: [...state.files, newFile] }));
   },
   toggleFavorite: async (fileId) => {
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, isFavorite: !f.isFavorite } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, isFavorite: !f.isFavorite } : f)
+    }));
   },
   toggleFolderFavorite: async (folderId, markFavorite?: boolean) => {
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, isFavorite: markFavorite ?? !f.isFavorite } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, isFavorite: markFavorite ?? !f.isFavorite } : f)
+    }));
   },
   softDeleteFile: async (fileId) => {
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, isTrash: true, deletedAt: Date.now() } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, isTrash: true, deletedAt: Date.now() } : f)
+    }));
   },
   restoreFileFromTrash: async (fileId) => {
-    set((state) => {
+    // I-12: report when the file's original folder no longer exists (it
+    // lands in the auto-created, unprotected "Restored Files" folder
+    // instead) so the caller can warn the user that whatever protection
+    // the original folder had is not carried forward — that folder's
+    // metadata is gone by this point, so there is nothing to actually
+    // "carry forward" from; the honest fix is surfacing this, not
+    // pretending it was preserved.
+    const targetFile = get().files.find(f => f.id === fileId);
+    const originalFolderExists = !!targetFile && get().folders.some(f => f.id === targetFile.folderId);
+
+    await commitVaultState(set, (state) => {
       const targetFile = state.files.find(f => f.id === fileId);
-      if (!targetFile) return state;
-      
+      if (!targetFile) return {};
+
       let targetFolderId = targetFile.folderId;
+      let folders = state.folders;
       const folderExists = state.folders.some(f => f.id === targetFile.folderId);
-      
+
       if (!folderExists) {
         let restoredFolder = state.folders.find(f => f.name === 'Restored Files');
         if (!restoredFolder) {
-          const restoredFolderId = SecureCrypto.generateUUID();
           restoredFolder = {
-            id: restoredFolderId,
+            id: SecureCrypto.generateUUID(),
             name: 'Restored Files',
             color: '#34C759',
             icon: 'folder',
@@ -248,29 +296,28 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
             isPersonalFavoritesFolder: false,
             createdAt: Date.now()
           };
-          state.folders.push(restoredFolder!);
+          folders = [...state.folders, restoredFolder];
         }
-        targetFolderId = restoredFolder!.id;
+        targetFolderId = restoredFolder.id;
       }
-      
-      const files = state.files.map(f => 
+
+      const files = state.files.map(f =>
         f.id === fileId ? { ...f, isTrash: false, deletedAt: undefined, folderId: targetFolderId } : f
       );
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(state.folders)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files, folders: state.folders };
+
+      return { folders, files };
     });
+
+    return { landedInFallbackFolder: !!targetFile && !originalFolderExists };
   },
   permanentlyDeleteFile: async (fileId) => {
     const targetFile = get().files.find(f => f.id === fileId);
     if (targetFile) {
       await removeFilePayload(targetFile);
     }
-    set((state) => {
-      const files = state.files.filter(f => f.id !== fileId);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.filter(f => f.id !== fileId)
+    }));
   },
   permanentlyDeleteFiles: async (fileIds) => {
     const { files } = get();
@@ -282,45 +329,35 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     }
 
-    set((state) => {
-      const files = state.files.filter(f => !fileIds.includes(f.id));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.filter(f => !fileIds.includes(f.id))
+    }));
   },
   clearEverythingState: () => set({ folders: [], files: [] }),
   renameFolder: async (folderId, newName) => {
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, name: newName } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, name: newName } : f)
+    }));
   },
   moveFolder: async (folderId, newParentId) => {
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, parentId: newParentId } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, parentId: newParentId } : f)
+    }));
   },
   renameFile: async (fileId, newName) => {
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, name: newName } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, name: newName } : f)
+    }));
   },
   moveFileToFolder: async (fileId, targetFolderId) => {
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, folderId: targetFolderId } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, folderId: targetFolderId } : f)
+    }));
   },
   exportFileToDevice: async (fileId) => {
     const file = get().files.find(f => f.id === fileId);
     if (!file) return null;
-    
+
     try {
       let path = file.localPath;
       if (file.isEncrypted && file.encryptionKeyId) {
@@ -339,11 +376,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const targetFile = get().files.find(f => f.id === fileId);
     if (targetFile) {
       await removeFilePayload(targetFile);
-      set((state) => {
-        const files = state.files.filter(f => f.id !== fileId);
-        AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-        return { files };
-      });
+      await commitVaultState(set, (state) => ({
+        files: state.files.filter(f => f.id !== fileId)
+      }));
     }
   },
   shredMultipleFiles: async (fileIds, onProgress) => {
@@ -352,11 +387,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       const targetFile = files.find(f => f.id === fileId);
       if (targetFile) {
         await removeFilePayload(targetFile);
-        set((state) => {
-          const updatedFiles = state.files.filter(f => f.id !== fileId);
-          AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
-          return { files: updatedFiles };
-        });
+        await commitVaultState(set, (state) => ({
+          files: state.files.filter(f => f.id !== fileId)
+        }));
       }
     }, onProgress);
   },
@@ -367,38 +400,33 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       const targetFile = files.find(f => f.id === fileId);
       if (targetFile) {
         await removeFilePayload(targetFile);
-        set((state) => {
-          const updatedFiles = state.files.filter(f => f.id !== fileId);
-          AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
-          return { files: updatedFiles };
-        });
+        await commitVaultState(set, (state) => ({
+          files: state.files.filter(f => f.id !== fileId)
+        }));
       }
     }, onProgress);
   },
   shredFolder: async (folderId, onProgress) => {
     const { files } = get();
     const folderFiles = files.filter(f => f.folderId === folderId);
-    
+
     await processSequentially(folderFiles.map(f => f.id), async (fileId) => {
       const targetFile = files.find(f => f.id === fileId);
       if (targetFile) {
         await removeFilePayload(targetFile);
       }
     }, onProgress);
-    
-    set((state) => {
-      const updatedFiles = state.files.filter(f => f.folderId !== folderId);
-      const updatedFolders = state.folders.filter(f => f.id !== folderId);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(updatedFolders)).catch(e => console.error(e));
-      return { files: updatedFiles, folders: updatedFolders };
-    });
+
+    await commitVaultState(set, (state) => ({
+      files: state.files.filter(f => f.folderId !== folderId),
+      folders: state.folders.filter(f => f.id !== folderId),
+    }));
   },
   exportFolderFiles: async (folderId) => {
     const { files } = get();
     const folderFiles = files.filter(f => f.folderId === folderId && !f.isTrash);
     const exportedPaths: string[] = [];
-    
+
     for (const file of folderFiles) {
       try {
         let path = file.localPath;
@@ -419,45 +447,58 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const passwordExists = useSettingsStore.getState().accessKeys.some((p) => p.id === passwordId);
     if (!passwordExists) return;
 
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f)
+    }));
   },
   assignFileAccessKey: async (fileId, passwordId) => {
     const passwordExists = useSettingsStore.getState().accessKeys.some((p) => p.id === passwordId);
     if (!passwordExists) return;
 
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: true, accessKeyId: passwordId } : f)
+    }));
   },
   removeFolderAccessKey: async (folderId) => {
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f)
+    }));
   },
   removeFileAccessKey: async (fileId) => {
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f)
+    }));
   },
   assignFolderEncryptionKey: async (folderId, keyId) => {
     const keyExists = useSettingsStore.getState().encryptionKeys.some((k: EncryptionKeyMetadata) => k.id === keyId);
     if (!keyExists) return;
 
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, isEncrypted: true, encryptionKeyId: keyId } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    // I-9: previously this only flipped the folder's own metadata flags —
+    // files already inside the folder kept whatever encryption state they
+    // had, so a folder's 🔐 badge could misrepresent its contents. Cascade
+    // real encryption to every non-trashed file in the folder, the same
+    // way removeFolderEncryptionKey already cascades decryption.
+    const { files } = get();
+    const folderFiles = files.filter(f => f.folderId === folderId && !f.isTrash);
+    const newPaths = new Map<string, string>();
+
+    for (const file of folderFiles) {
+      try {
+        const nextPath = await encryptFileWithKey(file, keyId);
+        if (nextPath) newPaths.set(file.id, nextPath);
+      } catch (err) {
+        console.error(`Failed to encrypt file ${file.id} while assigning folder encryption key:`, err);
+      }
+    }
+
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, isEncrypted: true, encryptionKeyId: keyId } : f),
+      files: state.files.map(f => {
+        if (f.folderId !== folderId || f.isTrash) return f;
+        const nextPath = newPaths.get(f.id);
+        return { ...f, isEncrypted: true, encryptionKeyId: keyId, localPath: nextPath ?? f.localPath };
+      }),
+    }));
   },
   assignFileEncryptionKey: async (fileId, keyId) => {
     const keyExists = useSettingsStore.getState().encryptionKeys.some((k: EncryptionKeyMetadata) => k.id === keyId);
@@ -469,14 +510,12 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       nextLocalPath = await encryptFileWithKey(currentFile, keyId);
     }
 
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, isEncrypted: true, encryptionKeyId: keyId, localPath: nextLocalPath ?? f.localPath } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, isEncrypted: true, encryptionKeyId: keyId, localPath: nextLocalPath ?? f.localPath } : f)
+    }));
   },
   removeFolderEncryptionKey: async (folderId) => {
-    const { files, folders } = get();
+    const { files } = get();
     const folderFiles = files.filter(f => f.folderId === folderId && f.isEncrypted);
     const decryptedPaths: { fileId: string; decryptedPath: string }[] = [];
 
@@ -492,7 +531,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     }
 
-    set((state) => {
+    await commitVaultState(set, (state) => {
       const updatedFiles = state.files.map(f => {
         const decrypted = decryptedPaths.find(d => d.fileId === f.id);
         if (decrypted) {
@@ -506,8 +545,6 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       const updatedFolders = state.folders.map(f =>
         f.id === folderId ? { ...f, isEncrypted: false, encryptionKeyId: undefined } : f
       );
-      AsyncStorage.setItem('@vault_files', JSON.stringify(updatedFiles)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(updatedFolders)).catch(e => console.error(e));
       return { files: updatedFiles, folders: updatedFolders };
     });
 
@@ -525,18 +562,22 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     }
 
-    set((state) => {
-      const files = state.files.map(f => f.id === fileId ? { ...f, isEncrypted: false, encryptionKeyId: undefined, localPath: decryptedPath ?? f.localPath } : f);
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { files };
-    });
+    await commitVaultState(set, (state) => ({
+      files: state.files.map(f => f.id === fileId ? { ...f, isEncrypted: false, encryptionKeyId: undefined, localPath: decryptedPath ?? f.localPath } : f)
+    }));
   },
   toggleFolderEncryption: async (folderId) => {
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, isEncrypted: Boolean(f.encryptionKeyId) } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    // I-10: previously recomputed `isEncrypted` as `Boolean(encryptionKeyId)`
+    // — a deterministic function of state that can't be "toggled", not an
+    // actual flip. Now genuinely alternates the flag when a key is present
+    // (and can't be turned on without one).
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => {
+        if (f.id !== folderId) return f;
+        if (!f.encryptionKeyId) return { ...f, isEncrypted: false };
+        return { ...f, isEncrypted: !f.isEncrypted };
+      })
+    }));
   },
   createPersonalFavoritesFolder: async (name) => {
     let folderName = name?.trim() || 'New Folder';
@@ -556,20 +597,14 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       isPersonalFavoritesFolder: true,
       createdAt: Date.now()
     };
-    set((state) => {
-      const folders = [...state.folders, newFolder];
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({ folders: [...state.folders, newFolder] }));
   },
   addToPersonalFavoritesFolder: async (folderId) => {
     const pf = get().folders.find(f => f.isPersonalFavoritesFolder);
     if (!pf) return;
-    set((state) => {
-      const folders = state.folders.map(f => f.id === folderId ? { ...f, parentId: pf.id, isFavorite: true } : f);
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      return { folders };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.map(f => f.id === folderId ? { ...f, parentId: pf.id, isFavorite: true } : f)
+    }));
   },
   shredMultipleFolders: async (folderIds) => {
     const { files } = get();
@@ -579,14 +614,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       await removeFilePayload(file);
     }
 
-    set((state) => {
-      const remainingFolders = state.folders.filter(f => !folderIds.includes(f.id));
-      const remainingFiles = state.files.filter(f => !folderIds.includes(f.folderId));
-      
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(remainingFolders)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(remainingFiles)).catch(e => console.error(e));
-      return { folders: remainingFolders, files: remainingFiles };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: state.folders.filter(f => !folderIds.includes(f.id)),
+      files: state.files.filter(f => !folderIds.includes(f.folderId)),
+    }));
   },
 
   getFolderDescendants: (folderId: string): FolderMetadata[] => {
@@ -674,9 +705,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const { undoInfo } = get();
     if (!undoInfo) return;
 
-    const { folders, files } = get();
-
-    set((state) => {
+    await commitVaultState(set, (state) => {
       const restoredFolders = state.folders.map(f => {
         const undoFolder = undoInfo.folders.find(u => u.id === f.id);
         if (undoFolder) {
@@ -693,11 +722,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         return f;
       });
 
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(restoredFolders)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(restoredFiles)).catch(e => console.error(e));
-
-      return { folders: restoredFolders, files: restoredFiles, undoInfo: null };
+      return { folders: restoredFolders, files: restoredFiles };
     });
+    set({ undoInfo: null });
 
     get().clearClipboard();
   },
@@ -811,13 +838,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         }
 
         // Batch write to storage
-        set((state) => {
-          const folders = [...state.folders, ...newFolders];
-          const files = [...state.files, ...newFiles];
-          AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-          AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-          return { folders, files };
-        });
+        await commitVaultState(set, (state) => ({
+          folders: [...state.folders, ...newFolders],
+          files: [...state.files, ...newFiles],
+        }));
 
       } else if (clipboard.mode === 'cut') {
         const undoFolders = clipboard.folderIds.map(id => {
@@ -907,7 +931,8 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       return name;
     };
 
-    await get().copyFileToFolder(file, file.folderId, uniqueName);
+    const copied = await get().copyFileToFolder(file, file.folderId, uniqueName);
+    await commitVaultState(set, (state) => ({ files: [...state.files, copied] }));
   },
 
   duplicateFolder: async (folderId: string) => {
@@ -979,12 +1004,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
     await createFolderCopy(folder, parentId);
 
-    set((state) => {
-      const folders = [...state.folders, ...newFolders];
-      const files = [...state.files, ...newFiles];
-      AsyncStorage.setItem('@vault_folders', JSON.stringify(folders)).catch(e => console.error(e));
-      AsyncStorage.setItem('@vault_files', JSON.stringify(files)).catch(e => console.error(e));
-      return { folders, files };
-    });
+    await commitVaultState(set, (state) => ({
+      folders: [...state.folders, ...newFolders],
+      files: [...state.files, ...newFiles],
+    }));
   },
 }));

@@ -4,7 +4,8 @@ import { useMemo, useRef, useState } from 'react';
 import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useAuthStore } from '../../store/authStore';
+import { PIN_LOCKOUT_KEY, useAuthStore } from '../../store/authStore';
+import { useLockoutStore } from '../../store/lockoutStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { PIN_MIN_LENGTH, validatePin } from '../../utils/accessKeyValidation';
 
@@ -89,6 +90,23 @@ export default function LoginScreen() {
     const pinValidation = validatePin(pinValue);
     if (!pinValidation.valid) {
       if (!silent) Alert.alert('Invalid PIN', pinValidation.message);
+      if (isCalc) {
+        setInputBuffer('');
+        setCalcExpression('');
+        setCalcMainDisplay('0');
+        setCalcHistory('');
+        setIsSecondMode(false);
+      } else {
+        setPin('');
+      }
+      return;
+    }
+
+    // S-1: surface a specific lockout message instead of a generic "Access
+    // Denied" — authenticate() still enforces the lockout itself either way.
+    if (useLockoutStore.getState().isLockedOut(PIN_LOCKOUT_KEY)) {
+      const remaining = useLockoutStore.getState().getRemainingLockoutTime(PIN_LOCKOUT_KEY);
+      if (!silent) Alert.alert('Too Many Attempts', `Try again in ${remaining}s.`);
       if (isCalc) {
         setInputBuffer('');
         setCalcExpression('');

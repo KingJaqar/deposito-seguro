@@ -44,13 +44,20 @@ export class StorageService {
 
   }
 
+  /**
+   * Real AES-256-CBC + HMAC-SHA256 (Encrypt-then-MAC) file encryption — see
+   * src/security/crypto.ts. Replaces the previous single-byte-repeating-key
+   * XOR cipher (Finding S-3). Output is base64/`.` only, so it's safe to
+   * write as UTF8 text (the old XOR-over-base64 approach could produce
+   * invalid UTF8 byte sequences and silently corrupt data).
+   */
   static async encryptSandboxFile(localPath: string, encryptionKey?: string): Promise<string> {
     if (Platform.OS === 'web') {
       return localPath;
     }
     const fileData = await FileSystem.readAsStringAsync(localPath, { encoding: FileSystem.EncodingType.Base64 });
     const transformed = encryptionKey
-      ? SecureCrypto.xorTransform(fileData, encryptionKey)
+      ? await SecureCrypto.encrypt(fileData, encryptionKey)
       : fileData.split('').reverse().join('');
     const encryptedPath = `${localPath}.enc`;
     await FileSystem.writeAsStringAsync(encryptedPath, transformed, { encoding: FileSystem.EncodingType.UTF8 });
@@ -64,9 +71,11 @@ export class StorageService {
     }
     const targetRaw = await FileSystem.readAsStringAsync(encryptedPath, { encoding: FileSystem.EncodingType.UTF8 });
     const inverted = encryptionKey
-      ? SecureCrypto.xorTransform(targetRaw, encryptionKey)
+      ? await SecureCrypto.decrypt(targetRaw, encryptionKey)
       : targetRaw.split('').reverse().join('');
-    const originalPath = encryptedPath.replace('.enc', '');
+    // Suffix-anchored (not `.replace('.enc', '')`, which could match an
+    // earlier occurrence of the substring ".enc" inside the filename itself).
+    const originalPath = encryptedPath.endsWith('.enc') ? encryptedPath.slice(0, -4) : encryptedPath;
     await FileSystem.writeAsStringAsync(originalPath, inverted, { encoding: FileSystem.EncodingType.Base64 });
     return originalPath;
   }

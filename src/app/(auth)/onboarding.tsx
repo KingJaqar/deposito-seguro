@@ -15,7 +15,7 @@ export default function OnboardingScreen() {
   useEffect(() => {
     let mounted = true;
     const timer = setTimeout(() => {
-      if (mounted && isLoading) {
+      if (mounted && useAuthStore.getState().isLoading) {
         setSetupTimedOut(true);
       }
     }, 8000);
@@ -26,7 +26,7 @@ export default function OnboardingScreen() {
       mounted = false;
       clearTimeout(timer);
     };
-  }, [checkSetup, isLoading]);
+  }, [checkSetup]);
 
   useEffect(() => {
     if (!isLoading && isConfigured && isAuthenticated) {

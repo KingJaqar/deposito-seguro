@@ -4,10 +4,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import * as Sharing from 'expo-sharing';
+import JSZip from 'jszip';
 import { Platform } from 'react-native';
+import { SecureCrypto } from '../security/crypto';
 import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
-import { FileMetadata, FolderMetadata } from '../types';
+import { AccessKeyMetadata, EncryptionKeyMetadata, FileMetadata, FolderMetadata } from '../types';
 
 export interface BackupManifest {
   version: string;
@@ -30,6 +32,19 @@ export interface BackupManifest {
     encryptedFiles: number;
     totalSize: number;
   };
+  /**
+   * Phase 3 — full portable backup (plans/deposito-seguro-audit-report.md
+   * §20): the real access-key/encryption-key SECRET values (not just their
+   * ids, as before), AES-256-CBC+HMAC-encrypted under a key derived (PBKDF2)
+   * from a user-supplied backup passphrase. Absent when the user chose not
+   * to set a backup passphrase — in that case, protected content still
+   * won't be decryptable after a restore onto a device that doesn't already
+   * have the same keys in SecureStore (same limitation the app always had).
+   */
+  keyMaterial?: {
+    salt: string;
+    ciphertext: string;
+  };
 }
 
 export interface BackupResult {
@@ -50,6 +65,8 @@ export interface RestoreResult {
   restoredFiles?: number;
   restoredFolders?: number;
   error?: string;
+  /** True if the manifest carried encrypted key material but no/incorrect passphrase was supplied to unlock it. */
+  needsPassphrase?: boolean;
 }
 
 export interface BackupEstimate {
@@ -58,19 +75,31 @@ export interface BackupEstimate {
   estimatedZipSize: number;
 }
 
+/** A folder handle returned by pickBackupFolder(): either an Android SAF directory URI, or a plain iOS sandbox path. */
+export interface BackupFolderHandle {
+  uri: string;
+  isSAF: boolean;
+  /** Human-readable label for UI display (SAF URIs are not user-friendly). */
+  label: string;
+}
+
 export class EnhancedBackupService {
   private static readonly BACKUP_FOLDER_NAME = 'Deposito Seguro Backup Files';
   private static readonly BACKUP_PREFIX = 'DepoS_Backup_';
   private static readonly BACKUP_EXTENSION = '.zip';
   private static readonly MANIFEST_FILENAME = 'manifest.json';
-  private static readonly BACKUP_VERSION = '1.0.0';
-  
+  private static readonly BACKUP_VERSION = '2.0.0';
+
   private static backupPermissionGranted: boolean | null = null;
-  private static backupFolderUri: string | null = null;
 
   // Step 1: Request Permissions
   static async requestStoragePermission(): Promise<boolean> {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || Platform.OS === 'ios') {
+      // iOS backups stay inside the app sandbox (Documents dir) — no OS
+      // permission is needed there. Android's SAF folder picker itself is
+      // the permission grant (requestDirectoryPermissionsAsync), so this
+      // legacy MediaLibrary permission is only relevant as a pre-flight
+      // check before showing the picker.
       return true;
     }
 
@@ -79,97 +108,52 @@ export class EnhancedBackupService {
     }
 
     try {
-      if (Platform.OS === 'android') {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        this.backupPermissionGranted = status === 'granted';
-      } else {
-        // iOS doesn't need special permissions for app sandbox
-        this.backupPermissionGranted = true;
-      }
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      this.backupPermissionGranted = status === 'granted';
     } catch (e) {
-      console.warn('Permission request failed, granting default access', e);
-      this.backupPermissionGranted = true;
+      // S-10: fail closed, not open — an unexpected error negotiating
+      // permission is a denial, not an authorization.
+      console.warn('Permission request failed, denying access by default', e);
+      this.backupPermissionGranted = false;
     }
 
     return this.backupPermissionGranted;
   }
 
-  // Step 2: Launch folder picker (Android) or use default location (iOS)
-  static async pickBackupFolder(): Promise<string | null> {
+  /**
+   * Real folder picker (I-3 remediation). Android: uses the Storage Access
+   * Framework so the user picks an actual OS folder outside the app
+   * sandbox — the previous `pickBackupFolder` used `DocumentPicker` (a
+   * *file* picker) and treated the chosen file's URI as if it were a
+   * folder, which does not work. iOS has no equivalent (apps can't write
+   * to arbitrary OS folders outside their sandbox), so it keeps using a
+   * folder inside the app's Documents directory, same as before.
+   */
+  static async pickBackupFolder(): Promise<BackupFolderHandle | null> {
     try {
       if (Platform.OS === 'android') {
-        const result = await DocumentPicker.getDocumentAsync({
-          type: '*/*',
-          copyToCacheDirectory: false,
-          multiple: false,
-        });
-
-        if (result.canceled || !result.assets || result.assets.length === 0) {
-          return null;
-        }
-
-        const folderUri = result.assets[0].uri;
-        this.backupFolderUri = folderUri;
-        return folderUri;
-      } else {
-        // iOS: Use app's documents directory
-        const documentsDir = FileSystem.documentDirectory;
-        if (!documentsDir) return null;
-
-        const backupFolderPath = `${documentsDir}${this.BACKUP_FOLDER_NAME}/`;
-        
-        const dirInfo = await FileSystem.getInfoAsync(backupFolderPath);
-        if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(backupFolderPath, { intermediates: true });
-        }
-
-        this.backupFolderUri = backupFolderPath;
-        return backupFolderPath;
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted) return null;
+        return { uri: permissions.directoryUri, isSAF: true, label: 'Selected folder' };
       }
+
+      // iOS: sandboxed Documents directory.
+      const documentsDir = FileSystem.documentDirectory;
+      if (!documentsDir) return null;
+      const backupFolderPath = `${documentsDir}${this.BACKUP_FOLDER_NAME}/`;
+      const dirInfo = await FileSystem.getInfoAsync(backupFolderPath);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(backupFolderPath, { intermediates: true });
+      }
+      return { uri: backupFolderPath, isSAF: false, label: this.BACKUP_FOLDER_NAME };
     } catch (e) {
       console.error('Failed to pick backup folder', e);
       return null;
     }
   }
 
-  // Step 3: Ensure backup folder exists
-  static async ensureBackupFolder(basePath: string): Promise<string> {
-    const backupFolderPath = `${basePath}${this.BACKUP_FOLDER_NAME}/`;
-    
-    try {
-      const dirInfo = await FileSystem.getInfoAsync(backupFolderPath);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(backupFolderPath, { intermediates: true });
-      }
-      return backupFolderPath;
-    } catch (e) {
-      throw new Error(`Failed to create backup folder: ${e}`);
-    }
-  }
-
-  // Step 4: Get next sequential backup filename
-  static async getNextBackupFilename(backupFolderPath: string): Promise<string> {
-    try {
-      const files = await FileSystem.readDirectoryAsync(backupFolderPath);
-      const backupFiles = files
-        .filter(f => f.startsWith(this.BACKUP_PREFIX) && f.endsWith(this.BACKUP_EXTENSION))
-        .map(f => {
-          const match = f.match(/DepoS_Backup_(\d+)\.zip/);
-          return match ? parseInt(match[1], 10) : 0;
-        })
-        .filter(n => !isNaN(n));
-
-      const nextNum = backupFiles.length > 0 ? Math.max(...backupFiles) + 1 : 1;
-      const formattedNum = String(nextNum).padStart(3, '0');
-      return `${this.BACKUP_PREFIX}${formattedNum}${this.BACKUP_EXTENSION}`;
-    } catch (e) {
-      // If directory reading fails, start from 001
-      return `${this.BACKUP_PREFIX}001${this.BACKUP_EXTENSION}`;
-    }
-  }
-
-  // Step 5: Create backup manifest
-  static async createBackupManifest(): Promise<BackupManifest> {
+  // Create backup manifest, optionally including encrypted key material.
+  static async createBackupManifest(backupPassphrase?: string): Promise<BackupManifest> {
     const vaultState = useVaultStore.getState();
     const settingsState = useSettingsStore.getState();
 
@@ -177,6 +161,19 @@ export class EnhancedBackupService {
     const files = vaultState.files || [];
     const encryptedFiles = files.filter(f => f.isEncrypted).length;
     const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+
+    let keyMaterial: BackupManifest['keyMaterial'];
+    if (backupPassphrase?.trim()) {
+      const salt = await SecureCrypto.generateSaltAsync();
+      const derivedKey = await SecureCrypto.hashPassword(backupPassphrase.trim(), salt);
+      const payload: { accessKeys: AccessKeyMetadata[]; encryptionKeys: EncryptionKeyMetadata[] } = {
+        accessKeys: settingsState.accessKeys,
+        encryptionKeys: settingsState.encryptionKeys,
+      };
+      const payloadBase64 = SecureCrypto.utf8ToBase64(JSON.stringify(payload));
+      const ciphertext = await SecureCrypto.encrypt(payloadBase64, derivedKey);
+      keyMaterial = { salt, ciphertext };
+    }
 
     return {
       version: this.BACKUP_VERSION,
@@ -190,7 +187,7 @@ export class EnhancedBackupService {
           color: f.color,
           icon: f.icon,
           isEncrypted: f.isEncrypted,
-          encryptionKeyId: f.encryptionKeyId, // Metadata only, not the key itself
+          encryptionKeyId: f.encryptionKeyId,
           hasAccessKey: f.hasAccessKey,
           accessKeyId: f.accessKeyId,
           isFavorite: f.isFavorite,
@@ -206,7 +203,7 @@ export class EnhancedBackupService {
           mimeType: f.mimeType,
           localPath: f.localPath,
           isEncrypted: f.isEncrypted,
-          encryptionKeyId: f.encryptionKeyId, // Metadata only
+          encryptionKeyId: f.encryptionKeyId,
           hasAccessKey: f.hasAccessKey,
           accessKeyId: f.accessKeyId,
           isFavorite: f.isFavorite,
@@ -227,268 +224,8 @@ export class EnhancedBackupService {
         encryptedFiles,
         totalSize,
       },
+      keyMaterial,
     };
-  }
-
-  // Step 6: Create temporary backup directory
-  static async createTempBackupDir(): Promise<string> {
-    const tempDir = `${FileSystem.cacheDirectory}backup_temp_${Date.now()}/`;
-    await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
-    return tempDir;
-  }
-
-  // Step 7: Copy vault files to temp directory
-  static async copyVaultFilesToTemp(tempDir: string, onProgress?: (current: number, total: number) => void): Promise<void> {
-    const vaultState = useVaultStore.getState();
-    const files = vaultState.files || [];
-    const nonTrashFiles = files.filter(f => !f.isTrash);
-
-    // Create files directory
-    const filesDir = `${tempDir}files/`;
-    await FileSystem.makeDirectoryAsync(filesDir, { intermediates: true });
-
-    // Copy each file
-    for (let i = 0; i < nonTrashFiles.length; i++) {
-      const file = nonTrashFiles[i];
-      if (file.localPath) {
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(file.localPath);
-          if (fileInfo.exists) {
-            const destPath = `${filesDir}${file.id}_${file.name}`;
-            await FileSystem.copyAsync({ from: file.localPath, to: destPath });
-          }
-        } catch (e) {
-          console.warn(`Failed to copy file ${file.id}:`, e);
-        }
-      }
-      onProgress?.(i + 1, nonTrashFiles.length);
-    }
-  }
-
-  // Step 8: Write manifest to temp directory
-  static async writeManifestToTemp(tempDir: string, manifest: BackupManifest): Promise<void> {
-    const manifestPath = `${tempDir}${this.MANIFEST_FILENAME}`;
-    await FileSystem.writeAsStringAsync(manifestPath, JSON.stringify(manifest, null, 2), {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-  }
-
-  // Step 9: Create ZIP archive (using manual implementation since react-native-zip-archive may not be available)
-  static async createZipArchive(tempDir: string, outputPath: string, onProgress?: (progress: number) => void): Promise<void> {
-    // For now, we'll create a simple archive by copying files
-    // In production with EAS, you would use react-native-zip-archive
-    
-    // Since we can't use native zip in Expo Go, we'll create a backup package
-    // that can be restored by copying files back
-    
-    // Create a simple package structure
-    const packageDir = outputPath.replace('.zip', '_package');
-    
-    // Clean up any existing package directory at this path
-    try {
-      const existingInfo = await FileSystem.getInfoAsync(packageDir);
-      if (existingInfo.exists) {
-        await FileSystem.deleteAsync(packageDir, { idempotent: true });
-      }
-    } catch (e) {
-      // Ignore cleanup errors
-    }
-    
-    await FileSystem.makeDirectoryAsync(packageDir, { intermediates: true });
-    
-    // Copy all temp contents to package
-    const tempContents = await FileSystem.readDirectoryAsync(tempDir);
-    const totalItems = tempContents.length;
-    
-    for (let idx = 0; idx < totalItems; idx++) {
-      const item = tempContents[idx];
-      const sourcePath = `${tempDir}${item}`;
-      const destPath = `${packageDir}/${item}`;
-      
-      const isDir = item === 'files';
-      if (isDir) {
-        await FileSystem.makeDirectoryAsync(destPath, { intermediates: true });
-        const fileContents = await FileSystem.readDirectoryAsync(`${tempDir}files/`);
-        const totalFiles = fileContents.length;
-        
-        for (let fileIdx = 0; fileIdx < totalFiles; fileIdx++) {
-          const file = fileContents[fileIdx];
-          await FileSystem.copyAsync({
-            from: `${tempDir}files/${file}`,
-            to: `${destPath}/${file}`
-          });
-          // Update progress for file copying (50% of archive step)
-          const fileProgress = ((fileIdx + 1) / totalFiles) * 100;
-          onProgress?.(fileProgress);
-        }
-      } else {
-        await FileSystem.copyAsync({ from: sourcePath, to: destPath });
-      }
-    }
-    
-    // Rename package to .zip extension for consistency
-    await FileSystem.moveAsync({ from: packageDir, to: outputPath });
-    onProgress?.(100);
-  }
-
-  // Step 10: Validate backup
-  static async validateBackup(backupPath: string): Promise<{
-    zipExists: boolean;
-    sizeGreaterThanZero: boolean;
-    manifestExists: boolean;
-  }> {
-    try {
-      const fileInfo = await FileSystem.getInfoAsync(backupPath);
-      const zipExists = fileInfo.exists;
-      const sizeGreaterThanZero = fileInfo.exists && (fileInfo.size || 0) > 0;
-
-      // Check if manifest exists (for package format, check inside)
-      let manifestExists = false;
-      if (zipExists) {
-        // For package format, check if manifest.json exists in the package
-        const packagePath = backupPath.replace('.zip', '_package');
-        const manifestPath = `${packagePath}/${this.MANIFEST_FILENAME}`;
-        const manifestInfo = await FileSystem.getInfoAsync(manifestPath);
-        manifestExists = manifestInfo.exists;
-      }
-
-      return {
-        zipExists,
-        sizeGreaterThanZero,
-        manifestExists,
-      };
-    } catch (e) {
-      return {
-        zipExists: false,
-        sizeGreaterThanZero: false,
-        manifestExists: false,
-      };
-    }
-  }
-
-  // Step 11: Clean up temporary files
-  static async cleanupTempFiles(tempDir: string): Promise<void> {
-    try {
-      await FileSystem.deleteAsync(tempDir, { idempotent: true });
-    } catch (e) {
-      console.warn('Failed to cleanup temp files:', e);
-    }
-  }
-
-  // Step 12: Share backup with user
-  static async shareBackup(backupPath: string): Promise<void> {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(backupPath);
-    }
-  }
-
-  // Main backup function
-  static async createBackup(
-    onProgress?: (message: string, progress: number) => void
-  ): Promise<BackupResult> {
-    let tempDir = '';
-    let backupPath = '';
-
-    try {
-      // Step 1: Request permissions
-      onProgress?.('Requesting storage permissions...', 0);
-      const hasPermission = await this.requestStoragePermission();
-      if (!hasPermission) {
-        return {
-          success: false,
-          error: 'Storage permission denied',
-        };
-      }
-
-      // Step 2: Pick backup folder
-      onProgress?.('Selecting backup destination...', 5);
-      let basePath = await this.pickBackupFolder();
-      if (!basePath) {
-        return {
-          success: false,
-          error: 'Backup folder selection cancelled',
-        };
-      }
-
-      // Step 3: Ensure backup folder exists
-      onProgress?.('Preparing backup folder...', 10);
-      const backupFolderPath = await this.ensureBackupFolder(basePath);
-
-      // Step 4: Get next backup filename
-      const backupFilename = await this.getNextBackupFilename(backupFolderPath);
-      backupPath = `${backupFolderPath}${backupFilename}`;
-
-      // Step 5: Create manifest
-      onProgress?.('Creating backup manifest...', 15);
-      const manifest = await this.createBackupManifest();
-
-      // Step 6: Create temp directory
-      tempDir = await this.createTempBackupDir();
-
-      // Step 7: Copy vault files
-      onProgress?.('Copying vault files...', 20);
-      await this.copyVaultFilesToTemp(tempDir, (current, total) => {
-        const progress = 20 + (current / total) * 40;
-        onProgress?.(`Copying files: ${current}/${total}`, progress);
-      });
-
-      // Step 8: Write manifest
-      onProgress?.('Writing manifest...', 65);
-      await this.writeManifestToTemp(tempDir, manifest);
-
-      // Step 9: Create archive
-      onProgress?.('Creating backup archive...', 70);
-      await this.createZipArchive(tempDir, backupPath, (progress) => {
-        onProgress?.('Creating archive...', 70 + (progress * 0.25));
-      });
-
-      // Step 10: Validate backup
-      onProgress?.('Validating backup...', 95);
-      const validation = await this.validateBackup(backupPath);
-
-      if (!validation.zipExists || !validation.sizeGreaterThanZero || !validation.manifestExists) {
-        // Cleanup failed backup
-        await FileSystem.deleteAsync(backupPath, { idempotent: true });
-        return {
-          success: false,
-          error: 'Backup validation failed',
-          validation,
-        };
-      }
-
-      // Step 11: Cleanup
-      await this.cleanupTempFiles(tempDir);
-
-      // Step 12: Share backup
-      onProgress?.('Backup complete! Sharing...', 100);
-      await this.shareBackup(backupPath);
-
-      const fileInfo = await FileSystem.getInfoAsync(backupPath);
-      const fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
-
-      return {
-        success: true,
-        backupPath,
-        backupName: backupFilename,
-        fileSize,
-        validation,
-      };
-    } catch (e: any) {
-      // Cleanup on error
-      if (tempDir) {
-        await this.cleanupTempFiles(tempDir);
-      }
-      if (backupPath) {
-        await FileSystem.deleteAsync(backupPath, { idempotent: true });
-      }
-
-      // Log full error for debugging but return sanitized message to user
-      console.error('Backup failed:', e);
-      return {
-        success: false,
-        error: 'Backup operation failed. Please try again.',
-      };
-    }
   }
 
   // Calculate estimated backup size without creating the backup
@@ -499,249 +236,262 @@ export class EnhancedBackupService {
 
     const totalFiles = nonTrashFiles.length;
     const totalSize = nonTrashFiles.reduce((sum, f) => sum + (f.size || 0), 0);
-    
-    // Estimate ZIP compression (typically 10-30% reduction for encrypted files)
-    // Encrypted files don't compress well, so estimate ~95% of original size
-    const estimatedZipSize = Math.round(totalSize * 0.95);
+    // Real DEFLATE compression on already-mixed (often already-encrypted,
+    // low-compressibility) content — still just an estimate shown before
+    // the real archive is built.
+    const estimatedZipSize = Math.round(totalSize * 0.9);
 
-    return {
-      totalFiles,
-      totalSize,
-      estimatedZipSize,
-    };
+    return { totalFiles, totalSize, estimatedZipSize };
   }
 
-  // Create backup in a pre-selected folder (used after folder picker confirmation)
+  /**
+   * Builds a real ZIP archive (I-3 remediation — the previous
+   * `createZipArchive` just renamed a plain directory to `.zip`, which no
+   * standard tool could open) directly from live vault state, and writes it
+   * to `folder` (an Android SAF directory or an iOS sandbox path from
+   * `pickBackupFolder`). Returns the resulting file's URI.
+   */
+  static async buildAndWriteZip(
+    folder: BackupFolderHandle,
+    manifest: BackupManifest,
+    onProgress?: (message: string, progress: number) => void
+  ): Promise<string> {
+    const zip = new JSZip();
+    zip.file(this.MANIFEST_FILENAME, JSON.stringify(manifest, null, 2));
+
+    const files = useVaultStore.getState().files.filter(f => !f.isTrash);
+    const filesFolder = zip.folder('files')!;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.localPath) {
+        try {
+          const info = await FileSystem.getInfoAsync(file.localPath);
+          if (info.exists) {
+            const base64 = await FileSystem.readAsStringAsync(file.localPath, { encoding: FileSystem.EncodingType.Base64 });
+            const basename = file.localPath.split('/').pop()!;
+            filesFolder.file(basename, base64, { base64: true });
+          }
+        } catch (e) {
+          console.warn(`Failed to add file ${file.id} to backup archive:`, e);
+        }
+      }
+      onProgress?.(`Compressing files: ${i + 1}/${files.length}`, 20 + ((i + 1) / Math.max(files.length, 1)) * 50);
+    }
+
+    onProgress?.('Building archive...', 75);
+    const zipBase64 = await zip.generateAsync(
+      { type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (metadata) => onProgress?.('Compressing archive...', 75 + metadata.percent * 0.15)
+    );
+
+    const filename = `${this.BACKUP_PREFIX}${new Date().toISOString().replace(/[:.]/g, '-')}${this.BACKUP_EXTENSION}`;
+
+    onProgress?.('Writing backup file...', 92);
+    let fileUri: string;
+    if (folder.isSAF) {
+      fileUri = await FileSystem.StorageAccessFramework.createFileAsync(folder.uri, filename, 'application/zip');
+    } else {
+      fileUri = `${folder.uri}${filename}`;
+    }
+    await FileSystem.writeAsStringAsync(fileUri, zipBase64, { encoding: FileSystem.EncodingType.Base64 });
+
+    return fileUri;
+  }
+
+  static async validateBackup(backupUri: string): Promise<{ zipExists: boolean; sizeGreaterThanZero: boolean; manifestExists: boolean }> {
+    try {
+      const info = await FileSystem.getInfoAsync(backupUri);
+      const zipExists = info.exists;
+      const sizeGreaterThanZero = info.exists && 'size' in info && (info.size || 0) > 0;
+
+      let manifestExists = false;
+      if (zipExists) {
+        const base64 = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
+        const zip = await JSZip.loadAsync(base64, { base64: true });
+        manifestExists = !!zip.file(this.MANIFEST_FILENAME);
+      }
+
+      return { zipExists, sizeGreaterThanZero, manifestExists };
+    } catch {
+      return { zipExists: false, sizeGreaterThanZero: false, manifestExists: false };
+    }
+  }
+
+  static async shareBackup(backupPath: string): Promise<void> {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(backupPath);
+    }
+  }
+
+  /**
+   * Creates a backup in `folder` (from `pickBackupFolder()`), optionally
+   * protecting exported access/encryption key secrets under
+   * `backupPassphrase` (Phase 3 — full portable backup).
+   */
   static async createBackupInFolder(
-    folderPath: string,
+    folder: BackupFolderHandle,
+    backupPassphrase: string | undefined,
     onProgress?: (message: string, progress: number) => void
   ): Promise<BackupResult> {
-    let tempDir = '';
-    let backupPath = '';
-
     try {
-      // Step 1: Request permissions
       onProgress?.('Requesting storage permissions...', 0);
       const hasPermission = await this.requestStoragePermission();
       if (!hasPermission) {
-        return {
-          success: false,
-          error: 'Storage permission denied',
-        };
+        return { success: false, error: 'Storage permission denied' };
       }
 
-      // Step 2: Ensure backup folder exists
-      onProgress?.('Preparing backup folder...', 5);
-      const backupFolderPath = await this.ensureBackupFolder(folderPath);
+      onProgress?.('Creating backup manifest...', 5);
+      const manifest = await this.createBackupManifest(backupPassphrase);
 
-      // Step 3: Get next backup filename
-      const backupFilename = await this.getNextBackupFilename(backupFolderPath);
-      backupPath = `${backupFolderPath}${backupFilename}`;
+      onProgress?.('Compressing vault contents...', 15);
+      const backupUri = await this.buildAndWriteZip(folder, manifest, onProgress);
 
-      // Step 4: Create manifest
-      onProgress?.('Creating backup manifest...', 10);
-      const manifest = await this.createBackupManifest();
-
-      // Step 5: Create temp directory
-      tempDir = await this.createTempBackupDir();
-
-      // Step 6: Copy vault files
-      onProgress?.('Copying vault files...', 15);
-      await this.copyVaultFilesToTemp(tempDir, (current, total) => {
-        const progress = 15 + (current / total) * 50;
-        onProgress?.(`Copying files: ${current}/${total}`, progress);
-      });
-
-      // Step 7: Write manifest
-      onProgress?.('Writing manifest...', 65);
-      await this.writeManifestToTemp(tempDir, manifest);
-
-      // Step 8: Create archive
-      onProgress?.('Creating backup archive...', 70);
-      await this.createZipArchive(tempDir, backupPath, (progress) => {
-        onProgress?.('Creating archive...', 70 + (progress * 0.25));
-      });
-
-      // Step 9: Validate backup
       onProgress?.('Validating backup...', 95);
-      const validation = await this.validateBackup(backupPath);
-
+      const validation = await this.validateBackup(backupUri);
       if (!validation.zipExists || !validation.sizeGreaterThanZero || !validation.manifestExists) {
-        // Cleanup failed backup
-        await FileSystem.deleteAsync(backupPath, { idempotent: true });
-        return {
-          success: false,
-          error: 'Backup validation failed',
-          validation,
-        };
+        await FileSystem.deleteAsync(backupUri, { idempotent: true }).catch(() => {});
+        return { success: false, error: 'Backup validation failed', validation };
       }
 
-      // Step 10: Cleanup
-      await this.cleanupTempFiles(tempDir);
-
-      // Step 11: Share backup
       onProgress?.('Backup complete! Sharing...', 100);
-      await this.shareBackup(backupPath);
+      await this.shareBackup(backupUri).catch(() => {});
 
-      const fileInfo = await FileSystem.getInfoAsync(backupPath);
+      const fileInfo = await FileSystem.getInfoAsync(backupUri);
       const fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
 
-      return {
-        success: true,
-        backupPath,
-        backupName: backupFilename,
-        fileSize,
-        validation,
-      };
-    } catch (e: any) {
-      // Cleanup on error
-      if (tempDir) {
-        await this.cleanupTempFiles(tempDir);
-      }
-      if (backupPath) {
-        await FileSystem.deleteAsync(backupPath, { idempotent: true });
-      }
-
-      // Log full error for debugging but return sanitized message to user
+      return { success: true, backupPath: backupUri, backupName: backupUri.split('/').pop(), fileSize, validation };
+    } catch (e) {
       console.error('Backup failed:', e);
-      return {
-        success: false,
-        error: 'Backup operation failed. Please try again.',
-      };
+      return { success: false, error: 'Backup operation failed. Please try again.' };
     }
   }
 
-  // Restore backup function
+  /**
+   * Restores a backup produced by createBackupInFolder. If the backup
+   * carries encrypted key material, `backupPassphrase` must be the same
+   * passphrase used to create it — restoring without it (or with the wrong
+   * one) still restores the vault structure/files, but access/encryption
+   * key secrets are not recovered (existing on-device keys, if any, are
+   * left untouched).
+   */
   static async restoreBackup(
     backupUri: string,
+    backupPassphrase: string | undefined,
     onProgress?: (message: string, progress: number) => void
   ): Promise<RestoreResult> {
-    let tempDir = '';
-
     try {
-      onProgress?.('Starting restore process...', 0);
+      onProgress?.('Reading backup archive...', 5);
+      const zipBase64 = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
+      const zip = await JSZip.loadAsync(zipBase64, { base64: true });
 
-      // For package format, we need to extract and restore
-      // This is a simplified version - in production you'd extract the zip
-      
-      onProgress?.('Reading backup manifest...', 20);
-      // Read manifest from backup
-      const packagePath = backupUri.replace('.zip', '_package');
-      const manifestPath = `${packagePath}/${this.MANIFEST_FILENAME}`;
-      
-      // Check if manifest file exists
-      const manifestInfo = await FileSystem.getInfoAsync(manifestPath);
-      if (!manifestInfo.exists) {
-        return {
-          success: false,
-          error: 'Invalid backup: manifest not found',
-        };
+      const manifestEntry = zip.file(this.MANIFEST_FILENAME);
+      if (!manifestEntry) {
+        return { success: false, error: 'Invalid backup: manifest not found' };
       }
-      
-      const manifestContent = await FileSystem.readAsStringAsync(manifestPath, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      
-      // Validate and parse manifest JSON
+      const manifestContent = await manifestEntry.async('string');
+
       let manifest: BackupManifest;
       try {
         manifest = JSON.parse(manifestContent) as BackupManifest;
-        
-        // Validate required fields
-        if (!manifest.vaultStructure || !manifest.vaultStructure.folders || !manifest.vaultStructure.files) {
-          return {
-            success: false,
-            error: 'Invalid backup: corrupted manifest structure',
-          };
+        if (!manifest.vaultStructure?.folders || !manifest.vaultStructure?.files) {
+          return { success: false, error: 'Invalid backup: corrupted manifest structure' };
         }
-      } catch (parseError) {
-        return {
-          success: false,
-          error: 'Invalid backup: corrupted manifest data',
-        };
+      } catch {
+        return { success: false, error: 'Invalid backup: corrupted manifest data' };
       }
 
-      onProgress?.('Restoring vault structure...', 40);
-      // Restore folders
-      const folders = manifest.vaultStructure.folders;
-      await AsyncStorage.setItem('@vault_folders', JSON.stringify(folders));
+      onProgress?.('Restoring files...', 30);
+      const vaultDir = `${FileSystem.documentDirectory}vault_sandbox/`;
+      await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
 
-      // Restore files
-      const files = manifest.vaultStructure.files;
-      await AsyncStorage.setItem('@vault_files', JSON.stringify(files));
+      const fileEntryNames = Object.keys(zip.files).filter(name => name.startsWith('files/') && !zip.files[name].dir);
+      for (let i = 0; i < fileEntryNames.length; i++) {
+        const entryName = fileEntryNames[i];
+        const base64 = await zip.file(entryName)!.async('base64');
+        const destName = entryName.slice('files/'.length);
+        await FileSystem.writeAsStringAsync(`${vaultDir}${destName}`, base64, { encoding: FileSystem.EncodingType.Base64 });
+        onProgress?.(`Restoring file ${i + 1}/${fileEntryNames.length}`, 30 + ((i + 1) / Math.max(fileEntryNames.length, 1)) * 35);
+      }
 
-      onProgress?.('Restoring settings...', 60);
-      // Restore settings (partial - only backup-related settings)
-      const currentSettings = useSettingsStore.getState();
+      // Remap each file's localPath to THIS device's actual sandbox path —
+      // the manifest's stored localPath is the originating device/install's
+      // absolute path, which will not exist here.
+      const remappedFiles = manifest.vaultStructure.files.map(f => {
+        if (!f.localPath) return f;
+        const basename = f.localPath.split('/').pop()!;
+        return { ...f, localPath: `${vaultDir}${basename}` };
+      });
+
+      onProgress?.('Restoring vault structure...', 68);
+      await AsyncStorage.setItem('@vault_folders', JSON.stringify(manifest.vaultStructure.folders));
+      await AsyncStorage.setItem('@vault_files', JSON.stringify(remappedFiles));
+
+      onProgress?.('Restoring settings...', 78);
       await useSettingsStore.getState().updateSetting('encryptionDefault', manifest.settings.encryptionDefault);
       await useSettingsStore.getState().updateSetting('autoLockDuration', manifest.settings.autoLockDuration);
 
-      onProgress?.('Restoring files...', 80);
-      // Copy files from backup to sandbox
-      const backupFilesDir = `${packagePath}/files/`;
-      const vaultDir = `${FileSystem.documentDirectory}vault_sandbox/`;
-      
-      await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-
-      const backupFiles = await FileSystem.readDirectoryAsync(backupFilesDir);
-      for (let i = 0; i < backupFiles.length; i++) {
-        const fileName = backupFiles[i];
-        const sourcePath = `${backupFilesDir}${fileName}`;
-        const destPath = `${vaultDir}${fileName}`;
-        await FileSystem.copyAsync({ from: sourcePath, to: destPath });
-        onProgress?.(`Restoring file ${i + 1}/${backupFiles.length}`, 80 + (i / backupFiles.length) * 15);
+      let needsPassphrase = false;
+      if (manifest.keyMaterial) {
+        if (!backupPassphrase?.trim()) {
+          needsPassphrase = true;
+        } else {
+          onProgress?.('Decrypting access & encryption keys...', 88);
+          try {
+            const derivedKey = await SecureCrypto.hashPassword(backupPassphrase.trim(), manifest.keyMaterial.salt);
+            const payloadBase64 = await SecureCrypto.decrypt(manifest.keyMaterial.ciphertext, derivedKey);
+            const payloadJson = SecureCrypto.base64ToUtf8(payloadBase64);
+            const { accessKeys, encryptionKeys } = JSON.parse(payloadJson) as {
+              accessKeys: AccessKeyMetadata[];
+              encryptionKeys: EncryptionKeyMetadata[];
+            };
+            await useSettingsStore.getState().restoreKeysFromBackup(accessKeys, encryptionKeys);
+          } catch (e) {
+            console.error('Failed to decrypt backup key material (wrong passphrase?)', e);
+            needsPassphrase = true;
+          }
+        }
       }
 
       onProgress?.('Restore complete!', 100);
-
       return {
         success: true,
-        restoredFiles: files.length,
-        restoredFolders: folders.length,
+        restoredFiles: remappedFiles.length,
+        restoredFolders: manifest.vaultStructure.folders.length,
+        needsPassphrase,
       };
-    } catch (e: any) {
-      // Log full error for debugging but return sanitized message to user
+    } catch (e) {
       console.error('Restore failed:', e);
-      if (tempDir) {
-        await this.cleanupTempFiles(tempDir);
-      }
-
-      return {
-        success: false,
-        error: 'Restore operation failed. Please try again.',
-      };
+      return { success: false, error: 'Restore operation failed. Please try again.' };
     }
   }
 
-  // Import backup from file picker
-  static async importBackup(
-    onProgress?: (message: string, progress: number) => void
-  ): Promise<RestoreResult> {
+  /** Lets the user pick a backup file. Kept separate from restoreBackup so the caller can retry with a different passphrase without re-picking the file. */
+  static async pickBackupFile(): Promise<string | null> {
     try {
-      onProgress?.('Select backup file to restore...', 0);
-      
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/zip',
         copyToCacheDirectory: true,
         multiple: false,
       });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return {
-          success: false,
-          error: 'Backup selection cancelled',
-        };
-      }
-
-      const backupUri = result.assets[0].uri;
-      return await this.restoreBackup(backupUri, onProgress);
-    } catch (e: any) {
-      // Log full error for debugging but return sanitized message to user
-      console.error('Import failed:', e);
-      return {
-        success: false,
-        error: 'Import operation failed. Please try again.',
-      };
+      if (result.canceled || !result.assets || result.assets.length === 0) return null;
+      return result.assets[0].uri;
+    } catch (e) {
+      console.error('Failed to pick backup file', e);
+      return null;
     }
+  }
+
+  // Import backup from file picker (one-shot convenience wrapper — no passphrase retry).
+  static async importBackup(
+    backupPassphrase: string | undefined,
+    onProgress?: (message: string, progress: number) => void
+  ): Promise<RestoreResult> {
+    onProgress?.('Select backup file to restore...', 0);
+    const backupUri = await this.pickBackupFile();
+    if (!backupUri) {
+      return { success: false, error: 'Backup selection cancelled' };
+    }
+    return await this.restoreBackup(backupUri, backupPassphrase, onProgress);
   }
 }

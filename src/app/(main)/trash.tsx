@@ -218,11 +218,30 @@ export default function TrashScreen() {
     ]);
   }, [filtered, permanentlyDeleteFiles]);
 
-  const handleRestoreSelected = useCallback(() => {
+  // I-12: restoreFileFromTrash reports when a file's original folder no
+  // longer exists (it lands in an unprotected auto-created "Restored Files"
+  // folder instead) — warn the user rather than silently losing that context.
+  const handleRestore = useCallback(async (fileId: string) => {
+    const { landedInFallbackFolder } = await restoreFileFromTrash(fileId);
+    if (landedInFallbackFolder) {
+      Alert.alert(
+        'Restored to "Restored Files"',
+        'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
+      );
+    }
+  }, [restoreFileFromTrash]);
+
+  const handleRestoreSelected = useCallback(async () => {
     if (selectedIds.length === 0) return;
-    selectedIds.forEach(id => restoreFileFromTrash(id));
+    const results = await Promise.all(selectedIds.map(id => restoreFileFromTrash(id)));
     setSelectedIds([]);
     setSelectionMode(false);
+    if (results.some(r => r.landedInFallbackFolder)) {
+      Alert.alert(
+        'Some Files Restored to "Restored Files"',
+        'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
+      );
+    }
   }, [selectedIds, restoreFileFromTrash, setSelectedIds]);
 
   const handleShredSelected = useCallback(() => {
@@ -316,7 +335,7 @@ export default function TrashScreen() {
             <View style={[styles.rowDivider, { backgroundColor: card.divider }]} />
             <View style={styles.rowActions}>
               <TouchableOpacity
-                onPress={() => restoreFileFromTrash(item.id)}
+                onPress={() => handleRestore(item.id)}
                 activeOpacity={0.8}
                 style={[styles.pillBtn, { backgroundColor: card.restoreBg }]}
               >
@@ -616,7 +635,7 @@ export default function TrashScreen() {
                   onPress={() => {
                     setShowFileMenu(false);
                     if (item.action === 'restore') {
-                      restoreFileFromTrash(targetItem.id);
+                      handleRestore(targetItem.id);
                     } else {
                       handleShred(targetItem.id, targetItem.name);
                     }

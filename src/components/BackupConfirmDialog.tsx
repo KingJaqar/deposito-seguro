@@ -1,13 +1,15 @@
 // File: src/components/BackupConfirmDialog.tsx
-import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { AlertTriangle, X, CheckCircle, HardDrive, Clock, AlertCircle, Info } from 'lucide-react-native';
+import { useState } from 'react';
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { AlertTriangle, X, CheckCircle, HardDrive, Clock, AlertCircle, Info, KeyRound } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
 export interface BackupConfirmDialogProps {
   visible: boolean;
   onClose: () => void;
-  onConfirm: () => void;
-  folderPath: string;
+  /** Passphrase is undefined if the user left it blank — the backup then carries no key material, matching the old behavior. */
+  onConfirm: (passphrase: string | undefined) => void;
+  folderLabel: string;
   estimatedSize?: number; // in bytes
   estimatedFileCount?: number;
   isLoading?: boolean;
@@ -17,12 +19,14 @@ export function BackupConfirmDialog({
   visible,
   onClose,
   onConfirm,
-  folderPath,
+  folderLabel,
   estimatedSize,
   estimatedFileCount,
   isLoading = false,
 }: BackupConfirmDialogProps) {
   const { colors, space, font, isTablet } = useTheme();
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -31,9 +35,16 @@ export function BackupConfirmDialog({
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
 
-  const getFolderName = (path: string) => {
-    const parts = path.split('/').filter(Boolean);
-    return parts[parts.length - 1] || 'Root';
+  const passphraseMismatch = passphrase.length > 0 && passphrase !== confirmPassphrase;
+  const canConfirm = !isLoading && !passphraseMismatch;
+
+  const handleConfirm = () => {
+    if (!canConfirm) return;
+    const value = passphrase.trim() || undefined;
+    setPassphrase('');
+    setConfirmPassphrase('');
+    onClose();
+    onConfirm(value);
   };
 
   if (!visible) return null;
@@ -63,21 +74,7 @@ export function BackupConfirmDialog({
                 <View style={styles.detailText}>
                   <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Destination Folder</Text>
                   <Text style={[styles.detailValue, { color: colors.text, fontSize: font(14), fontFamily: 'monospace' }]} numberOfLines={2}>
-                    {getFolderName(folderPath)}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-              <View style={styles.detailRow}>
-                <View style={[styles.detailIcon, { backgroundColor: `${colors.primary}15` }]}>
-                  <Info size={18} color={colors.primary} strokeWidth={2} />
-                </View>
-                <View style={styles.detailText}>
-                  <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Full Path</Text>
-                  <Text style={[styles.detailValue, { color: colors.textMuted, fontSize: font(12), fontFamily: 'monospace' }]} numberOfLines={2}>
-                    {folderPath}
+                    {folderLabel}
                   </Text>
                 </View>
               </View>
@@ -109,11 +106,46 @@ export function BackupConfirmDialog({
               )}
             </View>
 
+            <View style={styles.passphraseSection}>
+              <View style={styles.detailRow}>
+                <View style={[styles.detailIcon, { backgroundColor: `${colors.warning}15` }]}>
+                  <KeyRound size={18} color={colors.warning} strokeWidth={2} />
+                </View>
+                <View style={styles.detailText}>
+                  <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Backup Passphrase (optional)</Text>
+                  <Text style={[styles.detailValue, { color: colors.textMuted, fontSize: font(12), fontWeight: '500' }]}>
+                    Set one to also back up your access/encryption keys, so protected content can be restored on another device.
+                  </Text>
+                </View>
+              </View>
+              <TextInput
+                value={passphrase}
+                onChangeText={setPassphrase}
+                placeholder="Backup passphrase"
+                placeholderTextColor={colors.textMuted}
+                secureTextEntry
+                style={[styles.passphraseInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surfaceElevated }]}
+              />
+              <TextInput
+                value={confirmPassphrase}
+                onChangeText={setConfirmPassphrase}
+                placeholder="Confirm passphrase"
+                placeholderTextColor={colors.textMuted}
+                secureTextEntry
+                style={[styles.passphraseInput, { color: colors.text, borderColor: passphraseMismatch ? colors.error : colors.border, backgroundColor: colors.surfaceElevated }]}
+              />
+              {passphraseMismatch && (
+                <Text style={[styles.noteText, { color: colors.error, fontSize: font(11) }]}>Passphrases don&apos;t match.</Text>
+              )}
+            </View>
+
             <View style={[styles.note, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}>
               <View style={styles.noteRow}>
                 <Info size={14} color={colors.primary} strokeWidth={2} />
                 <Text style={[styles.noteText, { color: colors.primary, fontSize: font(11) }]}>
-                  Encryption keys are NOT included in backups. Files remain encrypted.
+                  {passphrase.trim()
+                    ? 'Your access/encryption keys will be included, encrypted under this passphrase. You will need it to restore them.'
+                    : 'No passphrase set — access/encryption keys will NOT be included. Protected files can only be restored on a device that already has the same keys.'}
                 </Text>
               </View>
             </View>
@@ -133,11 +165,11 @@ export function BackupConfirmDialog({
                 styles.confirmBtn,
                 {
                   backgroundColor: colors.primary,
-                  opacity: isLoading ? 0.7 : 1,
+                  opacity: canConfirm ? 1 : 0.5,
                 },
               ]}
-              onPress={isLoading ? undefined : () => { onClose(); onConfirm(); }}
-              disabled={isLoading}
+              onPress={canConfirm ? handleConfirm : undefined}
+              disabled={!canConfirm}
               activeOpacity={0.7}
             >
               {isLoading ? (
@@ -253,6 +285,16 @@ const styles = StyleSheet.create({
   estimateValue: {
     fontWeight: '600',
     fontFamily: 'monospace',
+  },
+  passphraseSection: {
+    gap: 8,
+  },
+  passphraseInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
   },
   note: {
     flexDirection: 'row',
