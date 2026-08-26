@@ -8,6 +8,7 @@ import { PIN_LOCKOUT_KEY, useAuthStore } from '../../store/authStore';
 import { useLockoutStore } from '../../store/lockoutStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { PIN_MIN_LENGTH, validatePin } from '../../utils/accessKeyValidation';
+import { evaluateArithmeticExpression } from '../../utils/calculatorExpression';
 
 const CALC_BG = '#000000';
 const CALC_NUM_BG = '#2D2D2D';
@@ -191,7 +192,7 @@ export default function LoginScreen() {
         if (depth < 0) return null;
       }
 
-      const result = Function(`'use strict'; return (${sanitized})`)();
+      const result = evaluateArithmeticExpression(sanitized);
       if (typeof result !== 'number' || !isFinite(result)) return null;
       return String(result);
     } catch {

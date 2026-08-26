@@ -2,7 +2,7 @@
  * Phase 0 baseline smoke test for vaultStore (see plans/deposito-seguro-audit-report.md §20).
  * Mocks @react-native-async-storage/async-storage (jest.setup.js) so this runs without a device.
  */
-import { useVaultStore } from '../vaultStore';
+import { useVaultStore, StorageLimitExceededError } from '../vaultStore';
 import { useSettingsStore } from '../settingsStore';
 
 // Deliberately plain functions, not jest.fn(impl) — jest-expo's preset sets
@@ -137,6 +137,85 @@ describe('vaultStore', () => {
       const restoredFolder = useVaultStore.getState().folders.find(f => f.name === 'Restored Files');
       expect(restoredFolder).toBeDefined();
       expect(useVaultStore.getState().files.find(f => f.id === fileId)!.folderId).toBe(restoredFolder!.id);
+    });
+  });
+
+  describe('Storage limit threshold (settings-driven import cap)', () => {
+    afterEach(() => {
+      useSettingsStore.setState({ storageLimitBytes: null });
+    });
+
+    it('getVaultUsageBytes sums every file, trashed items included', async () => {
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 100, false);
+      await useVaultStore.getState().importFile('/src/b.jpg', folderId, 'b.jpg', 'image/jpeg', 250, false);
+      const [fileA] = useVaultStore.getState().files;
+      await useVaultStore.getState().softDeleteFile(fileA.id);
+
+      // Trashed bytes still occupy the sandbox until permanently deleted/shredded.
+      expect(useVaultStore.getState().getVaultUsageBytes()).toBe(350);
+    });
+
+    it('allows an import that fits under the configured limit', async () => {
+      useSettingsStore.setState({ storageLimitBytes: 1000 });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await expect(
+        useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 999, false)
+      ).resolves.toBeUndefined();
+      expect(useVaultStore.getState().files).toHaveLength(1);
+    });
+
+    it('rejects an import that would exceed the configured limit, without touching the filesystem or vault state', async () => {
+      useSettingsStore.setState({ storageLimitBytes: 1000 });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await expect(
+        useVaultStore.getState().importFile('/src/big.mp4', folderId, 'big.mp4', 'video/mp4', 1001, false)
+      ).rejects.toBeInstanceOf(StorageLimitExceededError);
+      // Nothing should have been written to vault state on rejection.
+      expect(useVaultStore.getState().files).toHaveLength(0);
+    });
+
+    it('rejects once existing usage plus the new file would cross the limit', async () => {
+      useSettingsStore.setState({ storageLimitBytes: 1000 });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 700, false);
+
+      await expect(
+        useVaultStore.getState().importFile('/src/b.jpg', folderId, 'b.jpg', 'image/jpeg', 400, false)
+      ).rejects.toBeInstanceOf(StorageLimitExceededError);
+      expect(useVaultStore.getState().files).toHaveLength(1);
+    });
+
+    it('pads the projected size for encrypted imports so ciphertext growth cannot silently cross the limit', async () => {
+      useSettingsStore.setState({
+        storageLimitBytes: 1000,
+        encryptionKeys: [{ id: 'key-1', name: 'k', key: 'raw-key', fingerprint: 'fp', createdAt: Date.now() }],
+      });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      // 800 raw bytes, encrypted -> projected ~1120 bytes (1.4x), over the 1000-byte limit.
+      await expect(
+        useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 800, true, 'key-1')
+      ).rejects.toBeInstanceOf(StorageLimitExceededError);
+      expect(useVaultStore.getState().files).toHaveLength(0);
+    });
+
+    it('never blocks imports when the limit is Unlimited (null)', async () => {
+      useSettingsStore.setState({ storageLimitBytes: null });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await expect(
+        useVaultStore.getState().importFile('/src/huge.mp4', folderId, 'huge.mp4', 'video/mp4', 999_999_999, false)
+      ).resolves.toBeUndefined();
+      expect(useVaultStore.getState().files).toHaveLength(1);
     });
   });
 });

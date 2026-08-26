@@ -78,7 +78,6 @@ Deposito Seguro is created to store personal/sensitive photos, videos, and other
     │           └── video.tsx                # Local loop stream asset execution matrix
     ├── components/
     │   ├── AnimatedCard.tsx                 # Dynamic layout motion framework
-    │   ├── GridListToggle.tsx               # Workspace display visual switcher
     │   ├── StyledButton.tsx                 # Master design system interactive click button
     │   └── VaultHeader.tsx                  # Cryptographic navigation top bar
     ├── constants/

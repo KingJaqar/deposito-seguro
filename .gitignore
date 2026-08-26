@@ -41,3 +41,10 @@ example
 # generated native folders
 /ios
 /android
+
+# I-21 remediation (plans/deposito-seguro-audit-report.md §11): third-party
+# AI coding-tool session state (Kilo Code worktrees, Qodo scaffolding) — was
+# previously excluded only by .kilo/'s own internal .gitignore, which
+# doesn't protect against `git add -A` from the repo root.
+.kilo/
+.qodo/

@@ -1,5 +1,6 @@
 // File: src/app/(main)/favorites.tsx
 import { router } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { CheckSquare, Copy, Eye, EyeOff, FileText, Folder, Key, Lock, Scissors, Search, ShieldCheck, Star, Trash2, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
@@ -41,6 +42,7 @@ export default function FavoritesScreen() {
     copyToClipboard, cutToClipboard, pasteFromClipboard, clearClipboard, undoLastCut,
     duplicateFile, duplicateFolder,
     renameFile, renameFolder, moveFileToFolder, moveFolder,
+    exportFileToDevice, exportFolderFiles,
   } = useVaultStore();
   const { accessKeys, createAccessKey, accessKeyExists } = useSettingsStore();
   const { openRenameModal, setOnRename } = useRename();
@@ -278,7 +280,14 @@ export default function FavoritesScreen() {
           file.folderId
         );
         break;
-      case 'export': Alert.alert('Export', 'Export functionality available from the file viewer.'); break;
+      case 'export':
+        // I-8 remediation (plans/deposito-seguro-audit-report.md §11):
+        // previously a placeholder alert; now reuses the same
+        // decrypt-then-share pattern already working in folder/[id].tsx.
+        exportFileToDevice(file.id).then((path: string | null) => {
+          if (path) Sharing.shareAsync(path);
+        });
+        break;
       case 'favorite': toggleFavorite(file.id); break;
       case 'copy':
         copyToClipboard([], [file.id], null);
@@ -358,7 +367,12 @@ export default function FavoritesScreen() {
           folder.parentId
         );
         break;
-      case 'export': Alert.alert('Export', 'Export functionality available from the folder view.'); break;
+      case 'export':
+        exportFolderFiles(folder.id).then((paths: string[]) => {
+          if (paths.length > 0) Alert.alert('Export Complete', `Exported ${paths.length} files`);
+          else Alert.alert('Nothing to Export', 'This vault has no files to export.');
+        }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
+        break;
       case 'favorite': toggleFavorite(folder.id); break;
       case 'open': handleFolderNavigate(folder); break;
       case 'copy':

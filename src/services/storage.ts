@@ -102,10 +102,41 @@ export class StorageService {
     await FileSystem.copyAsync({ from: sourcePath, to: destPath });
   }
 
-  static async getStorageQuotaInfo() {
-    return {
-      used: 1024 * 1024 * 42, 
-      free: 1024 * 1024 * 1024 * 5
-    };
+  /**
+   * I-13 remediation (plans/deposito-seguro-audit-report.md §11): this used
+   * to return hardcoded `{ used: 42MB, free: 5GB }` regardless of actual
+   * device state. Now reports the real on-disk size of the vault sandbox
+   * (recursive walk, since it's the only thing this app can meaningfully
+   * call "its" storage usage) and the device's real free space.
+   */
+  static async getStorageQuotaInfo(): Promise<{ used: number; free: number }> {
+    if (Platform.OS === 'web') {
+      let used = 0;
+      for (const uri of webVaultStorage.values()) used += uri.length;
+      return { used, free: 0 };
+    }
+    try {
+      const [used, free] = await Promise.all([
+        StorageService.getDirectorySize(VAULT_DIR),
+        FileSystem.getFreeDiskStorageAsync(),
+      ]);
+      return { used, free };
+    } catch (e) {
+      console.error('getStorageQuotaInfo failed', e);
+      return { used: 0, free: 0 };
+    }
+  }
+
+  private static async getDirectorySize(dirPath: string): Promise<number> {
+    const info = await FileSystem.getInfoAsync(dirPath);
+    if (!info.exists) return 0;
+    if (!info.isDirectory) return info.size ?? 0;
+
+    const entries = await FileSystem.readDirectoryAsync(dirPath);
+    const base = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
+    const sizes = await Promise.all(
+      entries.map((entry) => StorageService.getDirectorySize(`${base}${entry}`))
+    );
+    return sizes.reduce((sum, size) => sum + size, 0);
   }
 }

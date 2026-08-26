@@ -10,7 +10,6 @@ import { RenameModalWrapper } from '../components/RenameModalWrapper';
 import { MoveProvider } from '../contexts/MoveVaultContext';
 import { RenameProvider } from '../contexts/RenameContext';
 import { CustomThemeProvider } from '../contexts/ThemeContext';
-import { UnlockProvider } from '../contexts/UnlockContext';
 import { HydrationProvider } from '../contexts/HydrationContext';
 import { useLockoutStore } from '../store/lockoutStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -94,12 +93,10 @@ export default function RootLayout() {
        <CustomThemeProvider>
          <RenameProvider>
            <MoveProvider>
-             <UnlockProvider>
-               <StatusBar style={statusBarStyle} />
-               <Slot />
-               <RenameModalWrapper />
-               <MoveVaultModalWrapper />
-             </UnlockProvider>
+             <StatusBar style={statusBarStyle} />
+             <Slot />
+             <RenameModalWrapper />
+             <MoveVaultModalWrapper />
            </MoveProvider>
          </RenameProvider>
        </CustomThemeProvider>

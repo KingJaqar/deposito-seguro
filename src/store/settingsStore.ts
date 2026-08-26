@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
 import { DisguiseMode, DisguiseIconTheme, EncryptionKeyMetadata, AccessKeyMetadata, GridListView, ThemeMode } from '../types';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
+import { DEFAULT_STORAGE_LIMIT_BYTES } from '../constants/storageLimits';
 
 interface SettingsState {
   themeMode: ThemeMode;
@@ -20,6 +21,8 @@ interface SettingsState {
   showHiddenFiles: boolean;
   disguiseAppName: string;
   disguiseIconTheme: DisguiseIconTheme;
+  /** Max total vault size in bytes the user has chosen to allow, or null for Unlimited. See src/constants/storageLimits.ts. */
+  storageLimitBytes: number | null;
   accessKeys: AccessKeyMetadata[];
   encryptionKeys: EncryptionKeyMetadata[];
   isHydrated: boolean;
@@ -93,7 +96,7 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
     .map((r) => r.value);
 };
 
-type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'accessKeys' | 'encryptionKeys';
+type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'storageLimitBytes' | 'accessKeys' | 'encryptionKeys';
 
 const PERSIST_KEYS: SettingsSettingKey[] = [
   'themeMode',
@@ -109,6 +112,7 @@ const PERSIST_KEYS: SettingsSettingKey[] = [
   'showHiddenFiles',
   'disguiseAppName',
   'disguiseIconTheme',
+  'storageLimitBytes',
   'accessKeys',
   'encryptionKeys',
 ];
@@ -160,6 +164,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   showHiddenFiles: false,
   disguiseAppName: 'Calculator',
   disguiseIconTheme: 'default',
+  storageLimitBytes: DEFAULT_STORAGE_LIMIT_BYTES,
   accessKeys: [],
   encryptionKeys: [],
   isHydrated: false,

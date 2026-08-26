@@ -20,9 +20,10 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useFileSystemQuery } from '../../../hooks/useFileSystemQuery';
 import { SecureCrypto } from '../../../security/crypto';
 import { Durations, EasingCurves } from '../../../constants/animations';
+import { formatBytes } from '../../../constants/storageLimits';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { useVaultStore } from '../../../store/vaultStore';
+import { useVaultStore, StorageLimitExceededError } from '../../../store/vaultStore';
 
 const wrapAtLength = (text: string, maxLength = 60): string[] => {
   if (!text) return [];
@@ -140,6 +141,13 @@ export default function FolderDetailsScreen() {
       }
       Alert.alert('Import Success', 'File compiled and secured into system workspace.');
     } catch (e) {
+      if (e instanceof StorageLimitExceededError) {
+        Alert.alert(
+          'Storage Limit Reached',
+          `This vault is capped at ${formatBytes(e.limitBytes)}. It's currently using ${formatBytes(e.usedBytes)}, and this file needs ${formatBytes(e.incomingBytes)} more. Raise the limit in Settings → Storage, or free up space first.`
+        );
+        return;
+      }
       console.error(e);
       Alert.alert('Processing Failure', 'Could not index selected payload.');
     }

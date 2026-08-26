@@ -2,12 +2,12 @@ import { router } from 'expo-router';
 import {
   Box,
   CheckSquare,
-  Cloud,
   Copy,
   Eye,
   EyeOff,
   FileText,
   Folder,
+  HardDrive,
   Image as ImageIcon,
   Key,
   Lock,
@@ -49,6 +49,7 @@ import { useMove } from '../../contexts/MoveVaultContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { StorageService } from '../../services/storage';
 
 const wrapAtLength = (text: string, maxLength = 60): string[] => {
   if (!text) return [];
@@ -59,13 +60,12 @@ const wrapAtLength = (text: string, maxLength = 60): string[] => {
   return lines;
 };
 
-const DISPLAY_CAPACITY_GB = 100;
-
 export default function DashboardScreen() {
   const { colors, isDark, space, font, screenPadding, headerPaddingTop, bottomTabSpacing, isTablet, responsiveSize, gridColumns, gridItemWidth } = useTheme();
   const { width } = useWindowDimensions();
   const {
     disguiseAppName,
+    storageLimitBytes,
   } = useSettingsStore();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const {
@@ -91,8 +91,11 @@ export default function DashboardScreen() {
     border: colors.dashboardBorder ?? colors.border,
     fabBg: colors.fabBg ?? colors.primary,
     fabText: colors.fabText ?? '#FFFFFF',
-    cloudBg: isDark ? '#E5E7EB' : '#E8F0FE',
-    cloudText: '#0F172A',
+    // I-13 remediation: renamed from cloudBg/cloudText — this card shows
+    // real on-device vault storage, not a cloud quota (the app is 100%
+    // offline; the old "Cloud Storage" framing was self-contradictory).
+    storageCardBg: isDark ? '#E5E7EB' : '#E8F0FE',
+    storageCardText: '#0F172A',
   }), [colors, isDark]);
 
   const displayName = disguiseAppName || 'Deposito Seguro';
@@ -119,12 +122,37 @@ export default function DashboardScreen() {
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
   const activeFiles = useMemo(() => files.filter(f => !f.isTrash), [files]);
-  const totalBytes = useMemo(() => activeFiles.reduce((sum, f) => sum + f.size, 0), [activeFiles]);
+
+  // I-13 remediation (plans/deposito-seguro-audit-report.md §11): real
+  // on-disk vault usage + real device free space, via StorageService's
+  // (now-real, see src/services/storage.ts) getStorageQuotaInfo(). Falls
+  // back to the sum of file-metadata sizes while the async read is in
+  // flight (first render) so the card isn't blank/zero momentarily.
+  const [deviceQuota, setDeviceQuota] = useState<{ used: number; free: number } | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    StorageService.getStorageQuotaInfo()
+      .then((quota) => { if (mounted) setDeviceQuota(quota); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [activeFiles.length]);
+
+  const totalBytes = deviceQuota ? deviceQuota.used : activeFiles.reduce((sum, f) => sum + f.size, 0);
   const totalGB = totalBytes / (1024 * 1024 * 1024);
   const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
   const displayStorageValue = totalGB >= 1 ? totalGB.toFixed(1) : totalMB;
   const displayStorageUnit = totalGB >= 1 ? 'GB' : 'MB';
-  const percentUsed = Math.min(100, Math.round((totalGB / DISPLAY_CAPACITY_GB) * 100));
+  const deviceTotalGB = deviceQuota ? (deviceQuota.used + deviceQuota.free) / (1024 * 1024 * 1024) : null;
+  // Storage-limit feature: once a cap is set (Settings → Storage), the
+  // dashboard's progress bar tracks usage against THAT instead of raw device
+  // capacity — a 128GB phone with a 4GB vault cap should show "near full" at
+  // 3.8GB used, not 3% of the whole disk.
+  const limitGB = storageLimitBytes !== null ? storageLimitBytes / (1024 * 1024 * 1024) : null;
+  const storageDenominatorGB = limitGB ?? deviceTotalGB;
+  const percentUsed = storageDenominatorGB ? Math.min(100, Math.round((totalGB / storageDenominatorGB) * 100)) : 0;
+  const isOverStorageLimit = storageLimitBytes !== null && totalBytes > storageLimitBytes;
+  const isNearStorageLimit = storageLimitBytes !== null && !isOverStorageLimit && percentUsed >= 90;
+  const storageBarColor = isOverStorageLimit ? (colors.error ?? '#EF4444') : isNearStorageLimit ? '#F59E0B' : dash.fabBg;
 
   const imageCount = useMemo(() => activeFiles.filter(f => f.mimeType?.startsWith('image/')).length, [activeFiles]);
   const videoCount = useMemo(() => activeFiles.filter(f => f.mimeType?.startsWith('video/')).length, [activeFiles]);
@@ -578,44 +606,48 @@ export default function DashboardScreen() {
           mutedColor={dash.textMuted}
         />
 
-        <View
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => router.push('/(main)/settings/storage')}
           style={[
             styles.storageCard,
-            { backgroundColor: dash.cloudBg, borderRadius: space(2), padding: space(5), marginBottom: space(8) },
+            { backgroundColor: dash.storageCardBg, borderRadius: space(2), padding: space(5), marginBottom: space(8) },
           ]}
         >
           <View style={styles.storageTopRow}>
             <View style={styles.storageLabelRow}>
-              <Cloud size={18} color={dash.cloudText} />
-              <Text style={[styles.storageLabel, { color: dash.cloudText, fontSize: font(13) }]}>
-                Cloud Storage
+              <HardDrive size={18} color={dash.storageCardText} />
+              <Text style={[styles.storageLabel, { color: dash.storageCardText, fontSize: font(13) }]}>
+                {limitGB !== null ? 'Vault Storage (capped)' : 'Vault Storage'}
               </Text>
             </View>
             <View style={[styles.usedPill, { backgroundColor: dash.surface }]}>
-              <Text style={[styles.usedPillText, { color: dash.text, fontSize: font(12) }]}>{percentUsed}% Used</Text>
+              <Text style={[styles.usedPillText, { color: isOverStorageLimit ? (colors.error ?? '#EF4444') : dash.text, fontSize: font(12) }]}>
+                {isOverStorageLimit ? 'Over Limit' : `${percentUsed}% Used`}
+              </Text>
             </View>
           </View>
 
           <View style={styles.storageValueRow}>
-            <Text style={[styles.storageValue, { color: dash.cloudText, fontSize: font(30) }]}>{displayStorageValue}</Text>
-            <Text style={[styles.storageUnit, { color: dash.cloudText, fontSize: font(16) }]}> {displayStorageUnit}</Text>
+            <Text style={[styles.storageValue, { color: dash.storageCardText, fontSize: font(30) }]}>{displayStorageValue}</Text>
+            <Text style={[styles.storageUnit, { color: dash.storageCardText, fontSize: font(16) }]}> {displayStorageUnit}</Text>
           </View>
 
           <View style={[styles.progressTrack, { backgroundColor: dash.surfaceHover }]}>
             <View
               style={[
                 styles.progressFill,
-                { backgroundColor: dash.fabBg, width: `${Math.max(2, percentUsed)}%` },
+                { backgroundColor: storageBarColor, width: `${Math.max(2, percentUsed)}%` },
               ]}
             />
           </View>
           <View style={styles.progressLabelsRow}>
-            <Text style={[styles.progressLabel, { color: dash.cloudText, fontSize: font(12) }]}>0 GB</Text>
-            <Text style={[styles.progressLabel, { color: dash.cloudText, fontSize: font(12) }]}>
-              {DISPLAY_CAPACITY_GB} GB
+            <Text style={[styles.progressLabel, { color: dash.storageCardText, fontSize: font(12) }]}>0 GB</Text>
+            <Text style={[styles.progressLabel, { color: dash.storageCardText, fontSize: font(12) }]}>
+              {storageDenominatorGB !== null ? `${storageDenominatorGB.toFixed(limitGB !== null ? 1 : 0)} GB${limitGB !== null ? ' limit' : ''}` : '…'}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={[styles.section, { marginBottom: space(8) }]}>
           <View style={styles.sectionHeader}>

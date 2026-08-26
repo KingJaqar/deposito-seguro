@@ -7,9 +7,31 @@ import { ClipboardItem, EncryptionKeyMetadata, FileMetadata, FolderMetadata, Pas
 import { useSettingsStore } from './settingsStore';
 import { Alert } from 'react-native';
 
+/**
+ * Thrown by importFile/copyFileToFolder when completing the operation would
+ * push total vault usage past the user's configured storageLimitBytes
+ * (settingsStore — see src/constants/storageLimits.ts). Callers can
+ * `instanceof`-check this to show a specific "storage limit reached" message
+ * instead of the generic import-failure alert.
+ */
+export class StorageLimitExceededError extends Error {
+  constructor(
+    public readonly limitBytes: number,
+    public readonly usedBytes: number,
+    public readonly incomingBytes: number
+  ) {
+    super(
+      `Importing this would use ${usedBytes + incomingBytes} bytes, over the ${limitBytes} byte vault storage limit.`
+    );
+    this.name = 'StorageLimitExceededError';
+  }
+}
+
 interface VaultStoreActions extends VaultState {
   hydrateVault: () => Promise<void>;
   isVaultHydrated: () => boolean;
+  /** Sum of every file's recorded size, trashed items included (their bytes still occupy the sandbox until permanently deleted/shredded). Used for both the Storage settings display and limit enforcement below. */
+  getVaultUsageBytes: () => number;
   createFolder: (name: string, color?: string, icon?: string, isEncrypted?: boolean, parentId?: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   importFile: (sourceUri: string, targetFolderId: string, fileName: string, mimeType: string, size: number, encrypt: boolean, encryptionKeyId?: string) => Promise<void>;
@@ -82,6 +104,26 @@ const removeFilePayload = async (file: FileMetadata) => {
 const getEncryptionKey = (keyId?: string) => {
   if (!keyId) return undefined;
   return useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === keyId);
+};
+
+/**
+ * Storage-limit enforcement, shared by importFile (bringing external content
+ * in) and copyFileToFolder (paste-copy / duplicate — the other way vault
+ * usage grows). Throws StorageLimitExceededError instead of returning a
+ * boolean so callers can't accidentally ignore it the way a false-y return
+ * value invites.
+ */
+const assertWithinStorageLimit = (currentFiles: FileMetadata[], incomingBytes: number, encrypt: boolean) => {
+  const limit = useSettingsStore.getState().storageLimitBytes;
+  if (limit === null) return; // Unlimited.
+  const usedBytes = currentFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+  // AES-256-CBC+HMAC output (src/security/crypto.ts) is base64 (~4/3 the raw
+  // bytes) plus a small fixed IV/MAC overhead — pad the pre-encryption
+  // estimate so the limit isn't quietly exceeded by ciphertext growth.
+  const projectedBytes = encrypt ? Math.ceil(incomingBytes * 1.4) : incomingBytes;
+  if (usedBytes + projectedBytes > limit) {
+    throw new StorageLimitExceededError(limit, usedBytes, projectedBytes);
+  }
 };
 
 const encryptFileWithKey = async (file: FileMetadata, keyId: string) => {
@@ -162,6 +204,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   _isVaultHydrated: false,
   _vaultHydrationError: null as string | null,
   isVaultHydrated: () => get()._isVaultHydrated,
+  getVaultUsageBytes: () => get().files.reduce((sum, f) => sum + (f.size || 0), 0),
   hydrateVault: async () => {
     const state = get();
     if (state._isVaultHydrated) return;
@@ -214,6 +257,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     });
   },
   importFile: async (sourceUri, targetFolderId, fileName, mimeType, size, encrypt, encryptionKeyId) => {
+    // Checked before any file I/O — no point copying bytes into the sandbox
+    // just to have to delete them again on rejection.
+    assertWithinStorageLimit(get().files, size, encrypt && !!encryptionKeyId);
+
     const targetId = SecureCrypto.generateUUID();
     const sandboxFilename = `${targetId}_${fileName}`;
 
