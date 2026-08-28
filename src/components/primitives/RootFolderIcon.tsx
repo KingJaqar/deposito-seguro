@@ -6,7 +6,7 @@
 import React from 'react';
 import { Image, StyleSheet } from 'react-native';
 
-const rootFolderIconSource = require('../../../assets/icons/folder icons/root_folder_icon.png');
+const rootFolderIconSource = require('../../../assets/icons/folder_icons/root_folder_icon.png');
 
 export function RootFolderIcon({
   size = 24,

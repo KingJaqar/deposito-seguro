@@ -47,6 +47,7 @@ import { EmptyState } from '../../../components/primitives/EmptyState';
 import { ProgressBar } from '../../../components/primitives/ProgressBar';
 import { SwitchRow } from '../../../components/primitives/SwitchRow';
 import { TextField } from '../../../components/primitives/TextField';
+import { TopToast, useTopToast } from '../../../components/primitives/TopToast';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useScreenEnterAnimation } from '../../../hooks/useScreenEnterAnimation';
@@ -71,6 +72,7 @@ export default function SettingsCenterScreen() {
   const { themeMode, disguiseMode, updateSetting } = useSettingsStore();
 
   const screenAnimatedStyle = useScreenEnterAnimation();
+  const { topToastState, showTopToast } = useTopToast();
 
   const iconOptionSize = clampSize(64, 88);
   const iconOptionImageSize = clampSize(32, 48);
@@ -374,9 +376,21 @@ export default function SettingsCenterScreen() {
                         <TouchableOpacity
                           key={theme.id}
                           onPress={async () => {
+                            // Selection highlight is optimistic — roll it
+                            // back to whatever was actually applied before
+                            // this tap if either write below fails, so a
+                            // "Failed to change" toast never sits next to a
+                            // swatch still showing as selected.
+                            const previousTheme = disguiseIconTheme;
                             setDisguiseIconTheme(theme.id as any);
-                            updateSetting('disguiseIconTheme', theme.id as any);
-                            await setDisguiseIcon(theme.id);
+                            try {
+                              await updateSetting('disguiseIconTheme', theme.id as any);
+                              await setDisguiseIcon(theme.id);
+                              showTopToast(`Icon theme changed to ${theme.label}`);
+                            } catch {
+                              setDisguiseIconTheme(previousTheme);
+                              showTopToast(`Failed to change icon theme to ${theme.label}`, 'error');
+                            }
                           }}
                           accessibilityRole="button"
                           accessibilityLabel={`${theme.label} icon theme`}
@@ -435,6 +449,7 @@ export default function SettingsCenterScreen() {
       </Animated.View>
 
       <AnimatedTabBar />
+      <TopToast state={topToastState} />
 
       <AccessKeyScreenAuthModal visible={showAccessKeyAuthModal} onClose={() => setShowAccessKeyAuthModal(false)} onSuccess={handleAccessKeyAuthSuccess} />
 
@@ -503,7 +518,20 @@ export default function SettingsCenterScreen() {
         message="Enter the name to show on the home screen (leave empty to use default)"
         actions={[
           { label: 'Cancel', onPress: () => setShowDisplayNameModal(false), variant: 'tertiary' },
-          { label: 'Save', onPress: () => { updateSetting('disguiseAppName', displayNameInput.trim()); setShowDisplayNameModal(false); }, variant: 'primary' },
+          {
+            label: 'Save',
+            onPress: async () => {
+              const finalName = displayNameInput.trim();
+              try {
+                await updateSetting('disguiseAppName', finalName);
+                setShowDisplayNameModal(false);
+                showTopToast(`App display name changed to ${finalName || 'Deposito Seguro'}`);
+              } catch {
+                showTopToast('Failed to change app display name', 'error');
+              }
+            },
+            variant: 'primary',
+          },
         ]}
       >
         <View style={{ width: '100%' }}>

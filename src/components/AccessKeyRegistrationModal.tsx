@@ -34,7 +34,13 @@ interface AccessKeyRegistrationModalProps {
   selectedItemIds: string[];
   itemTypes: Record<string, 'file' | 'folder'>;
   onClose: () => void;
-  onSuccess: (createdKeyId: string, createdKeyLabel: string) => void;
+  // assignedCount/totalCount are only passed for a bulk target — a partial
+  // failure across the fan-out (e.g. 3 of 5 items) is still a success as far
+  // as onSuccess is concerned (at least one assignment landed), but the
+  // caller needs the actual counts to say so accurately instead of claiming
+  // the toast text implies every selected item got the key.
+  onSuccess: (createdKeyId: string, createdKeyLabel: string, assignedCount?: number, totalCount?: number) => void;
+  onError?: (message: string) => void;
   assignFolderAccessKey: (folderId: string, passwordId: string) => Promise<void>;
   assignFileAccessKey: (fileId: string, passwordId: string) => Promise<void>;
 }
@@ -46,6 +52,7 @@ export function AccessKeyRegistrationModal({
   itemTypes,
   onClose,
   onSuccess,
+  onError,
   assignFolderAccessKey,
   assignFileAccessKey,
 }: AccessKeyRegistrationModalProps) {
@@ -114,41 +121,59 @@ export function AccessKeyRegistrationModal({
         return;
       }
 
-      const fp = await createAccessKey(newPasswordLabel, newPassword, newPasswordDescription);
+      // createAccessKey itself doesn't currently throw (its one fallible
+      // step, the secure-storage write, is fire-and-forget internally), but
+      // guard it anyway — without this, a future failure here would reject
+      // silently: no Alert, no toast, just a spinner that stops with
+      // nothing to show for it.
+      let fp;
+      try {
+        fp = await createAccessKey(newPasswordLabel, newPassword, newPasswordDescription);
+      } catch {
+        onError?.(`Failed to create ${newPasswordLabel}`);
+        return;
+      }
       if (!fp) {
         Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
         return;
       }
 
-      if (target.type === 'bulk') {
-        for (const itemId of selectedItemIds) {
-          const itemType = itemTypes[itemId];
-          if (itemType === 'folder') {
-            await assignFolderAccessKey(itemId, fp.id);
-          } else if (itemType === 'file') {
-            await assignFileAccessKey(itemId, fp.id);
+      // The label/password validation above only guards user input — the
+      // actual assignment fan-out still does real persistence writes, so it
+      // gets its own catch: a failure here shouldn't be reported as a
+      // validation error, it's the top-toast-eligible "action failed" case.
+      try {
+        if (target.type === 'bulk') {
+          const total = selectedItemIds.length;
+          let succeeded = 0;
+          for (const itemId of selectedItemIds) {
+            const itemType = itemTypes[itemId];
+            try {
+              if (itemType === 'folder') await assignFolderAccessKey(itemId, fp.id);
+              else if (itemType === 'file') await assignFileAccessKey(itemId, fp.id);
+              succeeded++;
+            } catch {
+              // counted via total - succeeded below
+            }
           }
+          if (succeeded === 0) {
+            onError?.(`Failed to assign ${fp.label}`);
+          } else {
+            resetForm();
+            onSuccess(fp.id, fp.label, succeeded, total);
+          }
+        } else {
+          if (target.type === 'file') {
+            await assignFileAccessKey(target.id, fp.id);
+          } else {
+            await assignFolderAccessKey(target.id, fp.id);
+          }
+          resetForm();
+          onSuccess(fp.id, fp.label);
         }
-        Alert.alert(
-          'Access Key Created & Assigned',
-          `${fp.label} has been created and assigned to ${selectedItemIds.length} items.`
-        );
-      } else if (target.type === 'file') {
-        await assignFileAccessKey(target.id, fp.id);
-        Alert.alert(
-          'Access Key Created & Assigned',
-          `${fp.label} has been created and assigned to ${target.name}.`
-        );
-      } else {
-        await assignFolderAccessKey(target.id, fp.id);
-        Alert.alert(
-          'Access Key Created & Assigned',
-          `${fp.label} has been created and assigned to ${target.name}.`
-        );
+      } catch {
+        onError?.(`Failed to assign ${fp.label}`);
       }
-
-      resetForm();
-      onSuccess(fp.id, fp.label);
     } finally {
       setIsSubmitting(false);
     }

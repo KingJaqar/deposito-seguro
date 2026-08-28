@@ -43,6 +43,7 @@ import { EmptyState } from '../../../components/primitives/EmptyState';
 import { ProgressBar } from '../../../components/primitives/ProgressBar';
 import { Sheet } from '../../../components/primitives/Sheet';
 import { TextField } from '../../../components/primitives/TextField';
+import { TopToast, useTopToast } from '../../../components/primitives/TopToast';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useScreenEnterAnimation } from '../../../hooks/useScreenEnterAnimation';
@@ -60,6 +61,7 @@ export default function AccessKeysScreen() {
   const { recordFailedAttempt, resetAttempts, isLockedOut, getRemainingLockoutTime } = useLockoutStore();
 
   const screenAnimatedStyle = useScreenEnterAnimation();
+  const { topToastState, showTopToast } = useTopToast();
 
   const [passwordLabel, setPasswordLabel] = useState('');
   const [passwordDescription, setPasswordDescription] = useState('');
@@ -138,14 +140,18 @@ export default function AccessKeysScreen() {
     if (!validation.valid) { Alert.alert('Password Does Not Meet Requirements', validation.message); return; }
     if (password !== confirmPassword) { Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.'); return; }
 
-    const fp = await createAccessKey(passwordLabel, password, passwordDescription);
-    if (!fp) { Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.'); return; }
+    try {
+      const fp = await createAccessKey(passwordLabel, password, passwordDescription);
+      if (!fp) { Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.'); return; }
 
-    setPasswordLabel('');
-    setPasswordDescription('');
-    setPassword('');
-    setConfirmPassword('');
-    Alert.alert('Access Key Created', `${fp.label} is ready to assign.`);
+      setPasswordLabel('');
+      setPasswordDescription('');
+      setPassword('');
+      setConfirmPassword('');
+      showTopToast(`${fp.label} created`);
+    } catch {
+      showTopToast(`Failed to create ${passwordLabel}`, 'error');
+    }
   };
 
   const handleEditConfirm = async () => {
@@ -162,17 +168,22 @@ export default function AccessKeysScreen() {
     const options: { label?: string; description?: string; password?: string } = { label: editLabel, description: editDescription };
     if (editPassword) options.password = editPassword;
 
-    const success = await updateAccessKey(editingPassword.id, options);
-    if (success) {
-      setShowEditModal(false);
-      setEditingPassword(null);
-      setEditLabel('');
-      setEditDescription('');
-      setEditPassword('');
-      setEditConfirmPassword('');
-      Alert.alert('Password Updated', `${editLabel} has been updated.`);
-    } else {
-      Alert.alert('Update Failed', 'Could not update the access key.');
+    try {
+      const success = await updateAccessKey(editingPassword.id, options);
+      if (success) {
+        const updatedLabel = editLabel;
+        setShowEditModal(false);
+        setEditingPassword(null);
+        setEditLabel('');
+        setEditDescription('');
+        setEditPassword('');
+        setEditConfirmPassword('');
+        showTopToast(`${updatedLabel} updated`);
+      } else {
+        showTopToast(`Failed to update ${editLabel}`, 'error');
+      }
+    } catch {
+      showTopToast(`Failed to update ${editLabel}`, 'error');
     }
   };
 
@@ -283,6 +294,7 @@ export default function AccessKeysScreen() {
       </Animated.View>
 
       <AnimatedTabBar />
+      <TopToast state={topToastState} />
 
       <Dialog
         visible={showDeleteVerificationModal && !!pendingDeletePassword}

@@ -20,7 +20,7 @@ export const Durations = {
    modalEnter: 380,
    modalExit: 300,
    sheetEnter: 420,
-   sheetExit: 320,
+   sheetExit: 220,
    fab: 300,
    ripple: 200,
    reveal: 400,

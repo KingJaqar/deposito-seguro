@@ -314,7 +314,7 @@ export default function CustomizationSettingsScreen() {
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
       <VaultHeader
-        title=""
+        title="Appearance"
         showBack
         rightButton={<Button title="Reset" icon={RotateCcw} variant="tertiary" size="sm" onPress={handleReset} accessibilityLabel="Reset appearance settings to defaults" />}
       />
@@ -323,7 +323,6 @@ export default function CustomizationSettingsScreen() {
         contentContainerStyle={[styles.body, { paddingHorizontal: screenPadding, paddingTop: space(3), paddingBottom: bottomTabSpacing }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={{ fontSize: font(Type.title.size), fontWeight: '800', color: colors.text, marginBottom: space(2) }}>Appearance</Text>
         <Text style={{ fontSize: font(Type.body.size), fontWeight: '500', color: colors.textMuted, marginBottom: space(5) }}>
           Tune how your library looks and how much <Text style={{ color: colors.primary, fontWeight: '700' }}>fits</Text> on screen.
         </Text>

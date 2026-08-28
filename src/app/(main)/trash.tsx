@@ -15,19 +15,25 @@
 //    with a hardcoded paddingTop: 50)
 import {
   Box,
+  CheckSquare,
   ListFilter,
   RotateCcw,
   Search,
+  Square,
   Trash2,
+  X,
 } from 'lucide-react-native';
+import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -35,18 +41,22 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { Button } from '../../components/primitives/Button';
 import { Card } from '../../components/primitives/Card';
 import { Chip } from '../../components/primitives/Chip';
+import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
-import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { getFileThumbnailUri, getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
 import { GridTile } from '../../components/primitives/GridTile';
+import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
 import { CategoryTint } from '../../constants/Colors';
 import { Type } from '../../constants/typography';
 import { useTheme } from '../../contexts/ThemeContext';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { getFolderPathLabel } from '../../utils/folderStats';
 
 type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
 type FileTypeFilter = 'all' | 'image' | 'video' | 'document' | 'audio' | 'other';
@@ -139,6 +149,8 @@ export default function TrashScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
+  const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
+  const { topToastState, showTopToast } = useTopToast();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all');
@@ -146,6 +158,15 @@ export default function TrashScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [restoreConfirm, setRestoreConfirm] = useState<{ visible: boolean; title: string; message: string; onConfirm: () => void }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+  const closeRestoreConfirm = useCallback(() => {
+    setRestoreConfirm(prev => ({ ...prev, visible: false }));
+  }, []);
 
   const enrichedFiles: TrashedFile[] = useMemo(() => {
     return (files as TrashedFile[])
@@ -183,61 +204,128 @@ export default function TrashScreen() {
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
   const handleShred = useCallback((id: string, name: string) => {
-    Alert.alert('Permanently Shred File', `"${name}" will be destroyed forever.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Shred', style: 'destructive', onPress: () => permanentlyDeleteFile(id) },
-    ]);
-  }, [permanentlyDeleteFile]);
+    confirmDestructive(
+      'Permanently Delete File',
+      `"${name}" will be destroyed forever.`,
+      async () => {
+        try {
+          await permanentlyDeleteFile(id);
+          showTopToast(`${name} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${name} permanently`, 'error');
+        }
+      },
+      'Delete'
+    );
+  }, [confirmDestructive, permanentlyDeleteFile, showTopToast]);
 
   const handleShredAll = useCallback(() => {
     if (filtered.length === 0) return;
-    Alert.alert('Shred All Files?', `This will permanently delete all ${filtered.length} files.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Shred All',
-        style: 'destructive',
-        onPress: () => permanentlyDeleteFiles(filtered.map(f => f.id)),
+    const count = filtered.length;
+    confirmDestructive(
+      'Delete All Files?',
+      `This will permanently delete all ${count} files.`,
+      async () => {
+        try {
+          await permanentlyDeleteFiles(filtered.map(f => f.id));
+          showTopToast(`${count} file${count !== 1 ? 's' : ''} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${count} file${count !== 1 ? 's' : ''} permanently`, 'error');
+        }
       },
-    ]);
-  }, [filtered, permanentlyDeleteFiles]);
+      'Delete All'
+    );
+  }, [filtered, confirmDestructive, permanentlyDeleteFiles, showTopToast]);
 
   // I-12: restoreFileFromTrash reports when a file's original folder no
   // longer exists (it lands in an unprotected auto-created "Restored Files"
   // folder instead) — warn the user rather than silently losing that context.
-  const handleRestore = useCallback(async (fileId: string) => {
-    const { landedInFallbackFolder } = await restoreFileFromTrash(fileId);
-    if (landedInFallbackFolder) {
-      Alert.alert(
-        'Restored to "Restored Files"',
-        'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
-      );
-    }
-  }, [restoreFileFromTrash]);
+  const handleRestore = useCallback((fileId: string, name: string) => {
+    setRestoreConfirm({
+      visible: true,
+      title: 'Restore File',
+      message: `"${name}" will be moved back to its original location.`,
+      onConfirm: async () => {
+        try {
+          const { landedInFallbackFolder, folderId } = await restoreFileFromTrash(fileId);
+          // Read folders fresh off the store rather than this callback's
+          // captured closure — a fallback "Restored Files" folder can have
+          // just been created by the restore above, and the closure's
+          // `folders` won't include it until the next render.
+          const freshFolders = useVaultStore.getState().folders;
+          const locationLabel = getFolderPathLabel(folderId, freshFolders);
+          // Every other entry point into a locked folder (dashboard's
+          // handleVaultPress, favorites'/search's handleFolderNavigate)
+          // gates navigation behind the access-key unlock modal first —
+          // jumping straight there from this toast would bypass that lock,
+          // so only make the toast tappable when the destination isn't
+          // access-key protected.
+          const destinationFolder = folderId ? freshFolders.find(f => f.id === folderId) : undefined;
+          const isLocked = !!(destinationFolder?.hasAccessKey || destinationFolder?.accessKeyId);
+          showTopToast(
+            `${name} restored in `,
+            'success',
+            isLocked ? undefined : () => router.push(folderId ? { pathname: '/(main)/folder/[id]', params: { id: folderId } } : '/(main)/dashboard'),
+            locationLabel
+          );
+          if (landedInFallbackFolder) {
+            Alert.alert(
+              'Restored to "Restored Files"',
+              'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
+            );
+          }
+        } catch {
+          showTopToast(`Failed to restore ${name}`, 'error');
+        }
+      },
+    });
+  }, [restoreFileFromTrash, showTopToast]);
 
-  const handleRestoreSelected = useCallback(async () => {
+  const handleRestoreSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
-    const results = await Promise.all(selectedIds.map(id => restoreFileFromTrash(id)));
-    setSelectedIds([]);
-    setSelectionMode(false);
-    if (results.some(r => r.landedInFallbackFolder)) {
-      Alert.alert(
-        'Some Files Restored to "Restored Files"',
-        'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
-      );
-    }
-  }, [selectedIds, restoreFileFromTrash, setSelectedIds]);
+    const count = selectedIds.length;
+    setRestoreConfirm({
+      visible: true,
+      title: 'Restore Files',
+      message: `${count} file${count === 1 ? '' : 's'} will be moved back to their original location.`,
+      onConfirm: async () => {
+        // allSettled rather than all: with Promise.all, one rejection loses
+        // track of every other restore that already succeeded (they're
+        // fire-and-forget once the promise races on), so the toast could
+        // report total failure when most of the batch actually landed fine.
+        const results = await Promise.allSettled(selectedIds.map(id => restoreFileFromTrash(id)));
+        setSelectedIds([]);
+        setSelectionMode(false);
+        const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ landedInFallbackFolder: boolean; folderId?: string }> => r.status === 'fulfilled');
+        const { message, tone } = bulkOutcomeToast(fulfilled.length, count, 'file', 'restored', 'restore');
+        showTopToast(message, tone);
+        if (fulfilled.some(r => r.value.landedInFallbackFolder)) {
+          Alert.alert(
+            'Some Files Restored to "Restored Files"',
+            'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
+          );
+        }
+      },
+    });
+  }, [selectedIds, restoreFileFromTrash, setSelectedIds, showTopToast]);
 
   const handleShredSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
-    Alert.alert('Shred Selected Files?', `This will permanently delete ${selectedIds.length} files.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Shred',
-        style: 'destructive',
-        onPress: () => permanentlyDeleteFiles(selectedIds),
+    const count = selectedIds.length;
+    confirmDestructive(
+      'Delete Selected Files?',
+      `This will permanently delete ${count} files.`,
+      async () => {
+        try {
+          await permanentlyDeleteFiles(selectedIds);
+          showTopToast(`${count} file${count !== 1 ? 's' : ''} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${count} file${count !== 1 ? 's' : ''} permanently`, 'error');
+        }
       },
-    ]);
-  }, [selectedIds, permanentlyDeleteFiles]);
+      'Delete'
+    );
+  }, [selectedIds, confirmDestructive, permanentlyDeleteFiles, showTopToast]);
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -273,6 +361,9 @@ export default function TrashScreen() {
             : k === 'audio' ? CategoryTint.audio
               : CategoryTint.other;
 
+  // Compact single-line row: icon + name/meta + a pair of icon-only actions,
+  // no divider or full-width labeled buttons — keeps each entry to one
+  // touch-target-tall band instead of a tall card.
   const TrashRow = ({ item }: { item: TrashedFile }) => {
     const visual = getFileVisual(item);
     const isSelected = selectedIds.includes(item.id);
@@ -283,15 +374,37 @@ export default function TrashScreen() {
         onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
         onPress={() => { if (selectionMode) toggleSelection(item.id); }}
         accessibilityLabel={item.name}
-        style={{
-          marginBottom: space(3),
-          borderColor: isSelected ? colors.primary : colors.borderLight,
-          borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
-        }}
+        style={[
+          styles.rowCard,
+          {
+            marginBottom: space(2),
+            padding: space(3),
+            borderRadius: radius(6),
+            backgroundColor: isSelected ? `${colors.primary}14` : colors.surfaceElevated,
+            borderColor: colors.borderLight,
+            borderWidth: StyleSheet.hairlineWidth,
+          },
+        ]}
       >
         <View style={[styles.rowTop, { gap: space(3) }]}>
-          <View style={[styles.iconChip, { backgroundColor: `${visual.color}1F`, borderRadius: radius(4) }]}>
-            <VisualIcon size={iconSize(20)} color={visual.color} strokeWidth={2} />
+          {selectionMode && (
+            <Pressable
+              onPress={() => toggleSelection(item.id)}
+              hitSlop={8}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`Select ${item.name}`}
+            >
+              {isSelected ? (
+                <CheckSquare size={iconSize(22)} color={colors.primary} strokeWidth={2} />
+              ) : (
+                <Square size={iconSize(22)} color={colors.textMuted} strokeWidth={2} />
+              )}
+            </Pressable>
+          )}
+
+          <View style={[styles.iconChip, { backgroundColor: `${visual.color}1F`, borderRadius: radius(3) }]}>
+            <VisualIcon size={iconSize(17)} color={visual.color} strokeWidth={2} />
           </View>
 
           <View style={styles.rowInfo}>
@@ -299,32 +412,57 @@ export default function TrashScreen() {
               {item.name}
             </Text>
             <View style={[styles.rowMetaRow, { gap: space(2) }]}>
-              <Text style={[styles.rowMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
-                {formatDeletedAt(item.deletedAt!)}
-              </Text>
-              <View style={[styles.metaDot, { backgroundColor: colors.textMuted }]} />
               <Text style={[styles.rowMeta, { color: visual.color, fontSize: font(Type.caption.size), fontWeight: '700' }]} numberOfLines={1}>
                 {visual.label}
+              </Text>
+              <View style={[styles.metaDot, { backgroundColor: colors.textMuted }]} />
+              <Text style={[styles.rowMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                {formatDeletedAt(item.deletedAt!)}
               </Text>
             </View>
           </View>
 
-          {selectionMode && (
-            <View style={[styles.checkInner, { backgroundColor: isSelected ? colors.primary : 'transparent', borderColor: colors.primary, borderRadius: radius(2) }]}>
-              {isSelected && <Text style={{ color: colors.onPrimary, fontSize: 11, fontWeight: '800' }}>✓</Text>}
+          {!selectionMode && (
+            <View style={[styles.rowActions, { gap: space(2) }]}>
+              <Pressable
+                onPress={() => handleRestore(item.id, item.name)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Restore ${item.name}`}
+                style={({ pressed }) => [
+                  styles.iconAction,
+                  {
+                    width: iconSize(30),
+                    height: iconSize(30),
+                    borderRadius: radius(3),
+                    backgroundColor: colors.surfaceHover,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <RotateCcw size={iconSize(15)} color={colors.text} strokeWidth={2.25} />
+              </Pressable>
+              <Pressable
+                onPress={() => handleShred(item.id, item.name)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${item.name}`}
+                style={({ pressed }) => [
+                  styles.iconAction,
+                  {
+                    width: iconSize(30),
+                    height: iconSize(30),
+                    borderRadius: radius(3),
+                    backgroundColor: `${colors.error}1F`,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Trash2 size={iconSize(15)} color={colors.error} strokeWidth={2.25} />
+              </Pressable>
             </View>
           )}
         </View>
-
-        {!selectionMode && (
-          <>
-            <View style={[styles.rowDivider, { backgroundColor: colors.borderLight, marginTop: space(3), marginBottom: space(3) }]} />
-            <View style={[styles.rowActions, { gap: space(2) }]}>
-              <Button title="Restore" onPress={() => handleRestore(item.id)} icon={RotateCcw} variant="tertiary" size="sm" />
-              <Button title="Delete" onPress={() => handleShred(item.id, item.name)} icon={Trash2} variant="danger" size="sm" />
-            </View>
-          </>
-        )}
       </Card>
     );
   };
@@ -348,7 +486,7 @@ export default function TrashScreen() {
 
       <View style={styles.flex1}>
         <ScrollView
-          contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(3), paddingBottom: bottomTabSpacing }]}
+          contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(2), paddingBottom: bottomTabSpacing }]}
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
@@ -360,16 +498,20 @@ export default function TrashScreen() {
               value={search}
               onChangeText={setSearch}
               returnKeyType="search"
-              clearButtonMode="while-editing"
               accessibilityLabel="Search deleted files"
             />
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
+                <X size={iconSize(16)} color={colors.textMuted} strokeWidth={2} />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={[styles.filterRow, { marginBottom: space(2) }]}>
             <Button title="Filters" onPress={toggleFilters} icon={ListFilter} variant="tertiary" size="sm" />
             <View style={styles.headerRightBlock}>
               {!selectionMode && filtered.length > 0 && (
-                <Button title="Shred All" onPress={handleShredAll} variant="ghost" size="sm" />
+                <Button title="Delete All" onPress={handleShredAll} variant="ghost" size="sm" />
               )}
               {!selectionMode && (
                 <Text style={[styles.countText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
@@ -408,23 +550,46 @@ export default function TrashScreen() {
 
           {selectionMode && (
             <View style={[styles.selectionBar, { gap: space(2), paddingBottom: space(3) }]}>
-              <Button
-                title={filtered.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+              <Pressable
                 onPress={() => {
                   const fileIds = filtered.map(f => f.id);
                   const allSelected = fileIds.every(id => selectedIds.includes(id));
-                  if (allSelected) {
-                    setSelectedIds([]);
-                  } else {
-                    setSelectedIds(fileIds);
-                  }
+                  setSelectedIds(allSelected ? [] : fileIds);
                 }}
-                variant="ghost"
-                size="sm"
-              />
-              <Button title="Restore" onPress={handleRestoreSelected} variant="secondary" size="sm" />
-              <Button title="Shred" onPress={handleShredSelected} variant="danger" size="sm" />
-              <Button title="Cancel" onPress={exitSelectionMode} variant="ghost" size="sm" />
+                style={[styles.iconActionPill, { backgroundColor: colors.surfaceHover }]}
+                accessibilityRole="button"
+                accessibilityLabel="Select all"
+              >
+                <CheckSquare size={iconSize(18)} color={colors.text} strokeWidth={2.5} />
+              </Pressable>
+
+              {selectedIds.length > 0 && (
+                <>
+                  <Text style={[styles.selectionCount, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
+                    {selectedIds.length} selected
+                  </Text>
+                  <Pressable
+                    onPress={handleRestoreSelected}
+                    style={[styles.iconActionPill, { backgroundColor: colors.surfaceHover }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Restore selected"
+                  >
+                    <RotateCcw size={iconSize(18)} color={colors.text} strokeWidth={2.5} />
+                  </Pressable>
+                  <Pressable
+                    onPress={handleShredSelected}
+                    style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete selected"
+                  >
+                    <Trash2 size={iconSize(18)} color={colors.error} strokeWidth={2.5} />
+                  </Pressable>
+                </>
+              )}
+
+              <Pressable onPress={exitSelectionMode} style={styles.textBtn} accessibilityRole="button" accessibilityLabel="Cancel selection">
+                <Text style={{ color: colors.textMuted, fontSize: font(Type.label.size), fontWeight: '700' }}>Cancel</Text>
+              </Pressable>
             </View>
           )}
 
@@ -442,7 +607,6 @@ export default function TrashScreen() {
                 {filtered.map((item) => {
                   const isSelected = selectedIds.includes(item.id);
                   const visual = getFileVisual(item);
-                  const hasThumbnail = item.mimeType?.startsWith('image/') || item.mimeType?.startsWith('video/');
                   return (
                     <GridTile
                       key={item.id}
@@ -452,11 +616,13 @@ export default function TrashScreen() {
                       subtitleColor={visual.color}
                       Icon={visual.Icon}
                       iconColor={visual.color}
-                      thumbnailUri={hasThumbnail && item.localPath ? item.localPath : undefined}
+                      thumbnailUri={getFileThumbnailUri(item)}
                       selectable={selectionMode}
                       selected={isSelected}
                       onPress={() => { if (selectionMode) toggleSelection(item.id); }}
                       onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+                      onRestorePress={() => handleRestore(item.id, item.name)}
+                      onDeletePress={() => handleShred(item.id, item.name)}
                     />
                   );
                 })}
@@ -473,7 +639,7 @@ export default function TrashScreen() {
                 renderItem={({ item }) => {
                   if (item.type === 'section') {
                     return (
-                      <View style={{ marginTop: space(5), marginBottom: space(3) }}>
+                      <View style={{ marginTop: space(3), marginBottom: space(2) }}>
                         <Text style={[styles.sectionHeader, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>
                           {item.label}
                         </Text>
@@ -489,6 +655,29 @@ export default function TrashScreen() {
       </View>
 
       <AnimatedTabBar />
+
+      <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
+      <TopToast state={topToastState} />
+
+      <Dialog
+        visible={restoreConfirm.visible}
+        onRequestClose={closeRestoreConfirm}
+        icon={RotateCcw}
+        iconColor={colors.primary}
+        title={restoreConfirm.title}
+        message={restoreConfirm.message}
+        actions={[
+          { label: 'Cancel', onPress: closeRestoreConfirm, variant: 'tertiary' },
+          {
+            label: 'Restore',
+            variant: 'primary',
+            onPress: () => {
+              closeRestoreConfirm();
+              restoreConfirm.onConfirm();
+            },
+          },
+        ]}
+      />
     </SafeAreaView>
   );
 }
@@ -505,20 +694,26 @@ const styles = StyleSheet.create({
   headerRightBlock: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   countText: { fontWeight: '500' },
 
-  selectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' },
+  // Matches search.tsx's renderSelectionToolbar exactly: a row of circular
+  // icon pills plus a plain "Cancel" text link, instead of the old row of
+  // full-width labeled Restore/Shred/Select All/Cancel buttons.
+  selectionBar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  // Phase 5 (§6 MIN_TOUCH_TARGET audit) sizing, same as search.tsx's pill.
+  iconActionPill: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  textBtn: { paddingHorizontal: 8, paddingVertical: 8 },
+  selectionCount: { fontWeight: '600' },
 
   sectionHeader: { fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' },
 
+  rowCard: { shadowOpacity: 0, elevation: 0 },
   rowTop: { flexDirection: 'row', alignItems: 'center' },
-  iconChip: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  iconChip: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   rowInfo: { flex: 1, minWidth: 0 },
-  rowName: { fontWeight: '700', letterSpacing: -0.2, marginBottom: 4 },
+  rowName: { fontWeight: '700', letterSpacing: -0.2, marginBottom: 2 },
   rowMetaRow: { flexDirection: 'row', alignItems: 'center' },
   rowMeta: { fontWeight: '500' },
   metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.6 },
 
-  checkInner: { width: 22, height: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-
-  rowDivider: { height: StyleSheet.hairlineWidth },
-  rowActions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  rowActions: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+  iconAction: { alignItems: 'center', justifyContent: 'center' },
 });

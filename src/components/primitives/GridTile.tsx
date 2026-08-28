@@ -7,7 +7,7 @@
 // grid so every "small/medium/large icons" view mode renders the same way.
 import React from 'react';
 import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CheckCircle2, Circle } from 'lucide-react-native';
+import { CheckCircle2, Circle, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 
@@ -30,6 +30,11 @@ export interface GridTileProps {
   onPress?: () => void;
   onLongPress?: () => void;
   onMenuPress?: () => void;
+  /** Trash-specific actions: when provided (and not in selection mode), renders a
+   * always-visible restore/delete row beneath the label at every grid density,
+   * instead of relying on a hover/overlay affordance that small tiles can't fit. */
+  onRestorePress?: () => void;
+  onDeletePress?: () => void;
   accessibilityLabel?: string;
 }
 
@@ -48,6 +53,8 @@ export function GridTile({
   onPress,
   onLongPress,
   onMenuPress,
+  onRestorePress,
+  onDeletePress,
   accessibilityLabel,
 }: GridTileProps) {
   const { colors, font, radius, iconSize } = useTheme();
@@ -115,6 +122,39 @@ export function GridTile({
           {subtitle}
         </Text>
       )}
+
+      {!selectable && (onRestorePress || onDeletePress) && (
+        <View style={[styles.actionRow, { width: size }]}>
+          {onRestorePress && (
+            <Pressable
+              onPress={onRestorePress}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Restore ${name}`}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { backgroundColor: colors.surfaceHover, borderRadius: radius(3), opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <RotateCcw size={iconSize(13)} color={colors.text} strokeWidth={2.25} />
+            </Pressable>
+          )}
+          {onDeletePress && (
+            <Pressable
+              onPress={onDeletePress}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${name}`}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { backgroundColor: `${colors.error}1F`, borderRadius: radius(3), opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Trash2 size={iconSize(13)} color={colors.error} strokeWidth={2.25} />
+            </Pressable>
+          )}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -129,4 +169,6 @@ const styles = StyleSheet.create({
   checkBadge: { position: 'absolute', top: 4, right: 4, alignItems: 'center', justifyContent: 'center' },
   label: { marginTop: 4, fontWeight: '600' },
   subtitle: { fontWeight: '500', marginTop: 1 },
+  actionRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
+  actionBtn: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
 });

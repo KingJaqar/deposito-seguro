@@ -1,27 +1,30 @@
 // src/app/(auth)/onboarding.tsx
-// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
-// Business logic unchanged: checkSetup(), the 8s setupTimedOut guard, the
-// isConfigured/isAuthenticated auto-redirect effect, and the register push.
+// Step 1 of the onboarding wizard ("Overview") — rebuilt to match
+// "design images as reference output/onboarding screen references/
+// onboarding 1 overview.png" exactly. Business logic unchanged: checkSetup(),
+// the 8s setupTimedOut guard, and the isConfigured/isAuthenticated
+// auto-redirect effect are byte-identical to the previous implementation.
 import { router } from 'expo-router';
-import { CloudOff, ShieldCheck, Shuffle } from 'lucide-react-native';
+import { ArrowRight, CloudOff, ShieldCheck, Shuffle } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BrandHeader } from '../../components/onboarding/BrandHeader';
+import { OnboardingProgress } from '../../components/onboarding/OnboardingProgress';
 import { Button } from '../../components/primitives/Button';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 import { useAuthStore } from '../../store/authStore';
 
-const FEATURES: { icon: LucideIcon; text: string }[] = [
-  { icon: CloudOff, text: '100% Offline Architecture: your data never touches a remote server or cloud database.' },
-  { icon: ShieldCheck, text: 'Military-Grade Security: passwords undergo intensive iterative hashing directly inside the device hardware sandbox.' },
-  { icon: Shuffle, text: 'Camouflage Skins: instantly transform your workspace into an alternate utility interface at any moment.' },
+const FEATURES: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: CloudOff, title: 'Fully offline', text: 'Nothing leaves the device. No server, no cloud, no sync account.' },
+  { icon: ShieldCheck, title: 'Sealed in hardware', text: 'Your key is hashed iteratively inside the device sandbox.' },
+  { icon: Shuffle, title: 'Camouflage skin', text: 'Switch the vault to an ordinary utility interface at any moment.' },
 ];
 
 export default function OnboardingScreen() {
-  const { colors, space, font, radius, isTablet , iconSize } = useTheme();
-  const { width } = useWindowDimensions();
+  const { colors, space, font } = useTheme();
   const { checkSetup, isConfigured, isAuthenticated, isLoading } = useAuthStore();
   const [setupTimedOut, setSetupTimedOut] = useState(false);
 
@@ -49,8 +52,6 @@ export default function OnboardingScreen() {
     }
   }, [isLoading, isConfigured, isAuthenticated]);
 
-  const logoSize = isTablet ? 96 : width < 360 ? 64 : 80;
-
   if (isLoading && !setupTimedOut) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -63,62 +64,73 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: space(6) }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={[styles.hero, { marginTop: space(10), marginBottom: space(8) }]}>
-            <View style={[styles.logoWrap, { width: logoSize, height: logoSize, borderRadius: radius(6), backgroundColor: colors.surfaceElevated, borderColor: colors.borderLight, marginBottom: space(5) }]}>
-              <Image
-                source={require('../../../assets/logo/DepoS_logo.png')}
-                style={{ width: logoSize * 0.62, height: logoSize * 0.62 }}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={[styles.title, { color: colors.text, fontSize: font(Type.display.size) }]}>DEPOSITO SEGURO</Text>
-            <Text style={[styles.subtitle, { color: colors.textMuted, fontSize: font(Type.subtitle.size), marginTop: space(2) }]}>
-              Zero-Knowledge Local Digital Vault
-            </Text>
-          </View>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: space(6), paddingTop: space(5), paddingBottom: space(8) }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <BrandHeader />
 
-          <View style={[styles.featureList, { gap: space(4), marginBottom: space(8) }]}>
-            {FEATURES.map((feature, i) => {
-              const Icon = feature.icon;
-              return (
-                <View key={i} style={[styles.featureRow, { gap: space(3) }]}>
-                  <View style={[styles.featureIconWrap, { backgroundColor: `${colors.primary}14`, borderRadius: radius(4) }]}>
-                    <Icon size={iconSize(20)} color={colors.primary} strokeWidth={2} />
+        <View style={{ marginTop: space(6), marginBottom: space(5) }}>
+          <OnboardingProgress activeStep={1} label="Step 1 · Overview" />
+        </View>
+
+        <Text style={[styles.headline, { color: colors.text, fontSize: font(Type.display.size), marginBottom: space(4) }]}>
+          A vault that only opens on this device.
+        </Text>
+
+        <Text style={[styles.paragraph, { color: colors.textMuted, fontSize: font(Type.body.size), marginBottom: space(6) }]}>
+          Zero-knowledge storage for the things you cannot afford to hand to a cloud. Setup takes under a minute.
+        </Text>
+
+        <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+
+        <View>
+          {FEATURES.map((feature, i) => {
+            const Icon = feature.icon;
+            return (
+              <View key={i}>
+                <View style={[styles.featureRow, { paddingVertical: space(5), gap: space(3) }]}>
+                  <Icon size={22} color={colors.primary} strokeWidth={2} style={styles.featureIcon} />
+                  <View style={styles.featureCopy}>
+                    <Text style={[styles.featureTitle, { color: colors.text, fontSize: font(Type.subtitle.size), marginBottom: space(1) }]}>
+                      {feature.title}
+                    </Text>
+                    <Text style={[styles.featureText, { color: colors.textMuted, fontSize: font(Type.body.size) }]}>
+                      {feature.text}
+                    </Text>
                   </View>
-                  <Text style={[styles.featureText, { color: colors.text, fontSize: font(Type.body.size) }]}>{feature.text}</Text>
                 </View>
-              );
-            })}
-          </View>
+                <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+              </View>
+            );
+          })}
+        </View>
 
-          <Button
-            title="Setup Secure Vault Space"
-            onPress={() => router.push('/(auth)/register')}
-            size="lg"
-            style={{ width: '100%' }}
-          />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Button
+          title="Create master key"
+          onPress={() => router.push('/(auth)/register')}
+          icon={ArrowRight}
+          size="lg"
+          style={{ width: '100%', marginTop: space(6), marginBottom: space(4) }}
+        />
+
+        <Text style={[styles.caption, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>No account required</Text>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  flex: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center' },
-  hero: { alignItems: 'center' },
-  logoWrap: { alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
-  title: { fontWeight: '800', letterSpacing: 1, textAlign: 'center' },
-  subtitle: { fontWeight: '500', textAlign: 'center' },
-  featureList: {},
+  scrollContent: { flexGrow: 1 },
+  headline: { fontWeight: '800', letterSpacing: -0.5, lineHeight: 36 },
+  paragraph: { fontWeight: '500', lineHeight: 21 },
+  divider: { height: StyleSheet.hairlineWidth, width: '100%' },
   featureRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  featureIconWrap: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  featureText: { flex: 1, lineHeight: 20, fontWeight: '500' },
+  featureIcon: { marginTop: 2 },
+  featureCopy: { flex: 1 },
+  featureTitle: { fontWeight: '700' },
+  featureText: { fontWeight: '500', lineHeight: 19 },
+  caption: { fontFamily: 'monospace', fontWeight: '500', textAlign: 'center' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

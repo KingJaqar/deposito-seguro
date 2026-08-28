@@ -53,7 +53,7 @@ import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { Badge } from '../../components/primitives/Badge';
 import { Chip } from '../../components/primitives/Chip';
 import { EmptyState } from '../../components/primitives/EmptyState';
-import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { getFileThumbnailUri, getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
 import { GridTile } from '../../components/primitives/GridTile';
 import { ListRow } from '../../components/primitives/ListRow';
 import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
@@ -61,13 +61,14 @@ import { SectionHeaderToggle, CollapsibleSection } from '../../components/primit
 import { Sheet } from '../../components/primitives/Sheet';
 import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
 import { Snackbar, useSnackbar } from '../../components/primitives/Snackbar';
+import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
 import { CategoryTint } from '../../constants/Colors';
 import { Type } from '../../constants/typography';
 import { useRename } from '../../contexts/RenameContext';
 import { useMove } from '../../contexts/MoveVaultContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
-import { getFolderStatsMap, formatFolderStatsLabel } from '../../utils/folderStats';
+import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
 import { buildVaultSections, VaultSectionData, VaultSectionKey, CategoryFilter } from '../../utils/vaultSections';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
@@ -105,6 +106,7 @@ export default function SearchScreen() {
   const { openRenameModal, setOnRename } = useRename();
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
   const { snackbarState, showSnackbar } = useSnackbar();
+  const { topToastState, showTopToast } = useTopToast();
 
   const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
 
@@ -216,16 +218,23 @@ export default function SearchScreen() {
 
   const handleBulkSoftDelete = () => {
     if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
     confirmDestructive(
       'Move to Trash',
-      `Move ${selectedIds.length} items into retention trash?`,
+      `Move ${count} items into retention trash?`,
       async () => {
+        let succeeded = 0;
         for (const id of selectedIds) {
           const file = allFiles.find(f => f.id === id);
           const folder = allFolders.find(f => f.id === id);
-          if (file) await softDeleteFile(id);
-          else if (folder) await deleteFolder(id);
+          try {
+            if (file) await softDeleteFile(id);
+            else if (folder) await deleteFolder(id);
+            succeeded++;
+          } catch { /* counted via count - succeeded */ }
         }
+        const { message, tone } = bulkOutcomeToast(succeeded, count, 'item', 'moved to trash', 'move to trash');
+        showTopToast(message, tone);
         exitSelectionMode();
       },
       'Move to Trash'
@@ -254,8 +263,15 @@ export default function SearchScreen() {
       'Delete Everything',
       `Move ALL ${totalItems} items into retention trash?`,
       async () => {
-        for (const file of matchedFiles) await softDeleteFile(file.id);
-        for (const folder of matchedFolders) await deleteFolder(folder.id);
+        let succeeded = 0;
+        for (const file of matchedFiles) {
+          try { await softDeleteFile(file.id); succeeded++; } catch { /* counted via totalItems - succeeded */ }
+        }
+        for (const folder of matchedFolders) {
+          try { await deleteFolder(folder.id); succeeded++; } catch { /* counted via totalItems - succeeded */ }
+        }
+        const { message, tone } = bulkOutcomeToast(succeeded, totalItems, 'item', 'moved to trash', 'move to trash');
+        showTopToast(message, tone);
         exitSelectionMode();
       },
       'Delete All'
@@ -315,8 +331,7 @@ export default function SearchScreen() {
         });
         openMoveModal(
           { id: file.id, name: file.name, type: 'file' },
-          folders.filter(f => f.id !== file.folderId).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
-          file.folderId
+          toMoveDestinations(folders.filter(f => f.id !== file.folderId), folderStatsMap)
         );
         break;
       case 'export':
@@ -324,15 +339,35 @@ export default function SearchScreen() {
           if (path) Sharing.shareAsync(path);
         });
         break;
-      case 'favorite': toggleFavorite(file.id); break;
+      case 'favorite': {
+        const markingFavorite = !file.isFavorite;
+        toggleFavorite(file.id)
+          .then(() => { if (markingFavorite) showTopToast(`${file.name} marked as favorite`); })
+          .catch(() => { if (markingFavorite) showTopToast(`Failed to mark ${file.name} as favorite`, 'error'); });
+        break;
+      }
       case 'copy': copyToClipboard([], [file.id], null); break;
       case 'cut': cutToClipboard([], [file.id], null); break;
       case 'duplicate': duplicateFile(file.id); break;
       case 'delete':
-        confirmDestructive('Move to Trash', `Move "${file.name}" into retention trash?`, () => softDeleteFile(file.id));
+        confirmDestructive('Move to Trash', `Move "${file.name}" into retention trash?`, async () => {
+          try {
+            await softDeleteFile(file.id);
+            showTopToast(`${file.name} has been moved to trash`);
+          } catch {
+            showTopToast(`Failed to move ${file.name} to trash`, 'error');
+          }
+        });
         break;
       case 'shred':
-        confirmDestructive('Permanently Shred', `Shred "${file.name}" permanently?`, () => shredFile(file.id), 'Permanently Shred');
+        confirmDestructive('Permanently Delete', `Delete "${file.name}" permanently?`, async () => {
+          try {
+            await shredFile(file.id);
+            showTopToast(`${file.name} deleted permanently`);
+          } catch {
+            showTopToast(`Failed to delete ${file.name} permanently`, 'error');
+          }
+        }, 'Permanently Delete');
         break;
       case 'register-key': setKeyCreateTarget({ id: file.id, name: file.name, targetType: 'file' }); setShowCreateKeyModal(true); break;
       case 'assign-key':
@@ -355,12 +390,11 @@ export default function SearchScreen() {
         break;
       case 'move':
         setOnMove((destinationFolderId: string | null) => {
-          if (destinationFolderId !== null) moveFolder(folder.id, destinationFolderId);
+          moveFolder(folder.id, destinationFolderId ?? undefined);
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          folders.filter(f => f.id !== folder.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
-          folder.parentId
+          toMoveDestinations(folders.filter(f => f.id !== folder.id), folderStatsMap)
         );
         break;
       case 'export':
@@ -369,7 +403,13 @@ export default function SearchScreen() {
           else showSnackbar('This vault has no files to export.', 'error');
         }).catch(() => Alert.alert('Export Failed', 'Something went wrong while exporting.'));
         break;
-      case 'favorite': toggleFolderFavorite(folder.id); break;
+      case 'favorite': {
+        const markingFavorite = !folder.isFavorite;
+        toggleFolderFavorite(folder.id)
+          .then(() => { if (markingFavorite) showTopToast(`${folder.name} marked as favorite`); })
+          .catch(() => { if (markingFavorite) showTopToast(`Failed to mark ${folder.name} as favorite`, 'error'); });
+        break;
+      }
       case 'open': handleFolderNavigate(folder); break;
       case 'copy': copyToClipboard([folder.id], [], null); break;
       case 'cut': cutToClipboard([folder.id], [], null); break;
@@ -383,10 +423,24 @@ export default function SearchScreen() {
         }
         break;
       case 'delete':
-        confirmDestructive('Move to Trash', `Move "${folder.name}" into retention trash?`, () => deleteFolder(folder.id));
+        confirmDestructive('Move to Trash', `Move "${folder.name}" into retention trash?`, async () => {
+          try {
+            await deleteFolder(folder.id);
+            showTopToast(`${folder.name} has been moved to trash`);
+          } catch {
+            showTopToast(`Failed to move ${folder.name} to trash`, 'error');
+          }
+        });
         break;
       case 'shred':
-        confirmDestructive('Permanently Shred', `Shred "${folder.name}" permanently?`, () => shredFolder(folder.id), 'Permanently Shred');
+        confirmDestructive('Permanently Delete', `Delete "${folder.name}" permanently?`, async () => {
+          try {
+            await shredFolder(folder.id);
+            showTopToast(`${folder.name} deleted permanently`);
+          } catch {
+            showTopToast(`Failed to delete ${folder.name} permanently`, 'error');
+          }
+        }, 'Permanently Delete');
         break;
       case 'register-key': setKeyCreateTarget({ id: folder.id, name: folder.name, targetType: 'folder' }); setShowCreateKeyModal(true); break;
       case 'assign-key':
@@ -426,7 +480,7 @@ export default function SearchScreen() {
       !hasPassword ? { action: 'assign-key', label: 'Assign Existing Password', color: colors.secondary } : null,
       { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: colors.warning },
       { action: 'delete', label: 'Move to Trash', color: colors.error },
-      { action: 'shred', label: 'Shred Permanently', color: colors.error },
+      { action: 'shred', label: 'Delete Permanently', color: colors.error },
     ].filter(Boolean) as { action: string; label: string; color: string }[];
   }, [targetItem, colors]);
 
@@ -445,7 +499,7 @@ export default function SearchScreen() {
       !hasPassword ? { action: 'assign-key', label: 'Assign Existing Password', color: colors.secondary } : null,
       { action: 'favorite', label: targetItem.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: colors.warning },
       { action: 'delete', label: 'Move to Trash', color: colors.error },
-      { action: 'shred', label: 'Shred Permanently', color: colors.error },
+      { action: 'shred', label: 'Delete Permanently', color: colors.error },
     ].filter(Boolean) as { action: string; label: string; color: string }[];
   }, [targetItem, clipboard, colors]);
 
@@ -580,7 +634,6 @@ export default function SearchScreen() {
             const isSelected = selectedIds.includes(item.id);
             const isCutPending = clipboard?.mode === 'cut' && clipboard.fileIds.includes(item.id);
             const meta = getFileTypeMeta(item.mimeType ?? '', item.name);
-            const hasThumbnail = item.mimeType?.startsWith('image/') || item.mimeType?.startsWith('video/');
             const FileIcon = meta.Icon;
             return (
               <GridTile
@@ -589,7 +642,7 @@ export default function SearchScreen() {
                 name={item.name}
                 Icon={FileIcon}
                 iconColor={meta.color}
-                thumbnailUri={hasThumbnail && item.localPath ? item.localPath : undefined}
+                thumbnailUri={getFileThumbnailUri(item)}
                 selectable={selectionMode}
                 selected={isSelected}
                 dimmed={isCutPending}
@@ -622,7 +675,7 @@ export default function SearchScreen() {
               key={item.id}
               title={item.name}
               subtitle={`${(item.size / 1024).toFixed(1)} KB · ${meta.label}`}
-              thumbnailUri={(item.mimeType?.startsWith('image/') || item.mimeType?.startsWith('video/')) && item.localPath ? item.localPath : undefined}
+              thumbnailUri={getFileThumbnailUri(item)}
               leading={<FileIcon size={iconSize(22)} color={meta.color} strokeWidth={2} />}
               trailingBadges={
                 <>
@@ -736,6 +789,7 @@ export default function SearchScreen() {
       <AnimatedTabBar />
 
       <Snackbar state={snackbarState} bottomOffset={bottomTabSpacing} />
+      <TopToast state={topToastState} />
 
       <Sheet visible={showFileMenu && !!targetItem} onClose={() => setShowFileMenu(false)} title={targetItem?.name}>
         {fileMenuItems.map((item) => (
@@ -770,20 +824,37 @@ export default function SearchScreen() {
         onClose={() => setKeyPickerTarget(null)}
         onSelectPassword={async (passwordId: string) => {
           if (!keyPickerTarget) return;
+          const keyLabel = accessKeys.find(k => k.id === passwordId)?.label ?? 'Access key';
           if (keyPickerTarget.type === 'bulk') {
+            const count = selectedIds.length;
+            let succeeded = 0;
             for (const id of selectedIds) {
               const file = allFiles.find(f => f.id === id);
               const folder = allFolders.find(f => f.id === id);
-              if (file) await assignFileAccessKey(id, passwordId);
-              else if (folder) await assignFolderAccessKey(id, passwordId);
+              try {
+                if (file) await assignFileAccessKey(id, passwordId);
+                else if (folder) await assignFolderAccessKey(id, passwordId);
+                succeeded++;
+              } catch { /* counted via count - succeeded */ }
             }
-            showSnackbar(`Access key has been assigned to ${selectedIds.length} items.`);
-          } else if (keyPickerTarget.type === 'file') {
-            await assignFileAccessKey(keyPickerTarget.id, passwordId);
-            showSnackbar('The selected access key is now registered.');
+            if (succeeded === 0) {
+              showTopToast(`Failed to assign ${keyLabel}`, 'error');
+            } else if (succeeded === count) {
+              showTopToast(`${keyLabel} has been assigned to ${count} items`);
+            } else {
+              showTopToast(`${keyLabel} has been assigned to ${succeeded} of ${count} items`);
+            }
           } else {
-            await assignFolderAccessKey(keyPickerTarget.id, passwordId);
-            showSnackbar('The selected access key is now registered.');
+            try {
+              if (keyPickerTarget.type === 'file') {
+                await assignFileAccessKey(keyPickerTarget.id, passwordId);
+              } else {
+                await assignFolderAccessKey(keyPickerTarget.id, passwordId);
+              }
+              showTopToast(`${keyLabel} has been assigned to ${keyPickerTarget.name}`);
+            } catch {
+              showTopToast(`Failed to assign ${keyLabel}`, 'error');
+            }
           }
           setKeyPickerTarget(null);
         }}
@@ -798,7 +869,20 @@ export default function SearchScreen() {
           ...Object.fromEntries(allFolders.filter(f => selectedIds.includes(f.id)).map(f => [f.id, 'folder'])),
         }}
         onClose={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
-        onSuccess={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+        onSuccess={(_id, label, assignedCount, totalCount) => {
+          // "created and assigned" — see dashboard.tsx's identical wiring
+          // for why this flow says both instead of just "assigned".
+          if (assignedCount !== undefined && totalCount !== undefined) {
+            showTopToast(assignedCount === totalCount
+              ? `${label} created and assigned to ${totalCount} item${totalCount !== 1 ? 's' : ''}`
+              : `${label} created and assigned to ${assignedCount} of ${totalCount} items`);
+          } else {
+            showTopToast(`${label} created and assigned to ${keyCreateTarget?.name ?? 'selected items'}`);
+          }
+          setShowCreateKeyModal(false);
+          setKeyCreateTarget(null);
+        }}
+        onError={(message) => showTopToast(message, 'error')}
         assignFolderAccessKey={assignFolderAccessKey}
         assignFileAccessKey={assignFileAccessKey}
       />

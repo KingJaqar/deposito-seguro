@@ -23,6 +23,7 @@ import { Button } from '../../../components/primitives/Button';
 import { Card } from '../../../components/primitives/Card';
 import { EmptyState } from '../../../components/primitives/EmptyState';
 import { TextField } from '../../../components/primitives/TextField';
+import { TopToast, useTopToast } from '../../../components/primitives/TopToast';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import Animated from 'react-native-reanimated';
@@ -49,6 +50,7 @@ export default function AuthKeyScreen() {
   const currentHint = securityHint || '';
 
   const screenAnimatedStyle = useScreenEnterAnimation();
+  const { topToastState, showTopToast } = useTopToast();
 
   const handleVerify = async () => {
     if (!verifyPassword.trim()) { Alert.alert('Password Required', 'Please enter your authentication key.'); return; }
@@ -108,15 +110,15 @@ export default function AuthKeyScreen() {
       }
       const success = await initializeVault(newPassword, hintText.trim() || securityHint);
       if (success) {
-        Alert.alert('Authentication Key Updated', 'Your vault authentication key has been changed.');
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
+        showTopToast('Authentication key changed');
       } else {
-        Alert.alert('Update Failed', 'Could not update the authentication key.');
+        showTopToast('Failed to change authentication key', 'error');
       }
     } catch {
-      Alert.alert('Error', 'Failed to update authentication key.');
+      showTopToast('Failed to change authentication key', 'error');
     } finally {
       setIsChanging(false);
     }
@@ -252,6 +254,7 @@ export default function AuthKeyScreen() {
         </KeyboardAvoidingView>
       </Animated.View>
       <AnimatedTabBar />
+      <TopToast state={topToastState} />
     </SafeAreaView>
   );
 }

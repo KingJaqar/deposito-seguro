@@ -49,11 +49,8 @@ export const ViewModeMenu = () => {
         style={({ pressed }) => [
           styles.trigger,
           {
-            backgroundColor: colors.surfaceHover,
-            borderColor: colors.borderLight,
             width: triggerSize,
             height: triggerSize,
-            borderRadius: triggerSize / 2,
             opacity: pressed ? 0.8 : 1,
           },
         ]}
@@ -121,7 +118,6 @@ const styles = StyleSheet.create({
   trigger: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   optionRow: {
     flexDirection: 'row',

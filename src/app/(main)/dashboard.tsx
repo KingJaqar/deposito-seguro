@@ -64,6 +64,7 @@ import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
 import { SectionHeaderToggle, CollapsibleSection } from '../../components/primitives/SectionHeaderToggle';
 import { Sheet } from '../../components/primitives/Sheet';
 import { Snackbar, useSnackbar } from '../../components/primitives/Snackbar';
+import { TopToast, useTopToast } from '../../components/primitives/TopToast';
 import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
 import { TextField } from '../../components/primitives/TextField';
 import { MAX_NAME_LENGTH } from '../../constants/naming';
@@ -75,13 +76,13 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { StorageService } from '../../services/storage';
-import { getFolderStatsMap, formatFolderStatsLabel } from '../../utils/folderStats';
+import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
+import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 
 export default function DashboardScreen() {
   const { colors, space, font, radius, screenPadding, bottomTabSpacing, isTablet, responsiveSize, iconSize } = useTheme();
   const { width } = useWindowDimensions();
   const {
-    disguiseAppName,
     storageLimitBytes,
   } = useSettingsStore();
   const viewMode = useSettingsStore((s) => s.viewMode);
@@ -98,10 +99,13 @@ export default function DashboardScreen() {
   const { openRenameModal, setOnRename } = useRename();
   const { openMoveModal, setOnMove } = useMove();
 
-  const displayName = disguiseAppName || 'Deposito Seguro';
+  // The disguise name is only for the outside (home-screen launcher icon/label);
+  // once inside the vault, always show the real app name.
+  const displayName = 'Deposito Seguro';
 
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
   const { snackbarState, showSnackbar } = useSnackbar();
+  const { topToastState, showTopToast } = useTopToast();
 
   type DashboardSectionKey = 'categories' | 'vaults';
   const [collapsedSections, setCollapsedSections] = useState<Set<DashboardSectionKey>>(new Set());
@@ -225,17 +229,27 @@ export default function DashboardScreen() {
 
   const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
+  const handleCreateFolder = async (name: string) => {
+    const finalName = name.trim() || 'New Folder';
+    try {
+      await createFolder(finalName, colors.primary, 'folder', false);
+      showTopToast(`${finalName} created`);
+    } catch {
+      showTopToast(`Failed to create ${finalName}`, 'error');
+    }
+  };
+
   const handleDirectoryProvisioning = () => {
     if (Platform.OS === 'web') {
       const name = window.prompt('Folder name:');
-      if (name !== null) createFolder(name.trim() || 'New Folder', colors.primary, 'folder', false);
+      if (name !== null) handleCreateFolder(name);
     } else {
       setShowFolderModal(true);
     }
   };
 
   const confirmFolderCreation = () => {
-    createFolder(folderName.trim(), colors.primary, 'folder', false);
+    handleCreateFolder(folderName);
     setShowFolderModal(false);
     setFolderName('');
   };
@@ -262,14 +276,11 @@ export default function DashboardScreen() {
       case 'move':
         setTargetFolder(folder);
         setOnMove((destinationFolderId: string | null) => {
-          if (destinationFolderId !== null) {
-            moveFolder(folder.id, destinationFolderId);
-          }
+          moveFolder(folder.id, destinationFolderId ?? undefined);
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          folders.filter(f => f.id !== folder.id).map(f => ({ id: f.id, name: f.name, parentId: f.parentId })),
-          folder.parentId
+          toMoveDestinations(folders.filter(f => f.id !== folder.id), folderStatsMap)
         );
         break;
       case 'export':
@@ -282,15 +293,29 @@ export default function DashboardScreen() {
          confirmDestructive(
            'Move to Trash',
            `Move "${folder.name}" into retention trash?`,
-           () => deleteFolder(folder.id)
+           async () => {
+             try {
+               await deleteFolder(folder.id);
+               showTopToast(`${folder.name} has been moved to trash`);
+             } catch {
+               showTopToast(`Failed to move ${folder.name} to trash`, 'error');
+             }
+           }
          );
          break;
        case 'shred':
          confirmDestructive(
-           'Permanently Shred',
-           `Shred "${folder.name}" and all its contents permanently?`,
-           () => shredFolder(folder.id),
-           'Shred Permanently'
+           'Permanently Delete',
+           `Delete "${folder.name}" and all its contents permanently?`,
+           async () => {
+             try {
+               await shredFolder(folder.id);
+               showTopToast(`${folder.name} deleted permanently`);
+             } catch {
+               showTopToast(`Failed to delete ${folder.name} permanently`, 'error');
+             }
+           },
+           'Delete Permanently'
          );
          break;
        case 'register-key':
@@ -315,9 +340,13 @@ export default function DashboardScreen() {
           setShowUnlockModal(true);
         }
         break;
-      case 'favorite':
-        toggleFolderFavorite && toggleFolderFavorite(folder.id);
+      case 'favorite': {
+        const markingFavorite = !folder.isFavorite;
+        toggleFolderFavorite?.(folder.id)
+          .then(() => { if (markingFavorite) showTopToast(`${folder.name} marked as favorite`); })
+          .catch(() => { if (markingFavorite) showTopToast(`Failed to mark ${folder.name} as favorite`, 'error'); });
         break;
+      }
       case 'duplicate':
         duplicateFolder(folder.id);
         break;
@@ -340,20 +369,36 @@ export default function DashboardScreen() {
 
   const handleBulkShredFolders = () => {
     if (selectedFolderIds.length === 0) return;
+    const count = selectedFolderIds.length;
     confirmDestructive(
-      'Permanently Shred',
-      `Shred ${selectedFolderIds.length} folders and all their contents permanently?`,
-      () => shredMultipleFolders(selectedFolderIds),
-      'Shred Permanently'
+      'Permanently Delete',
+      `Delete ${count} folders and all their contents permanently?`,
+      async () => {
+        try {
+          await shredMultipleFolders(selectedFolderIds);
+          showTopToast(`${count} vault${count !== 1 ? 's' : ''} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${count} vault${count !== 1 ? 's' : ''} permanently`, 'error');
+        }
+      },
+      'Delete Permanently'
     );
   };
 
   const handleDeleteAllFolders = () => {
     if (folders.length === 0) return;
+    const count = folders.length;
     confirmDestructive(
       'Permanently Delete All Vaults',
-      `Permanently delete all ${folders.length} vaults and their contents? This cannot be undone.`,
-      () => shredMultipleFolders(folders.map(f => f.id)),
+      `Permanently delete all ${count} vaults and their contents? This cannot be undone.`,
+      async () => {
+        try {
+          await shredMultipleFolders(folders.map(f => f.id));
+          showTopToast(`${count} vault${count !== 1 ? 's' : ''} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${count} vault${count !== 1 ? 's' : ''} permanently`, 'error');
+        }
+      },
       'Delete All'
     );
   };
@@ -515,7 +560,7 @@ export default function DashboardScreen() {
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
       { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: colors.warning },
       { action: 'delete', label: 'Move to Trash', color: colors.error },
-      { action: 'shred', label: 'Shred Permanently', color: colors.error },
+      { action: 'shred', label: 'Delete Permanently', color: colors.error },
     ];
     if (hasClipboard) {
       baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: colors.secondary });
@@ -542,7 +587,7 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Pressable onPress={() => router.push('/(main)/search')} accessibilityRole="button" accessibilityLabel="Search files and vaults">
-          <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), paddingVertical: space(3), marginBottom: space(5), gap: space(2) }]}>
+          <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
             <Search size={iconSize(18)} color={colors.textMuted} />
             <Text style={[styles.searchPlaceholder, { color: colors.textMuted, fontSize: font(Type.body.size) }]}>Search files, vaults…</Text>
           </View>
@@ -664,7 +709,7 @@ export default function DashboardScreen() {
                     <TouchableOpacity onPress={handleBulkCut} style={styles.iconActionPill} accessibilityRole="button" accessibilityLabel="Cut selected vaults">
                       <Scissors size={iconSize(18)} color={colors.text} strokeWidth={2.5} />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={handleBulkShredFolders} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]} accessibilityRole="button" accessibilityLabel="Shred selected vaults">
+                    <TouchableOpacity onPress={handleBulkShredFolders} style={[styles.iconActionPill, { backgroundColor: `${colors.error}18` }]} accessibilityRole="button" accessibilityLabel="Delete selected vaults">
                       <Trash2 size={iconSize(18)} color={colors.error} strokeWidth={2.5} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={handleBulkAssignExistingKey} style={styles.iconActionPill} accessibilityRole="button" accessibilityLabel="Assign existing access key">
@@ -735,6 +780,7 @@ export default function DashboardScreen() {
       <AnimatedTabBar />
 
       <Snackbar state={snackbarState} bottomOffset={bottomTabSpacing} />
+      <TopToast state={topToastState} />
 
       <Dialog
         visible={showFolderModal}
@@ -778,14 +824,27 @@ export default function DashboardScreen() {
         onClose={() => { setShowPasswordPicker(false); setKeyPickerTarget(null); }}
         onSelectPassword={async (passwordId: string) => {
           if (!keyPickerTarget) return;
+          const keyLabel = accessKeys.find(k => k.id === passwordId)?.label ?? 'Access key';
           if (keyPickerTarget.type === 'bulk') {
+            const count = selectedFolderIds.length;
+            let succeeded = 0;
             for (const folderId of selectedFolderIds) {
-              await assignFolderAccessKey(folderId, passwordId);
+              try { await assignFolderAccessKey(folderId, passwordId); succeeded++; } catch { /* counted via count - succeeded */ }
             }
-            showSnackbar(`Access key has been assigned to ${selectedFolderIds.length} vaults.`);
+            if (succeeded === 0) {
+              showTopToast(`Failed to assign ${keyLabel}`, 'error');
+            } else if (succeeded === count) {
+              showTopToast(`${keyLabel} has been assigned to ${count} vaults`);
+            } else {
+              showTopToast(`${keyLabel} has been assigned to ${succeeded} of ${count} vaults`);
+            }
           } else {
-            await assignFolderAccessKey(keyPickerTarget.id, passwordId);
-            showSnackbar('The selected access key is now registered.');
+            try {
+              await assignFolderAccessKey(keyPickerTarget.id, passwordId);
+              showTopToast(`${keyLabel} has been assigned to ${keyPickerTarget.name}`);
+            } catch {
+              showTopToast(`Failed to assign ${keyLabel}`, 'error');
+            }
           }
           setShowPasswordPicker(false);
           setKeyPickerTarget(null);
@@ -826,7 +885,23 @@ export default function DashboardScreen() {
         selectedItemIds={selectedFolderIds}
         itemTypes={Object.fromEntries(selectedFolderIds.map(id => [id, 'folder']))}
         onClose={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
-        onSuccess={() => { setShowCreateKeyModal(false); setKeyCreateTarget(null); }}
+        onSuccess={(_id, label, assignedCount, totalCount) => {
+          // "created and assigned" rather than just "assigned" — this flow
+          // both creates the key and assigns it in one step, and the plain
+          // access-keys.tsx create form is the only other place "created"
+          // ever appears, so dropping it here would make this the one path
+          // where a brand-new key's creation never gets confirmed at all.
+          if (assignedCount !== undefined && totalCount !== undefined) {
+            showTopToast(assignedCount === totalCount
+              ? `${label} created and assigned to ${totalCount} vault${totalCount !== 1 ? 's' : ''}`
+              : `${label} created and assigned to ${assignedCount} of ${totalCount} vaults`);
+          } else {
+            showTopToast(`${label} created and assigned to ${keyCreateTarget?.name ?? 'selected vaults'}`);
+          }
+          setShowCreateKeyModal(false);
+          setKeyCreateTarget(null);
+        }}
+        onError={(message) => showTopToast(message, 'error')}
         assignFolderAccessKey={assignFolderAccessKey}
         assignFileAccessKey={() => Promise.resolve()}
       />

@@ -3,9 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
 import { StorageService } from '../services/storage';
+import { extractApkIcon } from '../services/apkIconExtractor';
 import { ClipboardItem, EncryptionKeyMetadata, FileMetadata, FolderMetadata, PasteResult, UndoInfo, VaultState } from '../types';
 import { useSettingsStore } from './settingsStore';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { MAX_NAME_LENGTH, clampNameLength } from '../constants/naming';
 
 /**
@@ -47,7 +48,7 @@ interface VaultStoreActions extends VaultState {
   toggleFavorite: (fileId: string) => Promise<void>;
   toggleFolderFavorite: (folderId: string, markFavorite?: boolean) => Promise<void>;
   softDeleteFile: (fileId: string) => Promise<void>;
-  restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean }>;
+  restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean; folderId?: string }>;
   permanentlyDeleteFile: (fileId: string) => Promise<void>;
   permanentlyDeleteFiles: (fileIds: string[]) => Promise<void>;
   clearEverythingState: () => void;
@@ -105,7 +106,43 @@ const processSequentially = async (items: string[], action: (id: string) => Prom
     }
   };
 
+/**
+ * Appends " (2)", " (3)", ... to `baseName` until it no longer collides with
+ * `existingNames` — the same disambiguation copy/paste already applies via
+ * its own inline uniqueName() closure, factored out here so moveFolder/
+ * moveFileToFolder can apply it too instead of silently allowing two
+ * identically-named siblings after a move.
+ */
+const dedupeName = (baseName: string, existingNames: Set<string>): string => {
+  if (!existingNames.has(baseName)) return baseName;
+  let counter = 2;
+  let name = `${baseName} (${counter})`;
+  while (existingNames.has(name)) {
+    counter++;
+    name = `${baseName} (${counter})`;
+  }
+  return name;
+};
+
+/** Same as dedupeName, but keeps a file's extension at the end — "photo (2).jpg", not "photo.jpg (2)". */
+const dedupeFileName = (name: string, existingNames: Set<string>): string => {
+  if (!existingNames.has(name)) return name;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot) : '';
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  let counter = 2;
+  let candidate = `${base} (${counter})${ext}`;
+  while (existingNames.has(candidate)) {
+    counter++;
+    candidate = `${base} (${counter})${ext}`;
+  }
+  return candidate;
+};
+
 const removeFilePayload = async (file: FileMetadata) => {
+  if (file.iconPath) {
+    await StorageService.removeSandboxFile(file.iconPath);
+  }
   if (!file.localPath) return;
   await StorageService.removeSandboxFile(file.localPath);
 };
@@ -321,6 +358,18 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // module isn't available/fails.
     const remuxedPath = await StorageService.remuxVideoIfPossible(internalPath, mimeType);
     let finalPath = remuxedPath;
+
+    // Best-effort real app-icon extraction for .apk imports (see
+    // src/services/apkIconExtractor.ts) — must run on the plaintext sandbox
+    // copy before any encryption below, since it needs to unzip the actual
+    // file bytes. Never blocks the import: a non-APK, a web build, or an
+    // extraction failure all just leave iconPath undefined and the grid
+    // falls back to the generic app glyph.
+    let iconPath: string | undefined;
+    const isApk = mimeType === 'application/vnd.android.package-archive' || fileName.toLowerCase().endsWith('.apk');
+    if (isApk && Platform.OS !== 'web') {
+      iconPath = (await extractApkIcon(remuxedPath, `${remuxedPath}.icon.png`)) ?? undefined;
+    }
     // I-2: only mark a file as encrypted when encryption actually ran, not
     // merely because it was requested — previously `isEncrypted: encrypt`
     // was set unconditionally, so a resolution failure (missing key) left
@@ -344,6 +393,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       size,
       mimeType,
       localPath: finalPath,
+      iconPath,
       isEncrypted: didEncrypt,
       encryptionKeyId: didEncrypt ? encryptionKeyId : undefined,
       isFavorite: false,
@@ -378,6 +428,11 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // pretending it was preserved.
     const targetFile = get().files.find(f => f.id === fileId);
     const originalFolderExists = !!targetFile && get().folders.some(f => f.id === targetFile.folderId);
+    // Set inside the commitVaultState updater below, whose closure runs
+    // synchronously against the latest state — read back afterward so the
+    // caller (e.g. trash.tsx's restore toast) knows exactly which folder
+    // the file actually landed in, without duplicating this resolution.
+    let resolvedFolderId: string | undefined;
 
     await commitVaultState(set, (state) => {
       const targetFile = state.files.find(f => f.id === fileId);
@@ -405,6 +460,8 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         targetFolderId = restoredFolder.id;
       }
 
+      resolvedFolderId = targetFolderId;
+
       const files = state.files.map(f =>
         f.id === fileId ? { ...f, isTrash: false, deletedAt: undefined, folderId: targetFolderId } : f
       );
@@ -412,7 +469,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       return { folders, files };
     });
 
-    return { landedInFallbackFolder: !!targetFile && !originalFolderExists };
+    return { landedInFallbackFolder: !!targetFile && !originalFolderExists, folderId: resolvedFolderId };
   },
   permanentlyDeleteFile: async (fileId) => {
     const targetFile = get().files.find(f => f.id === fileId);
@@ -445,9 +502,17 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   moveFolder: async (folderId, newParentId) => {
-    await commitVaultState(set, (state) => ({
-      folders: state.folders.map(f => f.id === folderId ? { ...f, parentId: newParentId } : f)
-    }));
+    await commitVaultState(set, (state) => {
+      const folder = state.folders.find(f => f.id === folderId);
+      if (!folder) return {};
+      const siblingNames = new Set(
+        state.folders.filter(f => f.parentId === newParentId && f.id !== folderId).map(f => f.name)
+      );
+      const name = dedupeName(folder.name, siblingNames);
+      return {
+        folders: state.folders.map(f => f.id === folderId ? { ...f, parentId: newParentId, name } : f)
+      };
+    });
   },
   renameFile: async (fileId, newName) => {
     const clampedName = clampNameLength(newName);
@@ -456,9 +521,17 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   moveFileToFolder: async (fileId, targetFolderId) => {
-    await commitVaultState(set, (state) => ({
-      files: state.files.map(f => f.id === fileId ? { ...f, folderId: targetFolderId } : f)
-    }));
+    await commitVaultState(set, (state) => {
+      const file = state.files.find(f => f.id === fileId);
+      if (!file) return {};
+      const siblingNames = new Set(
+        state.files.filter(f => f.folderId === targetFolderId && f.id !== fileId && !f.isTrash).map(f => f.name)
+      );
+      const name = dedupeFileName(file.name, siblingNames);
+      return {
+        files: state.files.map(f => f.id === fileId ? { ...f, folderId: targetFolderId, name } : f)
+      };
+    });
   },
   exportFileToDevice: async (fileId) => {
     const file = get().files.find(f => f.id === fileId);
@@ -997,12 +1070,29 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     }
 
+    // The extracted app icon (see apkIconExtractor) must get its own copy
+    // too, not just a shared reference to sourceFile.iconPath — otherwise
+    // permanently deleting either the original or this copy (removeFilePayload
+    // deletes file.iconPath unconditionally) would leave the other's icon
+    // file missing.
+    let newIconPath: string | undefined;
+    if (sourceFile.iconPath) {
+      newIconPath = `${sourceFile.iconPath}_copy_${newId}`;
+      try {
+        await StorageService.copySandboxFile(sourceFile.iconPath, newIconPath);
+      } catch (e) {
+        console.error('Failed to copy app icon file', e);
+        newIconPath = undefined;
+      }
+    }
+
     const newFile: FileMetadata = {
       ...sourceFile,
       id: newId,
       name: finalName,
       folderId: targetFolderId,
       localPath: newLocalPath ?? sourceFile.localPath ?? '',
+      iconPath: newIconPath,
       isTrash: false,
       deletedAt: undefined,
       importedAt: Date.now(),

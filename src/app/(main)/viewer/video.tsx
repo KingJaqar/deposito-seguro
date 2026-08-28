@@ -369,16 +369,39 @@ export default function VideoViewerScreen() {
     return new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   };
 
+  // Loading state now matches the immersive full-bleed black canvas used
+  // below (same CANVAS_BG, same pill back button over CHROME_SCRIM) instead
+  // of the old boxed SafeAreaView+VaultHeader layout. Rendering the old
+  // chrome here — even briefly, while the file is being located/decrypted —
+  // is exactly what produced the "old UI flashes before the real player"
+  // report: this state mounts first on every navigation into the screen.
   if (loading) {
     return (
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
+      <View style={[styles.root, { backgroundColor: CANVAS_BG }]}>
         <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-          <VaultHeader title={fileMeta ? fileMeta.name : 'Video View Canvas'} showBack />
           <View style={styles.viewport}>
-            <ActivityIndicator size="large" color={colors.primary} />
+            <ActivityIndicator size="large" color={CHROME_TEXT} />
+          </View>
+          <View
+            style={[styles.topBar, { backgroundColor: CHROME_SCRIM, paddingTop: insets.top + space(2), paddingHorizontal: space(4), paddingBottom: space(3) }]}
+          >
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={8}
+              style={[styles.pillBtn, { backgroundColor: PILL_BG }]}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <ChevronLeft size={iconSize(22)} color={CHROME_TEXT} strokeWidth={2.5} />
+            </TouchableOpacity>
+            <View style={styles.topBarTitleWrap}>
+              <Text style={[styles.topBarTitle, { fontSize: font(Type.subtitle.size), color: CHROME_TEXT }]} numberOfLines={1}>
+                {fileMeta ? fileMeta.name : 'Video View Canvas'}
+              </Text>
+            </View>
           </View>
         </Animated.View>
-      </SafeAreaView>
+      </View>
     );
   }
 

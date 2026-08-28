@@ -7,7 +7,7 @@
 import React from 'react';
 import { Image, StyleSheet } from 'react-native';
 
-const subfolderIconSource = require('../../../assets/icons/folder icons/subfolder_icon.png');
+const subfolderIconSource = require('../../../assets/icons/folder_icons/subfolder_icon.png');
 
 export function SubfolderIcon({
   size = 24,

@@ -1,5 +1,5 @@
 // File: src/app/(main)/_layout.tsx
-import { Redirect, Slot, useRouter } from 'expo-router';
+import { Redirect, Stack, useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, StyleSheet, View, Platform } from 'react-native';
 import { useThemeColors } from '../../contexts/ThemeContext';
@@ -65,7 +65,27 @@ export default function MainAppContainerLayout() {
 
   return (
     <View style={[styles.wrapper, { backgroundColor: colors.background }]} onTouchStart={updateActivity}>
-      <Slot />
+      {/* Native-stack transitions (GPU-driven, off the JS thread) so pushes like
+          dashboard -> folder/[id] get a smooth, fast slide instead of Slot's
+          hard cut. 100ms = 0.5x the original 200ms duration. */}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationDuration: 100,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        {/* The 5 bottom-tab destinations swap via AnimatedTabBar's router.push,
+            not a real drill-down — no slide for those, matching typical tab-bar
+            feel. Everything else (folder/[id], viewer/*, settings/* subpages)
+            keeps the default push/pop slide from screenOptions above. */}
+        <Stack.Screen name="dashboard" options={{ animation: 'none' }} />
+        <Stack.Screen name="favorites" options={{ animation: 'none' }} />
+        <Stack.Screen name="search" options={{ animation: 'none' }} />
+        <Stack.Screen name="trash" options={{ animation: 'none' }} />
+        <Stack.Screen name="settings/index" options={{ animation: 'none' }} />
+      </Stack>
     </View>
   );
 }

@@ -49,6 +49,21 @@ export function getFileTypeMeta(mimeType: string, name: string): FileTypeMeta {
   return { tag, color: COLOR_BY_TAG[tag], label: LABEL_BY_TAG[tag], Icon: ICON_BY_TAG[tag] };
 }
 
+/**
+ * Thumbnail source for a file tile/row: images and videos preview their own
+ * bytes (`localPath`); .apk files preview the real app icon extracted at
+ * import time (`iconPath` — see src/services/apkIconExtractor.ts) instead of
+ * the generic Smartphone glyph, when extraction succeeded. Everything else
+ * falls back to `undefined`, which callers render as the type icon.
+ */
+export function getFileThumbnailUri(file: { mimeType?: string; localPath?: string; iconPath?: string }): string | undefined {
+  if ((file.mimeType?.startsWith('image/') || file.mimeType?.startsWith('video/')) && file.localPath) {
+    return file.localPath;
+  }
+  if (file.iconPath) return file.iconPath;
+  return undefined;
+}
+
 export function FileTypeIcon({ mimeType, name, size = 24 }: { mimeType: string; name: string; size?: number }) {
   const { iconSize } = useTheme();
   const { Icon, color } = getFileTypeMeta(mimeType, name);

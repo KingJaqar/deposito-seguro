@@ -11,17 +11,22 @@ export interface MoveDestination {
   id: string;
   name: string;
   parentId?: string;
+  isFavorite: boolean;
+  hasAccessKey: boolean;
+  fileCount: number;
+  totalSize: number;
 }
+
+type MoveCallback = (destinationFolderId: string | null) => void | Promise<void>;
 
 interface MoveVaultContextType {
   visible: boolean;
   item: MoveItem | null;
   folders: MoveDestination[];
-  currentFolderId?: string;
-  openMoveModal: (moveItem: MoveItem, availableFolders: MoveDestination[], currentFolderId?: string) => void;
+  openMoveModal: (moveItem: MoveItem, availableFolders: MoveDestination[]) => void;
   closeMoveModal: () => void;
-  onMove: ((destinationFolderId: string | null) => void) | null;
-  setOnMove: (callback: ((destinationFolderId: string | null) => void) | null) => void;
+  onMove: MoveCallback | null;
+  setOnMove: (callback: MoveCallback | null) => void;
 }
 
 const MoveVaultContext = createContext<MoveVaultContextType | undefined>(undefined);
@@ -30,17 +35,14 @@ export function MoveProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [item, setItem] = useState<MoveItem | null>(null);
   const [folders, setFolders] = useState<MoveDestination[]>([]);
-  const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
-  const [onMoveCallback, setOnMoveCallback] = useState<((destinationFolderId: string | null) => void) | null>(null);
+  const [onMoveCallback, setOnMoveCallback] = useState<MoveCallback | null>(null);
 
   const openMoveModal = useCallback((
     moveItem: MoveItem,
-    availableFolders: MoveDestination[],
-    currentFolderId?: string
+    availableFolders: MoveDestination[]
   ) => {
     setItem(moveItem);
     setFolders(availableFolders);
-    setCurrentFolderId(currentFolderId);
     setVisible(true);
   }, []);
 
@@ -48,11 +50,10 @@ export function MoveProvider({ children }: { children: ReactNode }) {
     setVisible(false);
     setItem(null);
     setFolders([]);
-    setCurrentFolderId(undefined);
     setOnMoveCallback(null);
   }, []);
 
-  const setOnMove = useCallback((callback: ((destinationFolderId: string | null) => void) | null) => {
+  const setOnMove = useCallback((callback: MoveCallback | null) => {
     setOnMoveCallback(() => callback);
   }, []);
 
@@ -60,7 +61,6 @@ export function MoveProvider({ children }: { children: ReactNode }) {
     visible,
     item,
     folders,
-    currentFolderId,
     openMoveModal,
     closeMoveModal,
     onMove: onMoveCallback,

@@ -1,15 +1,23 @@
 // src/app/(main)/viewer/document.tsx
-// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
-// Every store/service call (decrypt-then-read pipeline, text-content read,
-// sandbox-file cleanup on unmount, Sharing.shareAsync) is unchanged; only
-// JSX/StyleSheet is new. Notable per-plan changes:
-//  - Card/Chip/Button/EmptyState primitives replace the local hero/chip/
-//    action-tile markup
-//  - 100% lucide-react-native icons, replacing the @expo/vector-icons
-//    Ionicons this file used (§4 "100% lucide, no second icon set")
-//  - the plain-text branch (chip row + text card) and the generic branch
-//    (hero card + Open/Share tile + collapsible details) keep their exact
-//    structure per §3's screen row
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4, then
+// given real in-app renderers per follow-up request ("implement an actual
+// document viewer similar to Google Drive's"), styled to match Drive's own
+// document-preview look: a fixed light-gray backdrop with a white "page"
+// card, regardless of the app's active theme — same theme-independent-
+// chrome precedent video.tsx/image.tsx set for viewers whose content isn't
+// really "app UI". The decrypt-then-read pipeline (sandbox-file cleanup on
+// unmount, Sharing.shareAsync) is unchanged; routing to a type-specific
+// viewer component is new:
+//  - .pdf            -> PdfViewer (pdf.js inside a WebView, fully offline)
+//  - .docx            -> FlowDocViewer kind="docx" (mammoth inside a WebView)
+//  - .odt             -> FlowDocViewer kind="odt" (hand-rolled ODF->HTML)
+//  - .xlsx            -> SheetViewer (SheetJS, native grid, no WebView)
+//  - text/*           -> TextPageViewer (unchanged content, restyled as a page)
+//  - anything else    -> the original hero-card "Open Document" tile
+// See src/services/documentViewers/*.ts for why everything (library code,
+// file bytes) is inlined rather than fetched: app.json blocks
+// android.permission.INTERNET outright, so nothing here can hit a CDN or a
+// Google-Docs-Viewer-style remote render, even for the WebView-hosted paths.
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -18,7 +26,6 @@ import { AccessibilityInfo, ActivityIndicator, Alert, Platform, ScrollView, Styl
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AlertCircle,
-  BookOpen,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -35,17 +42,34 @@ import { VaultHeader } from '../../../components/VaultHeader';
 import { Card } from '../../../components/primitives/Card';
 import { Chip } from '../../../components/primitives/Chip';
 import { EmptyState } from '../../../components/primitives/EmptyState';
+import { PdfViewer } from '../../../components/documentViewer/PdfViewer';
+import { FlowDocViewer } from '../../../components/documentViewer/FlowDocViewer';
+import { SheetViewer } from '../../../components/documentViewer/SheetViewer';
+import { TextPageViewer } from '../../../components/documentViewer/TextPageViewer';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { Durations } from '../../../constants/animations';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
-import { EncryptionKeyMetadata } from '../../../types';
+import { EncryptionKeyMetadata, FileMetadata } from '../../../types';
+
+type DocKind = 'pdf' | 'docx' | 'odt' | 'xlsx' | 'text' | 'generic';
+
+function resolveDocKind(fileMeta: FileMetadata): DocKind {
+  const name = fileMeta.name?.toLowerCase() ?? '';
+  const mime = fileMeta.mimeType ?? '';
+  if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) return 'docx';
+  if (mime === 'application/vnd.oasis.opendocument.text' || name.endsWith('.odt')) return 'odt';
+  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || name.endsWith('.xlsx')) return 'xlsx';
+  if (mime.startsWith('text/')) return 'text';
+  return 'generic';
+}
 
 export default function DocumentViewerScreen() {
   const { fileId } = useLocalSearchParams<{ fileId: string }>();
-  const { colors, space, font, radius, screenPadding, isTablet , iconSize } = useTheme();
+  const { colors, space, font, radius, screenPadding, isTablet, iconSize } = useTheme();
   const { files } = useVaultStore();
   const encryptionKeys = useSettingsStore((state: { encryptionKeys: EncryptionKeyMetadata[] }) => state.encryptionKeys);
 
@@ -56,6 +80,7 @@ export default function DocumentViewerScreen() {
   const decryptedUriRef = useRef<string | null>(null);
 
   const fileMeta = files.find(f => f.id === fileId);
+  const docKind = fileMeta ? resolveDocKind(fileMeta) : 'generic';
 
   const screenOpacity = useSharedValue(1);
   const screenTranslateY = useSharedValue(0);
@@ -155,43 +180,57 @@ export default function DocumentViewerScreen() {
     );
   }
 
-  const isText = fileMeta.mimeType?.startsWith('text/') ?? false;
-  const isPdf = fileMeta.mimeType === 'application/pdf' || fileMeta.name?.toLowerCase().endsWith('.pdf');
+  const shareButton = (
+    <TouchableOpacity
+      onPress={handleOpenExternally}
+      hitSlop={4}
+      style={[styles.headerActionBtn, { backgroundColor: colors.surfaceHover }]}
+      accessibilityRole="button"
+      accessibilityLabel="Share"
+    >
+      <Share2 size={iconSize(18)} color={colors.text} strokeWidth={2} />
+    </TouchableOpacity>
+  );
 
-  const FileTypeIconComp = isPdf ? FileText : fileMeta.mimeType?.startsWith('image/') ? ImageIcon : isText ? BookOpen : FileIcon;
-
-  if (isText && fileContent) {
+  // The 4 fully-rendered doc types share one shell: VaultHeader (theming,
+  // back button, share action) above a full-bleed type-specific viewer that
+  // owns its own light-gray-backdrop/white-page canvas — see each
+  // component's header comment for why that canvas is theme-independent.
+  if (!loading && decryptedUri && (docKind === 'pdf' || docKind === 'docx' || docKind === 'odt' || docKind === 'xlsx')) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
         <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-          <VaultHeader
-            title={fileMeta.name || 'Document'}
-            showBack
-            rightButton={
-              <TouchableOpacity
-                onPress={handleOpenExternally}
-                hitSlop={4}
-                style={[styles.headerActionBtn, { backgroundColor: colors.surfaceHover }]}
-                accessibilityRole="button"
-                accessibilityLabel="Share"
-              >
-                <Share2 size={iconSize(18)} color={colors.text} strokeWidth={2} />
-              </TouchableOpacity>
-            }
-          />
-          <ScrollView style={styles.flex1} contentContainerStyle={{ padding: screenPadding, gap: space(3) }}>
-            <View style={[styles.chipRow, { gap: space(2), marginBottom: space(2) }]}>
-              <Chip label="Plain Text" color={colors.primary} />
-              {fileMeta.size ? <Chip label={formatFileSize(fileMeta.size)} color={colors.textMuted} /> : null}
+          <VaultHeader title={fileMeta.name || 'Document'} showBack rightButton={shareButton} />
+          {docKind === 'odt' && (
+            <View style={[styles.limitationBanner, { backgroundColor: colors.surfaceHover, borderBottomColor: colors.borderLight, paddingHorizontal: screenPadding, paddingVertical: space(2) }]}>
+              <Text style={[styles.limitationText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
+                Simplified preview — text and structure only; styling and images aren&apos;t shown.
+              </Text>
             </View>
-            <Card>
-              <Text style={[styles.textContent, { color: colors.text, fontSize: font(Type.subtitle.size) }]}>{fileContent}</Text>
-            </Card>
-          </ScrollView>
+          )}
+          {docKind === 'pdf' && <PdfViewer localUri={decryptedUri} />}
+          {docKind === 'docx' && <FlowDocViewer localUri={decryptedUri} kind="docx" />}
+          {docKind === 'odt' && <FlowDocViewer localUri={decryptedUri} kind="odt" />}
+          {docKind === 'xlsx' && <SheetViewer localUri={decryptedUri} />}
         </Animated.View>
       </SafeAreaView>
     );
   }
+
+  if (docKind === 'text' && fileContent) {
+    return (
+      <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
+        <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
+          <VaultHeader title={fileMeta.name || 'Document'} showBack rightButton={shareButton} />
+          <TextPageViewer content={fileContent} />
+        </Animated.View>
+      </SafeAreaView>
+    );
+  }
+
+  const isPdf = docKind === 'pdf';
+  const isText = docKind === 'text';
+  const FileTypeIconComp = isPdf ? FileText : fileMeta.mimeType?.startsWith('image/') ? ImageIcon : isText ? FileText : FileIcon;
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
@@ -203,7 +242,7 @@ export default function DocumentViewerScreen() {
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
           ) : decryptedUri ? (
-            Platform.OS === 'web' ? (
+            Platform.OS === 'web' && isPdf ? (
               <iframe src={decryptedUri} style={styles.webIframe as any} title={fileMeta.name} />
             ) : (
               <View style={[styles.card, { maxWidth: isTablet ? 720 : 520 }]}>
@@ -287,7 +326,8 @@ const styles = StyleSheet.create({
   detailsLabel: { fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
   detailsValue: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18 },
 
-  textContent: { lineHeight: 26, fontWeight: '400' },
+  limitationBanner: { borderBottomWidth: StyleSheet.hairlineWidth },
+  limitationText: { fontWeight: '500', lineHeight: 16 },
 
   headerActionBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
 
