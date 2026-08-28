@@ -15,6 +15,7 @@ interface SettingsState {
   encryptionDefault: boolean;
   accentColor: string;
   fontSizeMultiplier: number;
+  displayScale: number;
   screenshotProtection: boolean;
   clipboardClearEnabled: boolean;
   fakeCrashEnabled: boolean;
@@ -96,7 +97,7 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
     .map((r) => r.value);
 };
 
-type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'storageLimitBytes' | 'accessKeys' | 'encryptionKeys';
+type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'displayScale' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'storageLimitBytes' | 'accessKeys' | 'encryptionKeys';
 
 const PERSIST_KEYS: SettingsSettingKey[] = [
   'themeMode',
@@ -106,6 +107,7 @@ const PERSIST_KEYS: SettingsSettingKey[] = [
   'encryptionDefault',
   'accentColor',
   'fontSizeMultiplier',
+  'displayScale',
   'screenshotProtection',
   'clipboardClearEnabled',
   'fakeCrashEnabled',
@@ -156,6 +158,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   encryptionDefault: false,
   accentColor: '#0A84FF',
   fontSizeMultiplier: 1.0,
+  displayScale: 1.0,
   // S-9: default to on — a vault app should protect screenshots/recent-apps
   // thumbnails out of the box, not require the user to discover and enable it.
   screenshotProtection: true,
@@ -403,10 +406,25 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       return updated;
     });
   },
+  /**
+   * Wipes decrypted secrets from memory while the app is backgrounded
+   * (disguise mode). This blanks `key`/`password` in place rather than
+   * deleting anything from SecureStore, so it must also flip `isHydrated`
+   * back to false — otherwise `hydrateSettings()`'s early-return (`if
+   * (state.isHydrated) return`) leaves every key permanently blank for the
+   * rest of the app session. A blank key is falsy, so
+   * `StorageService.encryptSandboxFile`/`decryptSandboxFile` silently fall
+   * back to their no-key path instead of real AES — any file touched while
+   * the keys are wiped gets encrypted/decrypted with the wrong transform,
+   * which reads back as "corrupted" garbage. `authenticate()` in authStore
+   * calls `hydrateSettings()` again on unlock, which re-reads the real
+   * secrets from SecureStore once this flag says they're needed.
+   */
   lockTransientMemory: () => {
     set((state) => ({
       encryptionKeys: state.encryptionKeys.map(k => ({ ...k, key: '' })),
       accessKeys: state.accessKeys.map(k => ({ ...k, password: '' })),
+      isHydrated: false,
     }));
   },
 }));

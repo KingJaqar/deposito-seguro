@@ -1,6 +1,13 @@
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { X } from 'lucide-react-native';
+// src/components/AccessKeyPicker.tsx
+// Rebuilt on the Sheet primitive per §5 (scrollable list picker → Sheet, not
+// Dialog). The accessKeys store read and the onSelectPassword(ak.id) contract
+// are unchanged; prop interface preserved for every caller.
+import { KeyRound, ChevronRight } from 'lucide-react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
+import { EmptyState } from './primitives/EmptyState';
+import { Sheet } from './primitives/Sheet';
 import { useSettingsStore } from '../store/settingsStore';
 import { AccessKeyMetadata } from '../types';
 
@@ -11,176 +18,81 @@ interface AccessKeyPickerProps {
 }
 
 export function AccessKeyPicker({ visible, onClose, onSelectPassword }: AccessKeyPickerProps) {
-  const { colors, space, font, radius, isTablet } = useTheme();
+  const { colors, space, font, isTablet, iconSize, touchTarget } = useTheme();
+  const iconWrapSize = iconSize(36);
   const accessKeys = useSettingsStore((state: { accessKeys: AccessKeyMetadata[] }) => state.accessKeys);
 
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity
-        style={styles.overlay}
-        onPress={onClose}
-        activeOpacity={0.8}
-      >
-        <View
-          style={[
-            styles.sheet,
-            { backgroundColor: colors.surface },
-            isTablet && styles.sheetTablet,
-          ]}
+    <Sheet visible={visible} onClose={onClose} title="Assign Access Key">
+      {accessKeys.length === 0 ? (
+        <EmptyState
+          icon={KeyRound}
+          title="No access keys yet"
+          message="Create an access key from Settings, then assign it here."
+        />
+      ) : (
+        <ScrollView
+          style={{ maxHeight: isTablet ? 480 : 360 }}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: space(4) }}
         >
-          <View style={styles.headerRow}>
-            <Text style={[styles.title, { color: colors.text }]}>Assign Access Key</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <X size={20} color={colors.textMuted} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-
-          {accessKeys.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={{ color: colors.text, fontSize: 34, marginBottom: 8 }}>🔒</Text>
-              <Text style={[styles.emptyText, { color: colors.text }]}>No access keys yet</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>
-                Create an access key from Settings, then assign it here.
-              </Text>
-            </View>
-          ) : (
-            <ScrollView style={[styles.scroll, { maxHeight: isTablet ? 480 : 360 }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: space(4) }}>
-              {accessKeys.map((ak: AccessKeyMetadata) => (
-                <AccessKeyItem
-                  key={ak.id}
-                  accessKeyItem={ak}
-                  colors={colors}
-                  font={font}
-                  onPress={() => onSelectPassword(ak.id)}
-                />
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
-
-function AccessKeyItem({
-  accessKeyItem,
-  colors,
-  font,
-  onPress,
-}: {
-  accessKeyItem: AccessKeyMetadata;
-  colors: any;
-  font: (size: number) => number;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[
-        styles.password,
-        { borderBottomColor: colors.border },
-      ]}
-      onPress={onPress}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={`Select access key: ${accessKeyItem.label}`}
-    >
-      <View style={styles.passwordInner}>
-        <View style={{ flex: 1, flexShrink: 1 }}>
-          <Text style={[styles.passwordName, { color: colors.text }]} numberOfLines={1}>
-            {accessKeyItem.label}
-          </Text>
-          <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
-            Fingerprint {accessKeyItem.fingerprint}
-          </Text>
-          {accessKeyItem.description && (
-            <Text style={[styles.passwordMeta, { color: colors.textMuted }]} numberOfLines={1}>
-              {accessKeyItem.description}
-            </Text>
-          )}
-        </View>
-        <Text style={{ color: colors.primary, fontSize: 22, flexShrink: 0 }}>›</Text>
-      </View>
-    </TouchableOpacity>
+          {accessKeys.map((ak: AccessKeyMetadata) => (
+            <Pressable
+              key={ak.id}
+              onPress={() => onSelectPassword(ak.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Select access key: ${ak.label}`}
+              android_ripple={{ color: `${colors.text}0F` }}
+              style={({ pressed }) => [
+                styles.row,
+                {
+                  borderBottomColor: colors.borderLight,
+                  paddingHorizontal: space(5),
+                  paddingVertical: space(4),
+                  minHeight: touchTarget(),
+                  backgroundColor: pressed ? colors.surfaceHover : 'transparent',
+                },
+              ]}
+            >
+              <View style={[styles.iconWrap, { width: iconWrapSize, height: iconWrapSize, borderRadius: iconSize(10), backgroundColor: `${colors.primary}1F`, marginRight: space(3) }]}>
+                <KeyRound size={iconSize(18)} color={colors.primary} strokeWidth={2} />
+              </View>
+              <View style={styles.textCol}>
+                <Text style={[styles.name, { color: colors.text, fontSize: font(Type.body.size) }]} numberOfLines={1}>
+                  {ak.label}
+                </Text>
+                <Text style={[styles.meta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                  Fingerprint {ak.fingerprint}
+                </Text>
+                {ak.description ? (
+                  <Text style={[styles.meta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                    {ak.description}
+                  </Text>
+                ) : null}
+              </View>
+              <ChevronRight size={iconSize(18)} color={colors.textMuted} strokeWidth={2} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  iconWrap: {
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    flexShrink: 0,
   },
-  sheet: {
-    width: '90%',
-    maxWidth: 400,
-    maxHeight: '80%',
-    borderRadius: 24,
-    padding: 18,
-  },
-  sheetTablet: {
-    maxHeight: '65%',
-  },
-  handle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  closeBtn: {
-    padding: 4,
-    zIndex: 1,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  scroll: {
-    maxHeight: 360,
-  },
-  password: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  passwordInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    marginHorizontal: -18,
-  },
-  passwordName: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  passwordMeta: {
-    fontSize: 12,
-    marginTop: 3,
-  },
-  empty: {
-    alignItems: 'center',
-    paddingVertical: 28,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    textAlign: 'center',
-    paddingHorizontal: 24,
-  },
+  textCol: { flex: 1, flexShrink: 1 },
+  name: { fontWeight: '700' },
+  meta: { fontWeight: '500', marginTop: 2 },
 });

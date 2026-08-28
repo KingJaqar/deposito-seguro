@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { useTheme } from '../contexts/ThemeContext';
-import { useVaultStore } from '../store/vaultStore';
+// src/components/ClipboardBar.tsx
+// Rebuilt per §5/§7 Phase 4 — full JSX/StyleSheet teardown. Store reads
+// (clipboard, undoInfo, clearClipboard), the showUndo condition, and the
+// label pluralization logic are unchanged; the prop interface is preserved
+// so every calling screen passes exactly what it passes today.
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ClipboardCheck, ClipboardX, Undo2 } from 'lucide-react-native';
+import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
+import { useVaultStore } from '../store/vaultStore';
 
 interface ClipboardBarProps {
   onPaste: () => void;
@@ -21,7 +26,8 @@ export function ClipboardBar({
   accentColor,
   mutedColor,
 }: ClipboardBarProps) {
-  const { colors, space, font } = useTheme();
+  const { colors, space, font, radius, iconSize, touchTarget } = useTheme();
+  const actionBtnHeight = touchTarget() - 8;
   const clipboard = useVaultStore((s) => s.clipboard);
   const undoInfo = useVaultStore((s) => s.undoInfo);
   const clearClipboard = useVaultStore((s) => s.clearClipboard);
@@ -31,17 +37,6 @@ export function ClipboardBar({
   const resolvedText = textColor ?? colors.text;
   const resolvedAccent = accentColor ?? colors.primary;
   const resolvedMuted = mutedColor ?? colors.textMuted;
-
-  const barStyle = useMemo(() => ({
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space(5),
-    paddingVertical: space(3),
-    borderRadius: 14,
-    marginBottom: 12,
-    gap: 10,
-  } as ViewStyle), [space]);
 
   if (!clipboard) return null;
 
@@ -54,31 +49,68 @@ export function ClipboardBar({
       : `${fileCount} file${fileCount !== 1 ? 's' : ''}`;
 
   return (
-    <View style={[barStyle, { backgroundColor: resolvedBg }]}>
+    <View
+      style={[
+        styles.bar,
+        {
+          backgroundColor: resolvedBg,
+          borderColor: colors.borderLight,
+          borderRadius: radius(5),
+          paddingHorizontal: space(4),
+          paddingVertical: space(3),
+          marginBottom: space(3),
+          gap: space(2),
+        },
+      ]}
+    >
       <View style={styles.info}>
-        <Text style={[styles.label, { color: resolvedText }]} numberOfLines={1}>
+        <Text style={[styles.label, { color: resolvedText, fontSize: font(Type.label.size) }]} numberOfLines={1}>
           Copied: {label}
         </Text>
         {clipboard.mode === 'cut' && (
-          <Text style={[styles.mode, { color: resolvedMuted }]} numberOfLines={1}>
+          <Text style={[styles.mode, { color: resolvedMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
             {' '}(Cut pending)
           </Text>
         )}
       </View>
-      <View style={styles.actions}>
+      <View style={[styles.actions, { gap: space(2) }]}>
         {showUndo && onUndo && (
-          <TouchableOpacity onPress={onUndo} style={[styles.undoBtn, { backgroundColor: `${resolvedAccent}20` }]} accessibilityRole="button" accessibilityLabel="Undo cut">
-            <Undo2 size={16} color={resolvedAccent} strokeWidth={2.5} />
-            <Text style={[styles.undoText, { color: resolvedAccent }]}>Undo</Text>
-          </TouchableOpacity>
+          <Pressable
+            onPress={onUndo}
+            accessibilityRole="button"
+            accessibilityLabel="Undo cut"
+            style={({ pressed }) => [
+              styles.actionBtn,
+              { backgroundColor: `${resolvedAccent}1F`, borderRadius: radius(4), paddingHorizontal: space(3), gap: space(1), minHeight: actionBtnHeight, opacity: pressed ? 0.75 : 1 },
+            ]}
+          >
+            <Undo2 size={iconSize(16)} color={resolvedAccent} strokeWidth={2.5} />
+            <Text style={[styles.actionText, { color: resolvedAccent, fontSize: font(Type.label.size) }]}>Undo</Text>
+          </Pressable>
         )}
-        <TouchableOpacity onPress={onPaste} style={[styles.pasteBtn, { backgroundColor: resolvedAccent }]} accessibilityRole="button" accessibilityLabel="Paste">
-          <ClipboardCheck size={16} color="#FFFFFF" strokeWidth={2.5} />
-          <Text style={styles.pasteText}>Paste</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => { clearClipboard(); }} style={styles.clearBtn} accessibilityRole="button" accessibilityLabel="Clear clipboard">
-          <ClipboardX size={16} color="#FF453A" strokeWidth={2.5} />
-        </TouchableOpacity>
+        <Pressable
+          onPress={onPaste}
+          accessibilityRole="button"
+          accessibilityLabel="Paste"
+          style={({ pressed }) => [
+            styles.actionBtn,
+            { backgroundColor: resolvedAccent, borderRadius: radius(4), paddingHorizontal: space(4), gap: space(1), minHeight: actionBtnHeight, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <ClipboardCheck size={iconSize(16)} color={colors.onPrimary} strokeWidth={2.5} />
+          <Text style={[styles.actionText, { color: colors.onPrimary, fontSize: font(Type.label.size) }]}>Paste</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { clearClipboard(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Clear clipboard"
+          style={({ pressed }) => [
+            styles.clearBtn,
+            { borderRadius: radius(4), minHeight: actionBtnHeight, minWidth: actionBtnHeight, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <ClipboardX size={iconSize(16)} color={colors.error} strokeWidth={2.5} />
+        </Pressable>
       </View>
     </View>
   );
@@ -89,69 +121,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 14,
-    marginBottom: 12,
-    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   info: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 2,
   },
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    flexShrink: 1,
-  },
-  mode: {
-    fontSize: 12,
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  actions: {
+  label: { fontWeight: '700', flexShrink: 1 },
+  mode: { fontWeight: '600', flexShrink: 1 },
+  actions: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
+    justifyContent: 'center',
   },
-  pasteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    minHeight: 36,
-    minWidth: 36,
-  },
-  pasteText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  undoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 10,
-    minHeight: 36,
-    minWidth: 36,
-  },
-  undoText: {
-    fontWeight: '700',
-    fontSize: 13,
-  },
+  actionText: { fontWeight: '700' },
   clearBtn: {
-    padding: 8,
-    borderRadius: 10,
-    minHeight: 36,
-    minWidth: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },

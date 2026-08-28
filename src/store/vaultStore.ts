@@ -6,6 +6,7 @@ import { StorageService } from '../services/storage';
 import { ClipboardItem, EncryptionKeyMetadata, FileMetadata, FolderMetadata, PasteResult, UndoInfo, VaultState } from '../types';
 import { useSettingsStore } from './settingsStore';
 import { Alert } from 'react-native';
+import { MAX_NAME_LENGTH, clampNameLength } from '../constants/naming';
 
 /**
  * Thrown by importFile/copyFileToFolder when completing the operation would
@@ -30,6 +31,14 @@ export class StorageLimitExceededError extends Error {
 interface VaultStoreActions extends VaultState {
   hydrateVault: () => Promise<void>;
   isVaultHydrated: () => boolean;
+  /**
+   * Verifies each file's on-disk payload still exists and flags the ones
+   * whose bytes are gone (`isMissing`), so the UI can show an honest "file
+   * no longer on this device" state instead of a misleading load error. Runs
+   * automatically after hydration; safe to call again (e.g. after a restore),
+   * where it clears the flag on any file whose payload reappeared.
+   */
+  reconcileMissingPayloads: () => Promise<void>;
   /** Sum of every file's recorded size, trashed items included (their bytes still occupy the sandbox until permanently deleted/shredded). Used for both the Storage settings display and limit enforcement below. */
   getVaultUsageBytes: () => number;
   createFolder: (name: string, color?: string, icon?: string, isEncrypted?: boolean, parentId?: string) => Promise<void>;
@@ -180,6 +189,24 @@ const persistFiles = async (files: FileMetadata[]): Promise<void> => {
 type VaultPatch = { folders?: FolderMetadata[]; files?: FileMetadata[] };
 type VaultSetFn = (updater: (state: VaultStoreActions) => VaultPatch) => void;
 
+/**
+ * Dedupes `base` against `existingNames` by appending " (2)", " (3)", ... —
+ * while keeping the final name within MAX_NAME_LENGTH. The base is clamped
+ * first so a maximally-long name still leaves room for the counter suffix.
+ */
+function uniqueClampedName(base: string, existingNames: Set<string>): string {
+  const trimmedBase = clampNameLength(base);
+  if (!existingNames.has(trimmedBase)) return trimmedBase;
+  let counter = 2;
+  let candidate: string;
+  do {
+    const suffix = ` (${counter})`;
+    candidate = clampNameLength(trimmedBase.slice(0, MAX_NAME_LENGTH - suffix.length)) + suffix;
+    counter++;
+  } while (existingNames.has(candidate));
+  return candidate;
+}
+
 const commitVaultState = async (set: VaultSetFn, updater: (state: VaultStoreActions) => VaultPatch): Promise<VaultPatch> => {
   let patch: VaultPatch = {};
   set((state) => {
@@ -225,17 +252,37 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       console.error('Vault store context compilation failure', e);
       set({ _isVaultHydrated: true, _vaultHydrationError: 'Vault hydration failed' });
     }
+    // Fire-and-forget so startup isn't blocked on stat-ing every payload; the
+    // UI updates once missing files are flagged.
+    get().reconcileMissingPayloads().catch((e) => console.error('Payload reconciliation failed', e));
+  },
+  reconcileMissingPayloads: async () => {
+    const files = get().files;
+    if (files.length === 0) return;
+
+    const checks = await Promise.all(
+      files.map(async (f) => ({ id: f.id, exists: f.localPath ? await StorageService.fileExists(f.localPath) : false }))
+    );
+    const existsById = new Map(checks.map((c) => [c.id, c.exists]));
+
+    // Only touch files we actually checked, and only persist if something
+    // changed — avoids clobbering a concurrent mutation and needless writes.
+    const changed = get().files.some((f) => existsById.has(f.id) && !!f.isMissing === existsById.get(f.id));
+    if (!changed) return;
+
+    await commitVaultState(set, (state) => ({
+      files: state.files.map((f) => {
+        if (!existsById.has(f.id)) return f;
+        const missing = !existsById.get(f.id);
+        return !!f.isMissing === missing ? f : { ...f, isMissing: missing };
+      }),
+    }));
   },
   createFolder: async (name, color, icon, isEncrypted, parentId) => {
-    let folderName = name?.trim() || 'New Folder';
+    const folderName = clampNameLength(name?.trim() || 'New Folder');
     const { folders } = get();
     const existingNames = new Set(folders.map(f => f.name));
-    let uniqueName = folderName;
-    let counter = 2;
-    while (existingNames.has(uniqueName)) {
-      uniqueName = `${folderName} (${counter})`;
-      counter++;
-    }
+    const uniqueName = uniqueClampedName(folderName, existingNames);
     const newFolder: FolderMetadata = {
       id: SecureCrypto.generateUUID(),
       name: uniqueName,
@@ -265,7 +312,15 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const sandboxFilename = `${targetId}_${fileName}`;
 
     const internalPath = await StorageService.copyToSandbox(sourceUri, sandboxFilename);
-    let finalPath = internalPath;
+    // Best-effort lossless remux (video files only, Android only — see
+    // StorageService.remuxVideoIfPossible / src/utils/videoRemux.ts) so the
+    // stored file always has a valid, seekable duration/index regardless of
+    // what the original container declared. Must happen before encryption —
+    // it's a real read of the plaintext bytes. No-ops (returns internalPath
+    // unchanged) for non-video files, other platforms, or if the native
+    // module isn't available/fails.
+    const remuxedPath = await StorageService.remuxVideoIfPossible(internalPath, mimeType);
+    let finalPath = remuxedPath;
     // I-2: only mark a file as encrypted when encryption actually ran, not
     // merely because it was requested — previously `isEncrypted: encrypt`
     // was set unconditionally, so a resolution failure (missing key) left
@@ -275,7 +330,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     if (encrypt && encryptionKeyId) {
       const encryptionKey = useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === encryptionKeyId)?.key;
       if (encryptionKey) {
-        finalPath = await StorageService.encryptSandboxFile(internalPath, encryptionKey);
+        finalPath = await StorageService.encryptSandboxFile(remuxedPath, encryptionKey);
         didEncrypt = true;
       }
     }
@@ -283,7 +338,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const newFile: FileMetadata = {
       id: targetId,
       folderId: targetFolderId,
-      name: fileName,
+      // Display name only — sandboxFilename above keeps the untruncated
+      // fileName so the extension isn't lost off the end of a long name.
+      name: clampNameLength(fileName),
       size,
       mimeType,
       localPath: finalPath,
@@ -382,8 +439,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   },
   clearEverythingState: () => set({ folders: [], files: [] }),
   renameFolder: async (folderId, newName) => {
+    const clampedName = clampNameLength(newName);
     await commitVaultState(set, (state) => ({
-      folders: state.folders.map(f => f.id === folderId ? { ...f, name: newName } : f)
+      folders: state.folders.map(f => f.id === folderId ? { ...f, name: clampedName } : f)
     }));
   },
   moveFolder: async (folderId, newParentId) => {
@@ -392,8 +450,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   renameFile: async (fileId, newName) => {
+    const clampedName = clampNameLength(newName);
     await commitVaultState(set, (state) => ({
-      files: state.files.map(f => f.id === fileId ? { ...f, name: newName } : f)
+      files: state.files.map(f => f.id === fileId ? { ...f, name: clampedName } : f)
     }));
   },
   moveFileToFolder: async (fileId, targetFolderId) => {
@@ -627,15 +686,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   createPersonalFavoritesFolder: async (name) => {
-    let folderName = name?.trim() || 'New Folder';
+    const folderName = clampNameLength(name?.trim() || 'New Folder');
     const { folders } = get();
     const existingNames = new Set(folders.map(f => f.name));
-    let uniqueName = folderName;
-    let counter = 2;
-    while (existingNames.has(uniqueName)) {
-      uniqueName = `${folderName} (${counter})`;
-      counter++;
-    }
+    const uniqueName = uniqueClampedName(folderName, existingNames);
     const newFolder: FolderMetadata = {
       id: SecureCrypto.generateUUID(),
       name: uniqueName,

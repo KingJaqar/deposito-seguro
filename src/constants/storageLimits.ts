@@ -34,6 +34,46 @@ export const STORAGE_LIMIT_OPTIONS: StorageLimitOption[] = [
 
 export const DEFAULT_STORAGE_LIMIT_BYTES: number | null = null; // Unlimited by default — don't retroactively cap existing vaults.
 
+/**
+ * Common marketed device capacities, in decimal-ish GB. Manufacturers sell
+ * "64 GB" / "128 GB" devices, but `getTotalDiskCapacityAsync()` reports the
+ * real formatted partition size, which is normally 5-15% smaller than the
+ * marketed figure (filesystem overhead, reserved system partitions). Round
+ * the reported total *up* to the nearest tier here so a real "128 GB" phone
+ * (which might report ~118 GB to the OS) is still treated as a 128 GB
+ * device for cap purposes, instead of being quietly capped at 64 GB.
+ */
+const DEVICE_CAPACITY_TIERS_GB = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048];
+
+function nearestDeviceTierBytes(totalCapacityBytes: number): number {
+  if (!totalCapacityBytes || totalCapacityBytes <= 0) return Infinity; // unknown capacity — don't restrict on it
+  const tierGB = DEVICE_CAPACITY_TIERS_GB.find((gb) => totalCapacityBytes <= gb * GB);
+  return tierGB ? tierGB * GB : totalCapacityBytes;
+}
+
+/**
+ * Whether a storage limit option should be greyed out for this device, per
+ * the "limit cap" feature request:
+ *  - a device with only 64 GB of total capacity can't select 64 GB or 128 GB
+ *    (it can never physically hold that much)
+ *  - a device with 128 GB+ of total capacity can select 128 GB
+ *  - regardless of total capacity, an option can't be selected if it's >=
+ *    the storage that's actually free right now — filling the vault to that
+ *    cap would leave zero free space on the device, which is never useful
+ *    (e.g. 64 GB total but only 32 GB free greys out 32 GB, 64 GB, and 128 GB)
+ * `Unlimited` (bytes === null) is never disabled.
+ */
+export function isStorageLimitOptionDisabled(
+  optionBytes: number | null,
+  totalCapacityBytes: number,
+  freeBytes: number
+): boolean {
+  if (optionBytes === null) return false;
+  if (freeBytes > 0 && optionBytes >= freeBytes) return true;
+  if (totalCapacityBytes > 0 && optionBytes > nearestDeviceTierBytes(totalCapacityBytes)) return true;
+  return false;
+}
+
 /** Human-readable label for a byte threshold — falls back to a raw "N.N GB" for any value outside the preset list. */
 export function formatStorageLimit(bytes: number | null): string {
   if (bytes === null) return 'Unlimited';

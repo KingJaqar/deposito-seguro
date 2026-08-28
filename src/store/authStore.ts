@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
 import { sanitizeSecureStoreKey } from '../utils/secureStoreKey';
 import { useLockoutStore } from './lockoutStore';
+import { useSettingsStore } from './settingsStore';
 
 /**
  * Lockout key for the master vault PIN (S-1 remediation — see
@@ -117,6 +118,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (SecureCrypto.secureCompare(verifyHash, storedHash)) {
         useLockoutStore.getState().resetAttempts(PIN_LOCKOUT_KEY);
         set({ isAuthenticated: true, lastActiveTimestamp: Date.now() });
+        // Re-hydrates encryptionKeys/accessKeys from SecureStore if
+        // lockTransientMemory() blanked them while backgrounded (no-op
+        // otherwise, since hydrateSettings() early-returns when already
+        // hydrated). Without this, every key stays '' for the rest of the
+        // session and file encrypt/decrypt silently uses the wrong
+        // transform — see the comment on lockTransientMemory.
+        useSettingsStore.getState().hydrateSettings().catch((e) =>
+          console.error('Post-auth settings re-hydration failed', e)
+        );
         return true;
       }
       useLockoutStore.getState().recordFailedAttempt(PIN_LOCKOUT_KEY);

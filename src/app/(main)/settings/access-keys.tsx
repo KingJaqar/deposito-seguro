@@ -1,117 +1,79 @@
-// file: src/app/(main)/settings/access-keys.tsx
-
-import { useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AnimatedCard } from '../../../components/AnimatedCard';
-import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
-import AnimatedTabBar from '../../../components/AnimatedTabBar';
-import { useTheme } from '../../../contexts/ThemeContext';
-import { router, useFocusEffect } from 'expo-router';
+// src/app/(main)/settings/access-keys.tsx
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
+// Every store hook and handler body (create/edit/delete access key, the
+// delete-verification lockout flow via useLockoutStore, the edit-unlock gate
+// via AccessKeyUnlockModal) is unchanged; only JSX/StyleSheet is new. Notable
+// per-plan changes:
+//  - VaultHeader (newly adopted — this screen hand-rolled an inline
+//    `customHeader` + `headerPaddingTop` before, per §2/§5)
+//  - TextField.secureToggle replaces the 4 duplicated eye-icon blocks in this
+//    file (password/confirm × create/edit forms) — see §3's screen row
+//  - ProgressBar (with its Weak/Medium/Strong label, never color-only per §6)
+//    replaces the local strength-bar markup
+//  - the create form is a Card, the edit form is a Sheet (longer, multi-field
+//    content — the scrollable-picker shape §5 reserves Sheet for), and the
+//    delete-verification prompt is a Dialog (short confirmation + one field)
+//  - `AnimatedCard` was imported here but never actually rendered anywhere in
+//    the pre-redesign file (verified: zero `<AnimatedCard` usages) — dropping
+//    that dead import makes this screen's rewrite the last real disposition
+//    of `AnimatedCard.tsx` (§5/§7 Phase 4: deleted alongside this rewrite)
+//  - Alert.alert is kept for every error/validation/lockout message and for
+//    the info-button's read-only detail popup; this screen isn't one of the
+//    four (dashboard/favorites/search/folder) the plan moves onto Snackbar
+//  - the screen-enter fade goes through the shared useScreenEnterAnimation()
+//    hook (§4) instead of a hand-rolled copy — see folder/[id].tsx
 import {
-  Clipboard,
-  Eye,
-  EyeOff,
   Info,
   Key,
   Lock,
   ShieldCheck,
-  Tag,
   Trash2,
 } from 'lucide-react-native';
+import { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
+import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
+import AnimatedTabBar from '../../../components/AnimatedTabBar';
+import { VaultHeader } from '../../../components/VaultHeader';
+import { Button } from '../../../components/primitives/Button';
+import { Card } from '../../../components/primitives/Card';
+import { Dialog } from '../../../components/primitives/Dialog';
+import { EmptyState } from '../../../components/primitives/EmptyState';
+import { ProgressBar } from '../../../components/primitives/ProgressBar';
+import { Sheet } from '../../../components/primitives/Sheet';
+import { TextField } from '../../../components/primitives/TextField';
+import { Type } from '../../../constants/typography';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { useScreenEnterAnimation } from '../../../hooks/useScreenEnterAnimation';
 import { LOCKOUT_DURATION_MS, MAX_PASSWORD_ATTEMPTS, useLockoutStore } from '../../../store/lockoutStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { AccessKeyMetadata } from '../../../types';
-import {
-  getPasswordValidationMessages,
-  getPasswordStrength,
-  validatePassword,
-} from '../../../utils/accessKeyValidation';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { Durations } from '../../../constants/animations';
+import { getPasswordStrength, validatePassword } from '../../../utils/accessKeyValidation';
+
+const STRENGTH_PROGRESS: Record<string, number> = { weak: 0.33, medium: 0.66, strong: 1 };
+const STRENGTH_LABEL: Record<string, string> = { weak: 'Weak', medium: 'Medium', strong: 'Strong' };
 
 export default function AccessKeysScreen() {
-  const { colors, isDark, space, screenPadding, bottomTabSpacing, headerPaddingTop, font, isTablet, clampSize } = useTheme();
+  const { colors, space, font, screenPadding, bottomTabSpacing , iconSize } = useTheme();
   const { accessKeys, createAccessKey, accessKeyExists, deleteAccessKey, updateAccessKey } = useSettingsStore();
   const { recordFailedAttempt, resetAttempts, isLockedOut, getRemainingLockoutTime } = useLockoutStore();
 
-  const theme = useMemo(() => ({
-    bg: colors.background,
-    card: colors.surface,
-    cardBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
-    text: colors.text,
-    textMuted: colors.textMuted,
-    label: colors.textMuted,
-    inputBg: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-    inputBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
-    divider: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-    iconBg: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    badgeBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-    badgeBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
-    notSet: isDark ? '#8E8E93' : '#64748B',
-    btnPrimary: isDark ? '#F5F0E8' : colors.text,
-    btnPrimaryText: isDark ? '#000000' : '#FFFFFF',
-    btnDisabled: isDark ? '#3A3A3C' : 'rgba(0,0,0,0.12)',
-    btnDisabledText: isDark ? '#8E8E93' : '#64748B',
-    sectionHeaderBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    emptyBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
-    verifyCardBg: isDark ? '#1A1A1A' : '#FFFFFF',
-    verifyCardBorder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-    verifyOverlay: isDark ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.35)',
-    verifyIconRing: isDark ? 'rgba(255,69,58,0.12)' : 'rgba(239,68,68,0.08)',
-    verifyIconInner: isDark ? 'rgba(255,69,58,0.15)' : 'rgba(239,68,68,0.1)',
-    editCardBg: isDark ? '#1A1A1A' : '#FFFFFF',
-    editCardBorder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-    editOverlay: isDark ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.35)',
-    cancelBtnBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    cancelBtnBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
-    keyIconBoxBg: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-  }), [colors, isDark]);
-
-  const screenOpacity = useSharedValue(1);
-  const screenTranslateY = useSharedValue(0);
-  const hasAnimated = useSharedValue(false);
-
-  useFocusEffect(() => {
-    if (hasAnimated.value) return;
-    hasAnimated.value = true;
-
-    screenOpacity.value = 0;
-    screenTranslateY.value = 12;
-    screenOpacity.value = withTiming(1, {
-      duration: Durations.normal,
-      easing: Easing.out(Easing.quad),
-    });
-    screenTranslateY.value = withTiming(0, {
-      duration: Durations.normal,
-      easing: Easing.out(Easing.quad),
-    });
-  });
-
-  const screenAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: screenOpacity.value,
-    transform: [{ translateY: screenTranslateY.value }],
-  }));
+  const screenAnimatedStyle = useScreenEnterAnimation();
 
   const [passwordLabel, setPasswordLabel] = useState('');
   const [passwordDescription, setPasswordDescription] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showValidationMessages, setShowValidationMessages] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const strength = getPasswordStrength(password);
-  const strengthColor = strength === 'weak' ? colors.error : strength === 'medium' ? '#FBBF24' : '#34C759';
-  const strengthLabelText = strength === 'weak' ? 'Weak' : strength === 'medium' ? 'Medium' : 'Strong';
+  const strengthColor = strength === 'weak' ? colors.error : strength === 'medium' ? colors.warning : colors.secondary;
 
   const [editingPassword, setEditingPassword] = useState<AccessKeyMetadata | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editConfirmPassword, setEditConfirmPassword] = useState('');
-  const [showEditPassword, setShowEditPassword] = useState(false);
-  const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [pendingEditPassword, setPendingEditPassword] = useState<AccessKeyMetadata | null>(null);
   const [showEditUnlockModal, setShowEditUnlockModal] = useState(false);
@@ -120,9 +82,11 @@ export default function AccessKeysScreen() {
   const [deleteVerificationPassword, setDeleteVerificationPassword] = useState('');
   const [showDeleteVerificationModal, setShowDeleteVerificationModal] = useState(false);
 
+  const editStrength = getPasswordStrength(editPassword);
+  const editStrengthColor = editStrength === 'weak' ? colors.error : editStrength === 'medium' ? colors.warning : colors.secondary;
+
   const handleDeleteVerification = async () => {
     if (!pendingDeletePassword) return;
-
     const lockoutKey = `delete:${pendingDeletePassword.id}`;
     const isCurrentlyLockedOut = isLockedOut(lockoutKey);
     const remainingLockoutTime = getRemainingLockoutTime(lockoutKey);
@@ -147,7 +111,7 @@ export default function AccessKeysScreen() {
         Alert.alert('Password Deleted', `${pendingDeletePassword.label} has been deleted.`);
       }
     } else {
-      const { newAttempts, remaining, isLockedOut: nowLockedOut } = recordFailedAttempt(lockoutKey);
+      const { remaining, isLockedOut: nowLockedOut } = recordFailedAttempt(lockoutKey);
       setDeleteVerificationPassword('');
 
       if (nowLockedOut) {
@@ -160,90 +124,43 @@ export default function AccessKeysScreen() {
           [{ text: 'OK' }]
         );
       } else {
-        Alert.alert(
-          'Incorrect Password',
-          `Password does not match. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Incorrect Password', `Password does not match. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`, [{ text: 'OK' }]);
       }
     }
   };
 
   const handleCreatePassword = async () => {
-    if (accessKeys.length >= 20) {
-      Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
-      return;
-    }
-
-    if (!passwordLabel.trim()) {
-      Alert.alert('Password Label Required', 'Give this access key a recognizable name.');
-      return;
-    }
-
-    if (accessKeyExists(passwordLabel)) {
-      Alert.alert('Password Label Already Used', 'Access key labels must be unique.');
-      return;
-    }
+    if (accessKeys.length >= 20) { Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.'); return; }
+    if (!passwordLabel.trim()) { Alert.alert('Password Label Required', 'Give this access key a recognizable name.'); return; }
+    if (accessKeyExists(passwordLabel)) { Alert.alert('Password Label Already Used', 'Access key labels must be unique.'); return; }
 
     const validation = validatePassword(password);
-    if (!validation.valid) {
-      setShowValidationMessages(true);
-      Alert.alert('Password Does Not Meet Requirements', validation.message);
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
-      return;
-    }
+    if (!validation.valid) { Alert.alert('Password Does Not Meet Requirements', validation.message); return; }
+    if (password !== confirmPassword) { Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.'); return; }
 
     const fp = await createAccessKey(passwordLabel, password, passwordDescription);
-    if (!fp) {
-      Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.');
-      return;
-    }
+    if (!fp) { Alert.alert('Access Key Limit', 'You can only create up to 20 access keys.'); return; }
 
     setPasswordLabel('');
     setPasswordDescription('');
     setPassword('');
     setConfirmPassword('');
-    setShowValidationMessages(false);
     Alert.alert('Access Key Created', `${fp.label} is ready to assign.`);
   };
 
   const handleEditConfirm = async () => {
     if (!editingPassword) return;
-
-    if (!editLabel.trim()) {
-      Alert.alert('Password Label Required', 'Give this access key a recognizable name.');
-      return;
-    }
-
-    if (accessKeyExists(editLabel) && editLabel !== editingPassword.label) {
-      Alert.alert('Password Label Already Used', 'Access key labels must be unique.');
-      return;
-    }
+    if (!editLabel.trim()) { Alert.alert('Password Label Required', 'Give this access key a recognizable name.'); return; }
+    if (accessKeyExists(editLabel) && editLabel !== editingPassword.label) { Alert.alert('Password Label Already Used', 'Access key labels must be unique.'); return; }
 
     if (editPassword) {
       const validation = validatePassword(editPassword);
-      if (!validation.valid) {
-        Alert.alert('Password Does Not Meet Requirements', validation.message);
-        return;
-      }
-
-      if (editPassword !== editConfirmPassword) {
-        Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.');
-        return;
-      }
+      if (!validation.valid) { Alert.alert('Password Does Not Meet Requirements', validation.message); return; }
+      if (editPassword !== editConfirmPassword) { Alert.alert('Passwords Do Not Match', 'Please confirm your password correctly.'); return; }
     }
 
-    const options: { label?: string; description?: string; password?: string } = {
-      label: editLabel,
-      description: editDescription,
-    };
-    if (editPassword) {
-      options.password = editPassword;
-    }
+    const options: { label?: string; description?: string; password?: string } = { label: editLabel, description: editDescription };
+    if (editPassword) options.password = editPassword;
 
     const success = await updateAccessKey(editingPassword.id, options);
     if (success) {
@@ -260,266 +177,130 @@ export default function AccessKeysScreen() {
   };
 
   return (
-    <SafeAreaView style={[{ backgroundColor: theme.bg, flex: 1 }]}>
-      <View style={[styles.customHeader, { paddingTop: headerPaddingTop, paddingHorizontal: screenPadding }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={[styles.backIcon, { color: theme.text }]}>←</Text>
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <View style={[styles.lockIconBox, { backgroundColor: theme.iconBg }]}>
-            <Lock size={20} color={theme.label} strokeWidth={2} />
-          </View>
-          <Text style={[styles.headerTitle, { color: theme.text, fontSize: font(22) }]}>Access Keys</Text>
-        </View>
-        <View style={{ width: 32 }} />
-      </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <Animated.View style={screenAnimatedStyle}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.description, { color: theme.textMuted, fontSize: font(13) }]}>
-          Create up to <Text style={{ color: theme.text, fontWeight: '800' }}>20 passwords</Text> to protect your folders and files. Stored securely and must meet strength requirements.
-        </Text>
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
+      <VaultHeader title="Access Keys" showBack />
 
-        <View style={[styles.createCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <View style={styles.fieldGroup}>
-            <View style={styles.labelRow}>
-              <Tag size={14} color={theme.label} strokeWidth={2} />
-              <Text style={[styles.label, { color: theme.label }]}>PASSWORD LABEL</Text>
-            </View>
-            <TextInput
-              style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg }]}
-              value={passwordLabel}
-              onChangeText={setPasswordLabel}
-              placeholder="e.g. Personal Vault Password"
-              placeholderTextColor={theme.textMuted}
-                 />
-              </View>
+      <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing + space(6) }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={[styles.description, { color: colors.textMuted, fontSize: font(Type.caption.size), marginBottom: space(4) }]}>
+            Create up to <Text style={{ color: colors.text, fontWeight: '800' }}>20 passwords</Text> to protect your folders and files. Stored securely and must meet strength requirements.
+          </Text>
 
-             <View style={styles.fieldGroup}>
-            <View style={styles.labelRow}>
-              <Clipboard size={14} color={theme.label} strokeWidth={2} />
-              <Text style={[styles.label, { color: theme.label }]}>DESCRIPTION</Text>
-              <View style={[styles.optionalBadge, { backgroundColor: theme.badgeBg, borderColor: theme.badgeBorder }]}>
-                <Text style={[styles.optionalBadgeText, { color: theme.textMuted }]}>optional</Text>
-              </View>
-            </View>
-            <TextInput
-              style={[styles.input, styles.multilineInput, { color: theme.text, backgroundColor: theme.inputBg }]}
-              value={passwordDescription}
-              onChangeText={setPasswordDescription}
-              placeholder="What is this password used for?"
-              placeholderTextColor={theme.textMuted}
-              multiline
-            />
-          </View>
+          <Card style={{ marginBottom: space(6) }}>
+            <TextField label="Password Label" value={passwordLabel} onChangeText={setPasswordLabel} placeholder="e.g. Personal Vault Password" accessibilityLabel="Password label" />
+            <TextField label="Description (optional)" value={passwordDescription} onChangeText={setPasswordDescription} placeholder="What is this password used for?" multiline accessibilityLabel="Description" />
 
-          <View style={styles.sectionDivider}>
-            <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
-            <Lock size={14} color={theme.label} strokeWidth={2} />
-            <Text style={[styles.sectionDividerText, { color: theme.label }]}>SECURITY</Text>
-            <Lock size={14} color={theme.label} strokeWidth={2} />
-            <View style={[styles.dividerLine, { backgroundColor: theme.divider }]} />
-          </View>
+            <View style={[styles.sectionDivider, { marginVertical: space(5), gap: space(2) }]}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.borderLight }]} />
+              <Text style={[styles.sectionDividerText, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>SECURITY</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.borderLight }]} />
+            </View>
 
-          <View style={styles.fieldGroup}>
-            <View style={styles.labelRow}>
-              <Key size={14} color={theme.label} strokeWidth={2} />
-              <Text style={[styles.label, { color: theme.label }]}>CREATE A PASSWORD</Text>
-            </View>
-            <View style={styles.inputWithAction}>
-              <TextInput
-                style={[styles.input, styles.inputWithPadding, { color: theme.text, backgroundColor: theme.inputBg }]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter a strong password"
-                placeholderTextColor={theme.textMuted}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity style={styles.actionButton} onPress={() => setShowPassword(!showPassword)}>
-                <Eye size={16} color={theme.label} strokeWidth={2} />
-                <Text style={[styles.actionButtonText, { color: theme.label }]}>{showPassword ? 'Hide' : 'Show'}</Text>
-              </TouchableOpacity>
-            </View>
-            {password.length === 0 && <Text style={[styles.notSetText, { color: theme.notSet }]}>Not set</Text>}
+            <TextField label="Create a Password" value={password} onChangeText={setPassword} placeholder="Enter a strong password" secureToggle accessibilityLabel="New password" />
             {password.length > 0 && (
-              <View style={styles.strengthIndicator}>
-                <View style={[styles.strengthBarBg, { backgroundColor: theme.iconBg }]}>
-                  <View style={[styles.strengthBar, { backgroundColor: strengthColor, width: strength === 'weak' ? '33%' : strength === 'medium' ? '66%' : '100%' }]} />
-                </View>
-                <Text style={[styles.strengthText, { color: strengthColor }]}>{strengthLabelText}</Text>
+              <View style={{ marginTop: -space(2), marginBottom: space(4) }}>
+                <ProgressBar progress={STRENGTH_PROGRESS[strength]} color={strengthColor} label={STRENGTH_LABEL[strength]} showPercentage={false} height={4} />
               </View>
             )}
+
+            <TextField
+              label="Confirm Password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Confirm your password"
+              secureToggle
+              error={confirmPassword.length > 0 && password !== confirmPassword ? 'Passwords do not match' : undefined}
+              accessibilityLabel="Confirm password"
+            />
+
+            <Button
+              title={accessKeys.length >= 20 ? 'Limit Reached' : 'Create Access Key'}
+              onPress={handleCreatePassword}
+              disabled={accessKeys.length >= 20}
+              icon={ShieldCheck}
+              style={{ marginTop: space(2) }}
+            />
+          </Card>
+
+          <View style={[styles.sectionHeader, { marginBottom: space(3) }]}>
+            <View style={styles.sectionHeaderLeft}>
+              <Key size={iconSize(16)} color={colors.text} strokeWidth={2} />
+              <Text style={[styles.sectionTitle, { color: colors.text, fontSize: font(Type.label.size), marginLeft: space(1) }]}>Existing Access Keys</Text>
+            </View>
+            <View style={[styles.counterBadge, { backgroundColor: colors.surfaceHover, borderColor: colors.borderLight, borderRadius: 10, paddingHorizontal: space(3) }]}>
+              <Text style={[styles.counterText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>{accessKeys.length} / 20</Text>
+            </View>
           </View>
 
-          <View style={styles.fieldGroup}>
-            <View style={styles.labelRow}>
-              <Lock size={14} color={theme.label} strokeWidth={2} />
-              <Text style={[styles.label, { color: theme.label }]}>CONFIRM PASSWORD</Text>
-            </View>
-            <View style={styles.inputWithAction}>
-              <TextInput
-                style={[styles.input, styles.inputWithPadding, { color: theme.text, backgroundColor: theme.inputBg }]}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder="Confirm your password"
-                placeholderTextColor={theme.textMuted}
-                secureTextEntry={!showConfirmPassword}
-              />
-              <TouchableOpacity style={styles.actionButton} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                <Eye size={16} color={theme.label} strokeWidth={2} />
-                <Text style={[styles.actionButtonText, { color: theme.label }]}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {confirmPassword.length > 0 && password !== confirmPassword && (
-                  <Text style={[styles.errorText, { color: colors.error, marginTop: space(2) }]}>Passwords do not match</Text>
+          {accessKeys.length === 0 ? (
+            <EmptyState icon={Lock} title="No passwords yet" message="Create a password to assign it to folders or files." />
+          ) : (
+            accessKeys.map((fp: AccessKeyMetadata) => (
+              <Card key={fp.id} style={{ marginBottom: space(3) }}>
+                <View style={styles.passwordRow}>
+                  <View style={styles.passwordLeft}>
+                    <View style={[styles.keyIconBox, { backgroundColor: colors.surfaceHover, marginRight: space(3) }]}>
+                      <Key size={iconSize(20)} color={colors.textSecondary} strokeWidth={2} />
+                    </View>
+                    <View style={styles.passwordTextCol}>
+                      <Text style={[styles.passwordName, { color: colors.text, fontSize: font(Type.body.size) }]} numberOfLines={1}>{fp.label}</Text>
+                      <Text style={[styles.passwordMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>{fp.description || 'No description'}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.passwordActions, { gap: space(2) }]}>
+                    <Button
+                      title="Edit"
+                      size="sm"
+                      variant="tertiary"
+                      onPress={() => { setPendingEditPassword(fp); setShowEditUnlockModal(true); }}
+                    />
+                    <Button
+                      title="Delete"
+                      size="sm"
+                      variant="danger"
+                      icon={Trash2}
+                      onPress={() => { setPendingDeletePassword(fp); setDeleteVerificationPassword(''); setShowDeleteVerificationModal(true); }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(fp.label, `Created: ${new Date(fp.createdAt).toLocaleDateString()}\n${fp.description || 'No description provided'}`, [{ text: 'OK' }])}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Details for ${fp.label}`}
+                      style={[styles.infoBtn, { backgroundColor: colors.surfaceHover, borderColor: colors.borderLight }]}
+                    >
+                      <Info size={iconSize(16)} color={colors.textSecondary} strokeWidth={2} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Card>
+            ))
           )}
-
-          <TouchableOpacity
-            style={[styles.createBtn, { backgroundColor: accessKeys.length >= 20 ? theme.btnDisabled : theme.btnPrimary }]}
-            onPress={accessKeys.length >= 20 ? undefined : handleCreatePassword}
-            activeOpacity={accessKeys.length >= 20 ? 1 : 0.7}
-          >
-            <ShieldCheck size={18} color={accessKeys.length >= 20 ? theme.btnDisabledText : theme.btnPrimaryText} strokeWidth={2.5} />
-            <Text style={[styles.createBtnText, { color: accessKeys.length >= 20 ? theme.btnDisabledText : theme.btnPrimaryText }]}>
-              {accessKeys.length >= 20 ? 'Limit Reached' : 'Create Access Key'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionHeaderLeft}>
-            <Key size={16} color={theme.text} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Existing Access Keys</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
-            <View style={[styles.counterBadge, { backgroundColor: theme.badgeBg, borderColor: theme.badgeBorder }]}>
-              <Text style={[styles.counterText, { color: theme.textMuted }]}>{accessKeys.length} / 20</Text>
-            </View>
-          </View>
-        </View>
-
-        {accessKeys.length === 0 ? (
-           <View style={[styles.empty, { borderColor: theme.emptyBorder }]}>
-             <View style={[styles.emptyIconCircle, { backgroundColor: theme.iconBg }]}>
-               <Lock size={28} color={theme.label} strokeWidth={1.8} />
-             </View>
-             <Text style={[styles.emptyTitle, { color: colors.text }]}>No passwords yet</Text>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Create a password to assign it to folders or files.</Text>
-           </View>
-         ) : (
-          accessKeys.map((fp: AccessKeyMetadata) => (
-            <View key={fp.id} style={[styles.passwordCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-              <View style={styles.passwordLeft}>
-                <View style={{ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
-                  <Key size={20} color={theme.label} strokeWidth={2} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.passwordName, { color: theme.text }]} numberOfLines={1}>{fp.label}</Text>
-                  <Text style={[styles.passwordMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                    {fp.description || 'No description'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.passwordActions}>
-                <TouchableOpacity
-                  style={[styles.editBtn, { borderColor: theme.badgeBorder }]}
-                  onPress={() => {
-                    setPendingEditPassword(fp);
-                    setShowEditUnlockModal(true);
-                  }}
-                 >
-                  <Text style={{ color: theme.text, fontSize: font(12), fontWeight: '700' }}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.deleteBtn, { backgroundColor: colors.error }]}
-                  onPress={() => {
-                    setPendingDeletePassword(fp);
-                    setDeleteVerificationPassword('');
-                    setShowDeleteVerificationModal(true);
-                  }}
-                >
-                  <Trash2 size={14} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={{ color: '#FFFFFF', fontSize: font(12), fontWeight: '700' }}>Delete</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.infoBtn, { backgroundColor: theme.iconBg, borderColor: theme.badgeBorder }]}
-                  onPress={() => {
-                    Alert.alert(
-                      fp.label,
-                      `Created: ${new Date(fp.createdAt).toLocaleDateString()}\n${fp.description || 'No description provided'}`,
-                      [{ text: 'OK' }]
-                    );
-                  }}
-                >
-                  <Info size={16} color={theme.label} strokeWidth={2} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
-        )}
-
-        <View style={{ height: bottomTabSpacing }} />
-      </ScrollView>
+        </ScrollView>
       </Animated.View>
-    </KeyboardAvoidingView>
+
       <AnimatedTabBar />
 
-      {/* Delete Password Verification Modal */}
-      {showDeleteVerificationModal && pendingDeletePassword && (
-         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.verifyOverlay, justifyContent: 'center', alignItems: 'center', padding: space(6) }}>
-          <View style={[styles.verifyCard, { backgroundColor: theme.verifyCardBg, borderColor: theme.verifyCardBorder, maxWidth: isTablet ? 420 : 360, padding: isTablet ? space(6) : space(5) }]}>
-            <View style={[styles.verifyIconRing, { backgroundColor: theme.verifyIconRing }]}>
-              <View style={[styles.verifyIconInner, { backgroundColor: theme.verifyIconInner }]}>
-                <Lock size={28} color={colors.error} strokeWidth={1.5} />
-              </View>
-            </View>
-
-            <Text style={[styles.verifyTitle, { color: theme.text }]}>Verify to Delete</Text>
-            <Text style={[styles.verifySubtitle, { color: theme.textMuted }]}>
-              Enter the password to confirm deletion of &quot;{pendingDeletePassword.label}&quot;
-            </Text>
-
-            {pendingDeletePassword.description && (
-              <Text style={[styles.verifyHint, { color: theme.textMuted }]}>
-                {pendingDeletePassword.description}
-              </Text>
-            )}
-
-            <TextInput
-              style={[styles.verifyInput, { borderColor: theme.inputBorder, color: theme.text, backgroundColor: theme.inputBg }]}
-              placeholder="Enter password"
-              placeholderTextColor={theme.textMuted}
-              value={deleteVerificationPassword}
-              onChangeText={setDeleteVerificationPassword}
-              secureTextEntry
-              autoFocus
-            />
-
-            <View style={styles.verifyButtonRow}>
-              <TouchableOpacity
-                style={[styles.verifyCancelBtn, { backgroundColor: theme.cancelBtnBg, borderColor: theme.cancelBtnBorder, borderWidth: 1 }]}
-                onPress={() => {
-                  setShowDeleteVerificationModal(false);
-                  setPendingDeletePassword(null);
-                  setDeleteVerificationPassword('');
-                }}
-              >
-                <Text style={[styles.verifyCancelText, { color: theme.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.verifyDeleteBtn, { backgroundColor: colors.error }]}
-                onPress={handleDeleteVerification}
-              >
-                <Text style={[styles.verifyDeleteText, { color: '#FFFFFF' }]}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <Dialog
+        visible={showDeleteVerificationModal && !!pendingDeletePassword}
+        onRequestClose={() => { setShowDeleteVerificationModal(false); setPendingDeletePassword(null); setDeleteVerificationPassword(''); }}
+        icon={Lock}
+        iconColor={colors.error}
+        title="Verify to Delete"
+        message={`Enter the password to confirm deletion of "${pendingDeletePassword?.label}"${pendingDeletePassword?.description ? `\n${pendingDeletePassword.description}` : ''}`}
+        actions={[
+          { label: 'Cancel', onPress: () => { setShowDeleteVerificationModal(false); setPendingDeletePassword(null); setDeleteVerificationPassword(''); }, variant: 'tertiary' },
+          { label: 'Delete', onPress: handleDeleteVerification, variant: 'danger' },
+        ]}
+      >
+        <View style={{ width: '100%' }}>
+          <TextField placeholder="Enter password" value={deleteVerificationPassword} onChangeText={setDeleteVerificationPassword} secureTextEntry autoFocus accessibilityLabel="Password" />
         </View>
-      )}
+      </Dialog>
 
-      {/* Edit Password Verification Modal */}
       {showEditUnlockModal && pendingEditPassword && (
         <AccessKeyUnlockModal
           visible={showEditUnlockModal}
@@ -527,10 +308,7 @@ export default function AccessKeysScreen() {
           targetId={pendingEditPassword.id}
           targetType="file"
           accessKeyId={pendingEditPassword.id}
-          onClose={() => {
-            setShowEditUnlockModal(false);
-            setPendingEditPassword(null);
-          }}
+          onClose={() => { setShowEditUnlockModal(false); setPendingEditPassword(null); }}
           onUnlock={() => {
             const target = pendingEditPassword;
             setShowEditUnlockModal(false);
@@ -540,406 +318,80 @@ export default function AccessKeysScreen() {
             setEditDescription(target.description || '');
             setEditPassword('');
             setEditConfirmPassword('');
-            setShowEditPassword(false);
-            setShowEditConfirmPassword(false);
             setShowEditModal(true);
           }}
         />
       )}
 
-      {/* Edit Password Modal */}
-      {showEditModal && editingPassword && (
-         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.editOverlay, justifyContent: 'center', alignItems: 'center', padding: space(6) }}>
-          <View style={[styles.editCard, { backgroundColor: theme.editCardBg, borderColor: theme.editCardBorder, maxWidth: isTablet ? 420 : 400, padding: isTablet ? space(6) : space(5) }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8, width: '100%', alignItems: 'stretch' }}>
-               <Text style={[styles.editTitle, { color: theme.text, marginBottom: space(1) }]}>Edit Access Key</Text>
-               <Text style={[styles.editSubtitle, { color: theme.textMuted, marginBottom: space(6) }]}>Editing: {editingPassword.label}</Text>
+      <Sheet visible={showEditModal && !!editingPassword} onClose={() => { setShowEditModal(false); setEditingPassword(null); }} title="Edit Access Key">
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space(5) }} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.editSubtitle, { color: colors.textMuted, fontSize: font(Type.caption.size), marginBottom: space(4) }]}>Editing: {editingPassword?.label}</Text>
 
-               <View style={styles.fieldGroup}>
-                 <Text style={[styles.label, { color: theme.label, marginBottom: space(2) }]}>Password Label</Text>
-                <TextInput
-                  style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg }]}
-                  value={editLabel}
-                  onChangeText={setEditLabel}
-                  placeholder="e.g. Personal Vault Password"
-                  placeholderTextColor={theme.textMuted}
-                />
-              </View>
+          <TextField label="Password Label" value={editLabel} onChangeText={setEditLabel} placeholder="e.g. Personal Vault Password" accessibilityLabel="Password label" />
+          <TextField label="Description (optional)" value={editDescription} onChangeText={setEditDescription} placeholder="What is this password used for?" multiline accessibilityLabel="Description" />
+          <TextField label="New Password (optional)" value={editPassword} onChangeText={setEditPassword} placeholder="Enter a new password" secureToggle accessibilityLabel="New password" />
+          {editPassword.length > 0 && (
+            <View style={{ marginTop: -space(2), marginBottom: space(4) }}>
+              <ProgressBar progress={STRENGTH_PROGRESS[editStrength]} color={editStrengthColor} label={STRENGTH_LABEL[editStrength]} showPercentage={false} height={4} />
+            </View>
+          )}
+          <TextField
+            label="Confirm New Password"
+            value={editConfirmPassword}
+            onChangeText={setEditConfirmPassword}
+            placeholder="Confirm your new password"
+            secureToggle
+            error={editConfirmPassword.length > 0 && editPassword !== editConfirmPassword ? 'Passwords do not match' : undefined}
+            accessibilityLabel="Confirm new password"
+          />
 
-              <View style={styles.fieldGroup}>
-                <View style={styles.labelRow}>
-                  <Text style={[styles.label, { color: theme.label }]}>Description</Text>
-                  <View style={[styles.optionalBadge, { backgroundColor: theme.badgeBg, borderColor: theme.badgeBorder }]}>
-                    <Text style={[styles.optionalBadgeText, { color: theme.textMuted }]}>optional</Text>
-                  </View>
-                </View>
-                <TextInput
-                   style={[styles.input, styles.multilineInput, { color: theme.text, backgroundColor: theme.inputBg }]}
-                   value={editDescription}
-                   onChangeText={setEditDescription}
-                   placeholder="What is this password used for?"
-                   placeholderTextColor={theme.textMuted}
-                   multiline
-                 />
-              </View>
-
-               <View style={styles.fieldGroup}>
-                 <Text style={[styles.label, { color: theme.label, marginBottom: space(2) }]}>New Password (Optional)</Text>
-                 <View style={styles.inputWithAction}>
-                   <TextInput
-                     style={[styles.input, styles.inputWithPadding, { color: theme.text, backgroundColor: theme.inputBg }]}
-                     value={editPassword}
-                     onChangeText={setEditPassword}
-                     placeholder="Enter a new password"
-                     placeholderTextColor={theme.textMuted}
-                     secureTextEntry={!showEditPassword}
-                   />
-                  <TouchableOpacity style={styles.actionButton} onPress={() => setShowEditPassword(!showEditPassword)}>
-                    <Eye size={16} color={theme.label} strokeWidth={2} />
-                    <Text style={[styles.actionButtonText, { color: theme.label }]}>{showEditPassword ? 'Hide' : 'Show'}</Text>
-                  </TouchableOpacity>
-                </View>
-                {editPassword.length > 0 && (() => {
-                  const editStrength = getPasswordStrength(editPassword);
-                  const editBarColor = editStrength === 'weak' ? colors.error : editStrength === 'medium' ? '#FBBF24' : '#34C759';
-                  const editBarWidth = editStrength === 'weak' ? '33%' : editStrength === 'medium' ? '66%' : '100%';
-                  const editStrengthLabel = editStrength === 'weak' ? 'Weak' : editStrength === 'medium' ? 'Medium' : 'Strong';
-                  return (
-                    <View style={styles.strengthIndicator}>
-                      <View style={[styles.strengthBarBg, { backgroundColor: theme.iconBg }]}>
-                        <View style={[styles.strengthBar, { backgroundColor: editBarColor, width: editBarWidth }]} />
-                      </View>
-                      <Text style={[styles.strengthText, { color: editBarColor }]}>{editStrengthLabel}</Text>
-                    </View>
-                  );
-                })()}
-              </View>
-
-               <View style={styles.fieldGroup}>
-                 <Text style={[styles.label, { color: theme.label, marginBottom: space(2) }]}>Confirm New Password</Text>
-                 <View style={styles.inputWithAction}>
-                   <TextInput
-                     style={[styles.input, styles.inputWithPadding, { color: theme.text, backgroundColor: theme.inputBg }]}
-                     value={editConfirmPassword}
-                     onChangeText={setEditConfirmPassword}
-                     placeholder="Confirm your new password"
-                     placeholderTextColor={theme.textMuted}
-                     secureTextEntry={!showEditConfirmPassword}
-                   />
-                  <TouchableOpacity style={styles.actionButton} onPress={() => setShowEditConfirmPassword(!showEditConfirmPassword)}>
-                    <Eye size={16} color={theme.label} strokeWidth={2} />
-                    <Text style={[styles.actionButtonText, { color: theme.label }]}>{showEditConfirmPassword ? 'Hide' : 'Show'}</Text>
-                  </TouchableOpacity>
-                </View>
-                {editConfirmPassword.length > 0 && editPassword !== editConfirmPassword && (
-            <Text style={[styles.errorText, { color: colors.error, marginTop: space(2) }]}>Passwords do not match</Text>
-                )}
-              </View>
-
-              <View style={styles.editButtonRow}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowEditModal(false);
-                    setEditingPassword(null);
-                    setEditLabel('');
-                    setEditDescription('');
-                    setEditPassword('');
-                    setEditConfirmPassword('');
-                  }}
-                  style={[styles.editCancelBtn, { borderColor: theme.cancelBtnBorder, backgroundColor: theme.cancelBtnBg }]}
-                >
-                  <Text style={[styles.editCancelText, { color: theme.text }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleEditConfirm}
-                  style={[styles.editSaveBtn, { backgroundColor: isDark ? '#FFFFFF' : colors.primary }]}
-                >
-                  <Text style={[styles.editSaveText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Save Changes</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+          <View style={[styles.editButtonRow, { gap: space(3), marginBottom: space(5) }]}>
+            <Button
+              title="Cancel"
+              variant="tertiary"
+              style={{ flex: 1 }}
+              onPress={() => {
+                setShowEditModal(false);
+                setEditingPassword(null);
+                setEditLabel('');
+                setEditDescription('');
+                setEditPassword('');
+                setEditConfirmPassword('');
+              }}
+            />
+            <Button title="Save Changes" style={{ flex: 1 }} onPress={handleEditConfirm} />
           </View>
-        </View>
-      )}
+        </ScrollView>
+      </Sheet>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  customHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-  },
-  backBtn: { padding: 4 },
-  backIcon: { fontSize: 22, fontWeight: '600' },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lockIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
-  content: { paddingHorizontal: 20, paddingBottom: 110 },
-  description: { lineHeight: 18, marginBottom: 4, marginTop: 2 },
-  createCard: {
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 28,
-  },
-  fieldGroup: { marginBottom: 20 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
-  label: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-  optionalBadge: {
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  optionalBadgeText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  input: {
-    width: '100%',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 15,
-  },
-  multilineInput: { minHeight: 100, textAlignVertical: 'top' },
-  inputWithAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  inputWithPadding: { flex: 1 },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    flexShrink: 0,
-  },
-  actionButtonText: { fontSize: 12, fontWeight: '600' },
-  notSetText: { fontSize: 12, marginTop: 2, fontStyle: 'italic' },
-  sectionDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginVertical: 24,
-  },
+  flex1: { flex: 1 },
+  content: {},
+  description: { lineHeight: 18 },
+
+  sectionDivider: { flexDirection: 'row', alignItems: 'center' },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  sectionDividerText: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-  strengthIndicator: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 12 },
-  strengthBarBg: { height: 2, borderRadius: 2, flex: 1, overflow: 'hidden' },
-  strengthBar: { height: '100%', borderRadius: 2 },
-  strengthText: { fontSize: 11, fontWeight: '600' },
-  errorText: { fontSize: 12, marginTop: 4, fontWeight: '600' },
-  createBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    marginTop: 24,
-    paddingVertical: 16,
-    borderRadius: 14,
-  },
-  createBtnText: { fontSize: 15, fontWeight: '800' },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    marginTop: 4,
-  },
-  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  sectionTitle: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  counterBadge: {
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 2,
-  },
-  counterText: { fontSize: 12, fontWeight: '700' },
-  empty: { borderWidth: 1, borderRadius: 18, paddingVertical: 36, alignItems: 'center' },
-  emptyIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: '800', marginTop: 4 },
-  emptyText: { fontSize: 13, textAlign: 'center', marginTop: 4, paddingHorizontal: 24 },
-  passwordCard: {
-    flexDirection: 'row',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-  },
-  passwordLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
-  keyIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  passwordName: { fontSize: 15, fontWeight: '800', marginBottom: 2, flexShrink: 1 },
-  passwordMeta: { fontSize: 12, flexShrink: 1 },
-  passwordActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  editBtn: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  deleteBtn: {
-    alignSelf: 'flex-start',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    justifyContent: 'center',
-  },
-  infoBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  verifyCard: {
-    width: '100%',
-    borderRadius: 24,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  verifyIconRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  verifyIconInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  verifyTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    marginBottom: 2,
-    textAlign: 'center',
-  },
-  verifySubtitle: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  verifyHint: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: 20,
-    fontStyle: 'italic',
-  },
-  verifyInput: {
-    width: '100%',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 15,
-    marginBottom: 20,
-  },
-  verifyButtonRow: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  verifyCancelBtn: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  verifyCancelText: {
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  verifyDeleteBtn: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  verifyDeleteText: {
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  editCard: {
-    width: '100%',
-    maxHeight: '80%',
-    borderRadius: 24,
-    padding: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  editTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  editSubtitle: {
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  editButtonRow: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-    marginTop: 16,
-  },
-  editCancelBtn: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  editCancelText: {
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  editSaveBtn: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  editSaveText: {
-    fontWeight: '800',
-    fontSize: 15,
-  },
+  sectionDividerText: { fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center' },
+  sectionTitle: { fontWeight: '800' },
+  counterBadge: { borderWidth: StyleSheet.hairlineWidth, paddingVertical: 2 },
+  counterText: { fontWeight: '700' },
+
+  passwordRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  passwordLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+  keyIconBox: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  passwordTextCol: { flex: 1, minWidth: 0 },
+  passwordName: { fontWeight: '700' },
+  passwordMeta: { fontWeight: '500', marginTop: 2 },
+  passwordActions: { flexDirection: 'row', alignItems: 'center' },
+  infoBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+
+  editSubtitle: { textAlign: 'center' },
+  editButtonRow: { flexDirection: 'row' },
 });

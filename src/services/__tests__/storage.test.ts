@@ -14,6 +14,7 @@ type MockEntry = { isDirectory: boolean; size?: number };
 const mockFiles: Record<string, MockEntry> = {};
 const mockDirChildren: Record<string, string[]> = {};
 let mockFreeDiskBytes = 0;
+let mockTotalDiskBytes = 0;
 
 jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file:///mock-doc/',
@@ -25,6 +26,7 @@ jest.mock('expo-file-system/legacy', () => ({
   }),
   readDirectoryAsync: jest.fn(async (path: string) => mockDirChildren[path] || []),
   getFreeDiskStorageAsync: jest.fn(async () => mockFreeDiskBytes),
+  getTotalDiskCapacityAsync: jest.fn(async () => mockTotalDiskBytes),
   makeDirectoryAsync: jest.fn(async () => {}),
   copyAsync: jest.fn(async () => {}),
   deleteAsync: jest.fn(async () => {}),
@@ -42,6 +44,7 @@ function resetMockFs() {
   for (const key of Object.keys(mockFiles)) delete mockFiles[key];
   for (const key of Object.keys(mockDirChildren)) delete mockDirChildren[key];
   mockFreeDiskBytes = 0;
+  mockTotalDiskBytes = 0;
 }
 
 describe('StorageService.getStorageQuotaInfo', () => {
@@ -52,9 +55,11 @@ describe('StorageService.getStorageQuotaInfo', () => {
 
   it('reports zero used bytes when the vault sandbox does not exist yet', async () => {
     mockFreeDiskBytes = 5_000_000;
+    mockTotalDiskBytes = 64_000_000_000;
     const quota = await StorageService.getStorageQuotaInfo();
     expect(quota.used).toBe(0);
     expect(quota.free).toBe(5_000_000);
+    expect(quota.total).toBe(64_000_000_000);
   });
 
   it('sums real file sizes across the vault sandbox instead of returning a hardcoded value', async () => {

@@ -9,14 +9,21 @@ import { useSettingsStore } from '../settingsStore';
 // `resetMocks: true`, which strips mockImplementations (even ones set at
 // creation time) between every test (see jest.setup.js for the same lesson
 // learned on the expo-secure-store mock).
+// Paths the mocked filesystem "contains". Tests mutate this to simulate a
+// payload being present or gone. `mock`-prefixed so jest lets the (hoisted)
+// jest.mock factory close over it.
+const mockExistingPaths = new Set<string>();
+
 jest.mock('../../services/storage', () => ({
   StorageService: {
     initializeSystemDirectories: async () => {},
     copyToSandbox: async (_uri: string, name: string) => `/vault/${name}`,
+    remuxVideoIfPossible: async (path: string) => path,
     removeSandboxFile: async () => {},
     copySandboxFile: async () => {},
     encryptSandboxFile: async (path: string) => `${path}.enc`,
     decryptSandboxFile: async (path: string) => path.replace('.enc', ''),
+    fileExists: async (path: string) => mockExistingPaths.has(path),
   },
 }));
 
@@ -24,6 +31,7 @@ describe('vaultStore', () => {
   beforeEach(() => {
     useVaultStore.setState({ folders: [], files: [] });
     useSettingsStore.setState({ accessKeys: [], encryptionKeys: [] });
+    mockExistingPaths.clear();
   });
 
   it('starts empty', () => {
@@ -137,6 +145,44 @@ describe('vaultStore', () => {
       const restoredFolder = useVaultStore.getState().folders.find(f => f.name === 'Restored Files');
       expect(restoredFolder).toBeDefined();
       expect(useVaultStore.getState().files.find(f => f.id === fileId)!.folderId).toBe(restoredFolder!.id);
+    });
+  });
+
+  describe('reconcileMissingPayloads flags files whose on-disk payload is gone', () => {
+    const mkFile = (id: string, localPath: string, extra: Partial<import('../../types').FileMetadata> = {}) =>
+      ({ id, folderId: 'f', name: id, size: 10, mimeType: 'image/jpeg', localPath, isFavorite: false, isTrash: false, importedAt: 0, ...extra }) as import('../../types').FileMetadata;
+
+    it('marks a file isMissing when its payload does not exist, and leaves present ones untouched', async () => {
+      mockExistingPaths.add('/vault/present.jpg');
+      useVaultStore.setState({
+        files: [mkFile('present', '/vault/present.jpg'), mkFile('gone', '/vault/gone.jpg')],
+      });
+
+      await useVaultStore.getState().reconcileMissingPayloads();
+
+      const byId = Object.fromEntries(useVaultStore.getState().files.map(f => [f.id, f]));
+      expect(byId.present.isMissing).toBeFalsy();
+      expect(byId.gone.isMissing).toBe(true);
+    });
+
+    it('clears a stale isMissing flag once the payload reappears (e.g. after restore)', async () => {
+      useVaultStore.setState({ files: [mkFile('back', '/vault/back.jpg', { isMissing: true })] });
+      mockExistingPaths.add('/vault/back.jpg');
+
+      await useVaultStore.getState().reconcileMissingPayloads();
+
+      expect(useVaultStore.getState().files[0].isMissing).toBe(false);
+    });
+
+    it('is a no-op (no state change) when every flag is already correct', async () => {
+      mockExistingPaths.add('/vault/here.jpg');
+      const files = [mkFile('here', '/vault/here.jpg')];
+      useVaultStore.setState({ files });
+
+      await useVaultStore.getState().reconcileMissingPayloads();
+
+      // Same array reference back means no write/rebuild happened.
+      expect(useVaultStore.getState().files).toBe(files);
     });
   });
 

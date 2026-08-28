@@ -1,10 +1,20 @@
 // File: src/components/FolderPicker.tsx
+// Rebuilt on the Sheet primitive per §5 (scrollable list/search picker →
+// Sheet, not Dialog). ALL filesystem logic is carried across byte-identical:
+// getDefaultRootPath, loadDirectory's FileSystem.getInfoAsync /
+// readDirectoryAsync walk and its isDirectory filter + localeCompare sort,
+// handleItemPress, goBack's history/parent-path handling, and
+// selectCurrentFolder. Only the JSX/StyleSheet is new — and every
+// `colors.accent` deprecated alias is replaced with `colors.secondary`.
 import { useState, useEffect } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, SafeAreaView } from 'react-native';
-import { Folder, ChevronRight, X, Check, Home, FolderOpen } from 'lucide-react-native';
-import { useTheme } from '../contexts/ThemeContext';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
+import { Folder, ChevronRight, Check, Home, FolderOpen } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Platform } from 'react-native';
+import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
+import { Button } from './primitives/Button';
+import { EmptyState } from './primitives/EmptyState';
+import { Sheet } from './primitives/Sheet';
 
 interface FolderPickerProps {
   visible: boolean;
@@ -20,7 +30,9 @@ interface DirectoryItem {
 }
 
 export function FolderPicker({ visible, onClose, onSelect, initialPath }: FolderPickerProps) {
-  const { colors, space, font, isTablet } = useTheme();
+  const { colors, space, font, radius, isTablet, iconSize, touchTarget } = useTheme();
+  const pathBtnSize = iconSize(32);
+  const itemIconSize = iconSize(36);
   const [currentPath, setCurrentPath] = useState<string>(initialPath || getDefaultRootPath());
   const [items, setItems] = useState<DirectoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,10 +59,10 @@ export function FolderPicker({ visible, onClose, onSelect, initialPath }: Folder
       if (!dirInfo.exists) {
         throw new Error('Directory does not exist');
       }
-      
+
       const contents = await FileSystem.readDirectoryAsync(path);
       const dirItems: DirectoryItem[] = [];
-      
+
       for (const item of contents) {
         const itemPath = `${path}${item}/`;
         const itemInfo = await FileSystem.getInfoAsync(itemPath);
@@ -62,7 +74,7 @@ export function FolderPicker({ visible, onClose, onSelect, initialPath }: Folder
           });
         }
       }
-      
+
       dirItems.sort((a, b) => a.name.localeCompare(b.name));
       setItems(dirItems);
     } catch (e: any) {
@@ -96,220 +108,105 @@ export function FolderPicker({ visible, onClose, onSelect, initialPath }: Folder
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <SafeAreaView style={styles.overlay}>
-        <View style={[styles.container, { backgroundColor: colors.surface, width: isTablet ? '80%' : '100%', maxWidth: 500 }]}>
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-              <X size={24} color={colors.text} strokeWidth={2} />
-            </TouchableOpacity>
-            <View style={styles.headerCenter}>
-              <Text style={[styles.headerTitle, { color: colors.text, fontSize: font(18) }]}>Select Backup Folder</Text>
-            </View>
-            <TouchableOpacity onPress={selectCurrentFolder} style={[styles.headerButton, { opacity: items.length > 0 ? 1 : 0.5 }]} disabled={items.length === 0}>
-              <Check size={24} color={colors.accent} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
+    <Sheet visible={visible} onClose={onClose} title="Select Backup Folder">
+      <View style={[styles.pathBar, { backgroundColor: colors.surfaceHover, borderRadius: radius(4), marginHorizontal: space(5), paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(3), gap: space(2) }]}>
+        <Pressable
+          onPress={goBack}
+          disabled={isRoot}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go to parent folder"
+          accessibilityState={{ disabled: isRoot }}
+          style={[styles.pathButton, { width: pathBtnSize, height: pathBtnSize }]}
+        >
+          <Home size={iconSize(18)} color={isRoot ? colors.textMuted : colors.primary} strokeWidth={2} />
+        </Pressable>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pathScroll}>
+          <Text style={[styles.pathText, { color: colors.textSecondary, fontSize: font(Type.caption.size) }]}>
+            {currentPath.replace(FileSystem.documentDirectory || '', '/ ').replace(/\/([^/]+)\/$/, '/$1/')}
+          </Text>
+        </ScrollView>
+      </View>
 
-          <View style={[styles.pathBar, { backgroundColor: colors.surfaceElevated }]}>
-            <TouchableOpacity onPress={goBack} disabled={isRoot} style={styles.pathButton}>
-              <Home size={18} color={isRoot ? colors.textMuted : colors.text} strokeWidth={2} />
-            </TouchableOpacity>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pathScroll}>
-              <Text style={[styles.pathText, { color: colors.text, fontSize: font(12) }]}>
-                {currentPath.replace(FileSystem.documentDirectory || '', '📁 ').replace(/\/([^/]+)\/$/, '/$1/')}
-              </Text>
-            </ScrollView>
-          </View>
-
-          {error && (
-            <View style={[styles.errorContainer, { backgroundColor: `${colors.error}15` }]}>
-              <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
-              <TouchableOpacity onPress={() => loadDirectory(currentPath)} style={styles.retryButton}>
-                <Text style={[styles.retryText, { color: colors.error }]}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator color={colors.accent} size="large" />
-                <Text style={[styles.loadingText, { color: colors.textMuted, marginTop: space(2) }]}>Loading...</Text>
-              </View>
-            ) : items.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <FolderOpen size={48} color={colors.textMuted} strokeWidth={1.5} />
-                <Text style={[styles.emptyText, { color: colors.textMuted, marginTop: space(2), fontSize: font(14) }]}>No folders in this location</Text>
-                <Text style={[styles.emptyHint, { color: colors.textMuted, fontSize: font(12) }]}>Create a folder or navigate to a different location</Text>
-              </View>
-            ) : (
-              items.map((item: DirectoryItem, index: number) => (
-                <TouchableOpacity
-                  key={`${item.path}-${index}`}
-                  onPress={() => handleItemPress(item)}
-                  style={[styles.item, { borderBottomColor: colors.border }]}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.itemContent}>
-                    <View style={[styles.itemIcon, { backgroundColor: `${colors.accent}15` }]}>
-                      <Folder size={22} color={colors.accent} strokeWidth={2} />
-                    </View>
-                    <Text style={[styles.itemName, { color: colors.text, fontSize: font(15) }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                  </View>
-                  <ChevronRight size={20} color={colors.textMuted} strokeWidth={2} />
-                </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
-
-          <View style={[styles.footer, { borderTopColor: colors.border }]}>
-            <Text style={[styles.footerHint, { color: colors.textMuted, fontSize: font(12) }]}>
-              Navigate to a folder and tap the checkmark to select it
-            </Text>
-          </View>
+      {error && (
+        <View style={[styles.errorContainer, { backgroundColor: `${colors.error}14`, borderRadius: radius(4), marginHorizontal: space(5), paddingHorizontal: space(4), paddingVertical: space(3), marginBottom: space(3) }]}>
+          <Text style={[styles.errorText, { color: colors.error, fontSize: font(Type.label.size) }]}>{error}</Text>
+          <Button title="Retry" onPress={() => loadDirectory(currentPath)} variant="ghost" size="sm" />
         </View>
-      </SafeAreaView>
-    </Modal>
+      )}
+
+      <ScrollView style={{ maxHeight: isTablet ? 420 : 320 }} showsVerticalScrollIndicator={false}>
+        {loading ? (
+          <View style={[styles.loadingContainer, { paddingVertical: space(12), gap: space(3) }]}>
+            <ActivityIndicator color={colors.primary} size="large" />
+            <Text style={{ color: colors.textMuted, fontSize: font(Type.body.size), fontWeight: '500' }}>Loading…</Text>
+          </View>
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={FolderOpen}
+            title="No folders in this location"
+            message="Create a folder or navigate to a different location"
+          />
+        ) : (
+          items.map((item: DirectoryItem, index: number) => (
+            <Pressable
+              key={`${item.path}-${index}`}
+              onPress={() => handleItemPress(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open folder ${item.name}`}
+              android_ripple={{ color: `${colors.text}0F` }}
+              style={({ pressed }) => [
+                styles.item,
+                {
+                  borderBottomColor: colors.borderLight,
+                  paddingHorizontal: space(5),
+                  paddingVertical: space(3),
+                  minHeight: touchTarget(),
+                  backgroundColor: pressed ? colors.surfaceHover : 'transparent',
+                },
+              ]}
+            >
+              <View style={styles.itemContent}>
+                <View style={[styles.itemIcon, { width: itemIconSize, height: itemIconSize, backgroundColor: `${colors.secondary}1F`, borderRadius: radius(3), marginRight: space(3) }]}>
+                  <Folder size={iconSize(20)} color={colors.secondary} strokeWidth={2} />
+                </View>
+                <Text style={[styles.itemName, { color: colors.text, fontSize: font(Type.body.size) }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </View>
+              <ChevronRight size={iconSize(18)} color={colors.textMuted} strokeWidth={2} />
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+
+      <View style={{ paddingHorizontal: space(5), paddingTop: space(4), gap: space(2) }}>
+        <Button
+          title="Select This Folder"
+          onPress={selectCurrentFolder}
+          icon={Check}
+          disabled={items.length === 0}
+          style={{ width: '100%' }}
+        />
+        <Text style={[styles.footerHint, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
+          Navigate to a folder, then select it
+        </Text>
+      </View>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-  },
-  container: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    maxHeight: '90%',
-    flexDirection: 'column',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    minHeight: 56,
-  },
-  headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontWeight: '700',
-  },
-  pathBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 48,
-  },
-  pathButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  pathScroll: {
-    flex: 1,
-  },
-  pathText: {
-    fontFamily: 'monospace',
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
-  },
-  errorText: {
-    flex: 1,
-    fontWeight: '500',
-  },
-  retryButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  retryText: {
-    fontWeight: '600',
-  },
-  list: {
-    flex: 1,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  loadingText: {
-    fontWeight: '500',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-  },
-  emptyText: {
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyHint: {
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  itemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-  },
-  itemIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  itemName: {
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  footer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-  },
-  footerHint: {
-    textAlign: 'center',
-  },
+  pathBar: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
+  pathButton: { alignItems: 'center', justifyContent: 'center' },
+  pathScroll: { flex: 1 },
+  pathText: { fontFamily: 'monospace' },
+  errorContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  errorText: { flex: 1, fontWeight: '600' },
+  loadingContainer: { alignItems: 'center' },
+  item: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth },
+  itemContent: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+  itemIcon: { alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  itemName: { fontWeight: '500', flexShrink: 1 },
+  footerHint: { textAlign: 'center', fontWeight: '500' },
 });

@@ -200,33 +200,15 @@ export const getScreenDimensions = (): {
 export const isLandscape = (width: number, height: number): boolean => width > height;
 export const isPortrait = (width: number, height: number): boolean => width <= height;
 
-// ── Border Radius Scale ───────────────────────────────────────────────────────
-// Based on a 4px baseline grid, mirrors spacing scale.
-// On tablets, values are scaled up by the tabletScale factor automatically.
+// Border radius lives solely in src/constants/radius.ts — the byte-identical
+// duplicate export that used to live here (imported nowhere) has been removed
+// per plans/you-are-a-senior-majestic-swing.md §4/§7 Phase 1.
 
-export const radius = {
-  0: 0,
-  1: 2,
-  2: 4,
-  3: 6,
-  4: 8,
-  5: 10,
-  6: 12,
-  7: 14,
-  8: 16,
-  9: 18,
-  10: 20,
-  11: 22,
-  12: 24,
-  14: 28,
-  16: 32,
-  20: 40,
-  24: 48,
-} as const;
-
-export type RadiusKey = keyof typeof radius;
-
-export const getRadius = (key: RadiusKey): number => radius[key];
+// ── Accessibility ──────────────────────────────────────────────────────────
+// Hard floor for any interactive control's touch target (WCAG 2.5.5 / iOS HIG
+// / Material both land on 44dp). Baked into Button/Chip/icon-button
+// primitives via hitSlop where the visual size is smaller (§4/§6).
+export const MIN_TOUCH_TARGET = 44;
 
 // ── Percentage Layout Helpers ─────────────────────────────────────────────────
 // Returns a percentage string for use in style objects.

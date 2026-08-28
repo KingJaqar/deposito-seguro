@@ -1,13 +1,26 @@
+// src/app/(auth)/onboarding.tsx
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
+// Business logic unchanged: checkSetup(), the 8s setupTimedOut guard, the
+// isConfigured/isAuthenticated auto-redirect effect, and the register push.
 import { router } from 'expo-router';
+import { CloudOff, ShieldCheck, Shuffle } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyledButton } from '../../components/StyledButton';
+import { Button } from '../../components/primitives/Button';
 import { useTheme } from '../../contexts/ThemeContext';
+import { Type } from '../../constants/typography';
 import { useAuthStore } from '../../store/authStore';
 
+const FEATURES: { icon: LucideIcon; text: string }[] = [
+  { icon: CloudOff, text: '100% Offline Architecture: your data never touches a remote server or cloud database.' },
+  { icon: ShieldCheck, text: 'Military-Grade Security: passwords undergo intensive iterative hashing directly inside the device hardware sandbox.' },
+  { icon: Shuffle, text: 'Camouflage Skins: instantly transform your workspace into an alternate utility interface at any moment.' },
+];
+
 export default function OnboardingScreen() {
-  const { colors, space, font, isTablet } = useTheme();
+  const { colors, space, font, radius, isTablet , iconSize } = useTheme();
   const { width } = useWindowDimensions();
   const { checkSetup, isConfigured, isAuthenticated, isLoading } = useAuthStore();
   const [setupTimedOut, setSetupTimedOut] = useState(false);
@@ -36,105 +49,59 @@ export default function OnboardingScreen() {
     }
   }, [isLoading, isConfigured, isAuthenticated]);
 
-  const logoSize = isTablet ? 80 : width < 360 ? 48 : 64;
+  const logoSize = isTablet ? 96 : width < 360 ? 64 : 80;
 
   if (isLoading && !setupTimedOut) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
-          <Text style={[styles.loadingText, { color: colors.textMuted, fontSize: font(14) }]}>
-            Loading...
-          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: font(Type.body.size), fontWeight: Type.body.weight }}>Loading…</Text>
         </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (setupTimedOut || (!isConfigured && !isLoading)) {
-    return (
-      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView
-            contentContainerStyle={[styles.scrollContent, { paddingHorizontal: space(6) }]}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={[styles.brandingBox, { marginTop: space(10) }]}>
-              <Text style={[styles.logo, { color: colors.primary, fontSize: logoSize, marginBottom: space(4) }]}>🔒</Text>
-              <Text style={[styles.title, { color: colors.text, fontSize: font(28) }]}>
-                DEPOSITO SEGURO
-              </Text>
-              <Text style={[styles.subtitle, { color: colors.textMuted, fontSize: font(16), marginTop: space(2) }]}>
-                Zero-Knowledge Local Digital Vault
-              </Text>
-            </View>
-
-            <View style={[styles.infoWrapper, { padding: space(4), borderRadius: space(2), marginVertical: space(6), backgroundColor: colors.surface }]}>
-              <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14), marginBottom: space(3) }]}>
-                • 100% Offline Architecture: Your data never touches a remote server or cloud database.
-              </Text>
-              <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14), marginBottom: space(3) }]}>
-                • Military-Grade Security: Passwords undergo intensive iterative hashing directly inside the device hardware sandbox.
-              </Text>
-              <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14) }]}>
-                • Camouflage Skins: Instantly transform your workspace into an alternate utility interface at any moment.
-              </Text>
-            </View>
-
-            <View style={[styles.buttonContainer, { marginBottom: space(5) }]}>
-              <StyledButton
-                title="Setup Secure Vault Space"
-                onPress={() => router.push('/(auth)/register')}
-                style={{ width: '100%' }}
-              />
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingHorizontal: space(6) }]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={[styles.brandingBox, { marginTop: space(10) }]}>
-            <Text style={[styles.logo, { color: colors.primary, fontSize: logoSize, marginBottom: space(4) }]}>🔒</Text>
-            <Text style={[styles.title, { color: colors.text, fontSize: font(28) }]}>
-              DEPOSITO SEGURO
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textMuted, fontSize: font(16), marginTop: space(2) }]}>
+          <View style={[styles.hero, { marginTop: space(10), marginBottom: space(8) }]}>
+            <View style={[styles.logoWrap, { width: logoSize, height: logoSize, borderRadius: radius(6), backgroundColor: colors.surfaceElevated, borderColor: colors.borderLight, marginBottom: space(5) }]}>
+              <Image
+                source={require('../../../assets/logo/DepoS_logo.png')}
+                style={{ width: logoSize * 0.62, height: logoSize * 0.62 }}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={[styles.title, { color: colors.text, fontSize: font(Type.display.size) }]}>DEPOSITO SEGURO</Text>
+            <Text style={[styles.subtitle, { color: colors.textMuted, fontSize: font(Type.subtitle.size), marginTop: space(2) }]}>
               Zero-Knowledge Local Digital Vault
             </Text>
           </View>
 
-          <View style={[styles.infoWrapper, { padding: space(4), borderRadius: space(2), marginVertical: space(6), backgroundColor: colors.surface }]}>
-            <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14), marginBottom: space(3) }]}>
-              • 100% Offline Architecture: Your data never touches a remote server or cloud database.
-            </Text>
-            <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14), marginBottom: space(3) }]}>
-              • Military-Grade Security: Passwords undergo intensive iterative hashing directly inside the device hardware sandbox.
-            </Text>
-            <Text style={[styles.bodyText, { color: colors.text, fontSize: font(14) }]}>
-              • Camouflage Skins: Instantly transform your workspace into an alternate utility interface at any moment.
-            </Text>
+          <View style={[styles.featureList, { gap: space(4), marginBottom: space(8) }]}>
+            {FEATURES.map((feature, i) => {
+              const Icon = feature.icon;
+              return (
+                <View key={i} style={[styles.featureRow, { gap: space(3) }]}>
+                  <View style={[styles.featureIconWrap, { backgroundColor: `${colors.primary}14`, borderRadius: radius(4) }]}>
+                    <Icon size={iconSize(20)} color={colors.primary} strokeWidth={2} />
+                  </View>
+                  <Text style={[styles.featureText, { color: colors.text, fontSize: font(Type.body.size) }]}>{feature.text}</Text>
+                </View>
+              );
+            })}
           </View>
 
-          <View style={[styles.buttonContainer, { marginBottom: space(5) }]}>
-            <StyledButton
-              title="Setup Secure Vault Space"
-              onPress={() => router.push('/(auth)/register')}
-              style={{ width: '100%' }}
-            />
-          </View>
+          <Button
+            title="Setup Secure Vault Space"
+            onPress={() => router.push('/(auth)/register')}
+            size="lg"
+            style={{ width: '100%' }}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -143,20 +110,15 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  brandingBox: { alignItems: 'center' },
-  logo: { marginBottom: 16, textAlign: 'center' },
-  title: { fontWeight: '900', letterSpacing: 1.5, textAlign: 'center' },
+  flex: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center' },
+  hero: { alignItems: 'center' },
+  logoWrap: { alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
+  title: { fontWeight: '800', letterSpacing: 1, textAlign: 'center' },
   subtitle: { fontWeight: '500', textAlign: 'center' },
-  infoWrapper: {},
-  bodyText: { lineHeight: 22, fontWeight: '400', flexShrink: 1 },
-  buttonContainer: {},
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontWeight: '500',
-  },
+  featureList: {},
+  featureRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  featureIconWrap: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  featureText: { flex: 1, lineHeight: 20, fontWeight: '500' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

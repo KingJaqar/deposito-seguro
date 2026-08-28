@@ -58,6 +58,7 @@
       "expo-media-library",
       "expo-document-picker",
       "./plugins/withDisguiseIcon",
+      "./plugins/withVideoRemux",
       "expo-status-bar"
     ],
     "updates": {

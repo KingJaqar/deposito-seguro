@@ -1,7 +1,16 @@
-import { X } from 'lucide-react-native';
+// src/components/RenameModal.tsx
+// Rebuilt on the Dialog primitive per §5 (short-form content → Dialog).
+// handleRename/handleCancel bodies and the `key={item.id}` remount behavior
+// that seeds the input from item.name are unchanged; every deprecated
+// colors.dashboardX alias is gone, replaced by real v2 schema names.
 import { useState } from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Pencil } from 'lucide-react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
+import { Dialog } from './primitives/Dialog';
+import { TextField } from './primitives/TextField';
+import { MAX_NAME_LENGTH } from '../constants/naming';
 
 export interface RenameModalProps {
   visible: boolean;
@@ -15,14 +24,14 @@ export interface RenameModalProps {
   title?: string;
 }
 
-function RenameModalContent({ item, onClose, onRename, title, colors, isTablet }: {
+function RenameModalContent({ visible, item, onClose, onRename, title }: {
+  visible: boolean;
   item: { id: string; name: string; type: 'file' | 'folder' };
   onClose: () => void;
   onRename: (newName: string) => void;
   title?: string;
-  colors: any;
-  isTablet: boolean;
 }) {
+  const { colors, space, font, radius } = useTheme();
   const [renameText, setRenameText] = useState(item.name);
 
   const handleRename = () => {
@@ -42,173 +51,60 @@ function RenameModalContent({ item, onClose, onRename, title, colors, isTablet }
   const placeholder = item.type === 'folder' ? 'Vault name' : 'File name';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.dashboardSurface ?? colors.surface }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.dashboardText ?? colors.text }]} numberOfLines={1}>
-          {modalTitle}
-        </Text>
-        <TouchableOpacity
-          onPress={handleCancel}
-          style={[styles.closeButton, { backgroundColor: colors.dashboardBg ?? colors.background }]}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
+    <Dialog
+      visible={visible}
+      onRequestClose={handleCancel}
+      icon={Pencil}
+      title={modalTitle}
+      actions={[
+        { label: 'Cancel', onPress: handleCancel, variant: 'tertiary' },
+        { label: 'Rename', onPress: handleRename, variant: 'primary', disabled: !renameText.trim() },
+      ]}
+    >
+      <View style={{ width: '100%' }}>
+        <View
+          style={[
+            styles.currentNameChip,
+            { backgroundColor: colors.surfaceHover, borderRadius: radius(3), paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(4) },
+          ]}
         >
-          <X size={20} color={colors.dashboardText ?? colors.text} strokeWidth={2.5} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.currentNameChip, { backgroundColor: colors.dashboardBg ?? colors.background }]}>
-        <Text style={[styles.currentNameLabel, { color: colors.dashboardTextMuted ?? colors.textMuted }]}>
-          Current: {item.name}
-        </Text>
-      </View>
-
-      <TextInput
-        style={[
-          styles.input,
-          {
-            borderColor: colors.dashboardBorder ?? colors.border,
-            color: colors.dashboardText ?? colors.text,
-            backgroundColor: colors.dashboardBg ?? colors.background,
-          },
-        ]}
-        placeholder={placeholder}
-        placeholderTextColor={colors.dashboardTextMuted ?? colors.textMuted}
-        value={renameText}
-        onChangeText={setRenameText}
-        autoFocus
-        returnKeyType="done"
-        onSubmitEditing={handleRename}
-      />
-
-      <View style={styles.actions}>
-        <TouchableOpacity
-          onPress={handleCancel}
-          style={[styles.button, styles.cancelButton, { borderColor: colors.dashboardBorder ?? colors.border }]}
-        >
-          <Text style={[styles.buttonText, { color: colors.dashboardText ?? colors.text }]}>
-            Cancel
+          <Text style={[styles.currentNameLabel, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={2}>
+            Current: {item.name}
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleRename}
-          style={[styles.button, styles.confirmButton, { backgroundColor: colors.fabBg ?? colors.primary }]}
-        >
-          <Text style={[styles.buttonText, { color: colors.fabText ?? '#FFFFFF' }]}>
-            Rename
-          </Text>
-        </TouchableOpacity>
+        </View>
+
+        <TextField
+          placeholder={placeholder}
+          value={renameText}
+          onChangeText={setRenameText}
+          autoFocus
+          maxLength={MAX_NAME_LENGTH}
+          returnKeyType="done"
+          onSubmitEditing={handleRename}
+          accessibilityLabel={placeholder}
+          helper={`${renameText.length}/${MAX_NAME_LENGTH}`}
+        />
       </View>
-    </View>
+    </Dialog>
   );
 }
 
 export function RenameModal({ visible, onClose, item, onRename, title }: RenameModalProps) {
-  const { colors, space, font, isTablet } = useTheme();
-
   if (!item) return null;
 
   return (
-    <Modal
+    <RenameModalContent
+      key={item.id}
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <RenameModalContent
-          key={item.id}
-          item={item}
-          onClose={onClose}
-          onRename={onRename}
-          title={title}
-          colors={colors}
-          isTablet={isTablet}
-        />
-      </View>
-    </Modal>
+      item={item}
+      onClose={onClose}
+      onRename={onRename}
+      title={title}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  container: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    flex: 1,
-    textAlign: 'center',
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  currentNameChip: {
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 16,
-    alignSelf: 'flex-start',
-  },
-  currentNameLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  input: {
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 20,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1.5,
-  },
-  confirmButton: {
-    // backgroundColor from inline style
-  },
-  buttonText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  currentNameChip: { alignSelf: 'stretch' },
+  currentNameLabel: { fontWeight: '500' },
 });

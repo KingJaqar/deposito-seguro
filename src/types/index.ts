@@ -57,6 +57,16 @@ export interface FileMetadata {
   isTrash: boolean;
   importedAt: number;
   deletedAt?: number;
+  /**
+   * Device-local runtime flag set by vaultStore.reconcileMissingPayloads():
+   * true when this file's metadata exists but its on-disk payload
+   * (`localPath`) is gone — e.g. lost to the pre-fix image-viewer deletion
+   * bug, or a sandbox wipe. Lets the UI show an honest "file no longer on
+   * this device" state instead of the misleading "corrupted / decryption key
+   * missing" load error. Cleared automatically if the payload reappears
+   * (e.g. after a backup restore).
+   */
+  isMissing?: boolean;
 }
 
 export interface ClipboardItem {

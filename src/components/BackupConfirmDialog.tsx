@@ -1,8 +1,18 @@
 // File: src/components/BackupConfirmDialog.tsx
+// Rebuilt on the Dialog primitive per §5. formatSize, passphraseMismatch,
+// canConfirm, and handleConfirm (including its exact ordering — trim to
+// undefined, clear both fields, onClose(), then onConfirm(value)) are carried
+// across unchanged; the "blank passphrase means no key material" contract in
+// the prop doc is preserved. Only JSX/StyleSheet is new — `colors.accent`
+// becomes `colors.secondary`, and the two hand-rolled passphrase inputs
+// collapse onto TextField's secureToggle.
 import { useState } from 'react';
-import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { AlertTriangle, X, CheckCircle, HardDrive, Clock, AlertCircle, Info, KeyRound } from 'lucide-react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { AlertTriangle, CheckCircle, HardDrive, KeyRound } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
+import { Dialog } from './primitives/Dialog';
+import { TextField } from './primitives/TextField';
 
 export interface BackupConfirmDialogProps {
   visible: boolean;
@@ -24,7 +34,8 @@ export function BackupConfirmDialog({
   estimatedFileCount,
   isLoading = false,
 }: BackupConfirmDialogProps) {
-  const { colors, space, font, isTablet } = useTheme();
+  const { colors, space, font, radius, iconSize } = useTheme();
+  const detailIconSize = iconSize(34);
   const [passphrase, setPassphrase] = useState('');
   const [confirmPassphrase, setConfirmPassphrase] = useState('');
 
@@ -50,303 +61,95 @@ export function BackupConfirmDialog({
   if (!visible) return null;
 
   return (
-    <Modal visible={true} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
-        <View style={[styles.container, { backgroundColor: colors.surface, width: isTablet ? '80%' : '90%', maxWidth: 400 }]}>
-          <View style={[styles.header, { backgroundColor: `${colors.warning}15` }]}>
-            <View style={styles.iconWrapper}>
-              <AlertTriangle size={28} color={colors.warning} strokeWidth={2} />
+    <Dialog
+      visible={visible}
+      onRequestClose={onClose}
+      icon={AlertTriangle}
+      iconColor={colors.warning}
+      title="Confirm Backup"
+      message="A backup will be created in the selected folder. This may take a few minutes depending on vault size."
+      actions={[
+        { label: 'Cancel', onPress: onClose, variant: 'tertiary' },
+        { label: 'Start Backup', onPress: handleConfirm, variant: 'primary', loading: isLoading, disabled: !canConfirm },
+      ]}
+    >
+      <View style={{ width: '100%' }}>
+        <View style={[styles.detailCard, { backgroundColor: colors.surfaceHover, borderColor: colors.borderLight, borderRadius: radius(4), padding: space(3), marginBottom: space(4), gap: space(3) }]}>
+          <View style={[styles.detailRow, { gap: space(3) }]}>
+            <View style={[styles.detailIcon, { width: detailIconSize, height: detailIconSize, backgroundColor: `${colors.secondary}1F`, borderRadius: radius(3) }]}>
+              <HardDrive size={iconSize(18)} color={colors.secondary} strokeWidth={2} />
             </View>
-            <Text style={[styles.title, { color: colors.text, fontSize: font(20) }]}>Confirm Backup</Text>
+            <View style={styles.detailText}>
+              <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>DESTINATION FOLDER</Text>
+              <Text style={[styles.detailValue, { color: colors.text, fontSize: font(Type.label.size), fontFamily: 'monospace' }]} numberOfLines={2}>
+                {folderLabel}
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.content}>
-            <Text style={[styles.message, { color: colors.textMuted, fontSize: font(14), lineHeight: 20, textAlign: 'center' }]}>
-              A backup will be created in the selected folder. This may take a few minutes depending on vault size.
+          {(estimatedSize || estimatedFileCount) && (
+            <>
+              <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+              <View style={[styles.detailRow, { gap: space(3) }]}>
+                <View style={[styles.detailIcon, { width: detailIconSize, height: detailIconSize, backgroundColor: `${colors.success}1F`, borderRadius: radius(3) }]}>
+                  <CheckCircle size={iconSize(18)} color={colors.success} strokeWidth={2} />
+                </View>
+                <View style={styles.detailText}>
+                  <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>ESTIMATED BACKUP SIZE</Text>
+                  <Text style={[styles.detailValue, { color: colors.text, fontSize: font(Type.label.size) }]}>
+                    {[
+                      estimatedFileCount ? `${estimatedFileCount} files` : null,
+                      estimatedSize ? formatSize(estimatedSize) : null,
+                    ].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
+        </View>
+
+        <View style={[styles.detailRow, { gap: space(3), marginBottom: space(3) }]}>
+          <View style={[styles.detailIcon, { width: detailIconSize, height: detailIconSize, backgroundColor: `${colors.warning}1F`, borderRadius: radius(3) }]}>
+            <KeyRound size={iconSize(18)} color={colors.warning} strokeWidth={2} />
+          </View>
+          <View style={styles.detailText}>
+            <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>BACKUP PASSPHRASE (OPTIONAL)</Text>
+            <Text style={[styles.detailValue, { color: colors.textMuted, fontSize: font(Type.caption.size), fontWeight: '500' }]}>
+              Set one to also back up your access/encryption keys, so protected content can be restored on another device.
             </Text>
-
-            <View style={[styles.detailCard, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}>
-              <View style={styles.detailRow}>
-                <View style={[styles.detailIcon, { backgroundColor: `${colors.accent}15` }]}>
-                  <HardDrive size={18} color={colors.accent} strokeWidth={2} />
-                </View>
-                <View style={styles.detailText}>
-                  <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Destination Folder</Text>
-                  <Text style={[styles.detailValue, { color: colors.text, fontSize: font(14), fontFamily: 'monospace' }]} numberOfLines={2}>
-                    {folderLabel}
-                  </Text>
-                </View>
-              </View>
-
-              {(estimatedSize || estimatedFileCount) && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.detailRow}>
-                    <View style={[styles.detailIcon, { backgroundColor: `${colors.success}15` }]}>
-                      <CheckCircle size={18} color={colors.success} strokeWidth={2} />
-                    </View>
-                    <View style={styles.detailText}>
-                      <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Estimated Backup Size</Text>
-                      <View style={styles.estimateRow}>
-                        {estimatedFileCount && (
-                          <View style={styles.estimateItem}>
-                            <Text style={[styles.estimateValue, { color: colors.text, fontSize: font(14) }]}>{estimatedFileCount} files</Text>
-                          </View>
-                        )}
-                        {estimatedSize && (
-                          <View style={styles.estimateItem}>
-                            <Text style={[styles.estimateValue, { color: colors.text, fontSize: font(14) }]}>{formatSize(estimatedSize)}</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                </>
-              )}
-            </View>
-
-            <View style={styles.passphraseSection}>
-              <View style={styles.detailRow}>
-                <View style={[styles.detailIcon, { backgroundColor: `${colors.warning}15` }]}>
-                  <KeyRound size={18} color={colors.warning} strokeWidth={2} />
-                </View>
-                <View style={styles.detailText}>
-                  <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: font(11) }]}>Backup Passphrase (optional)</Text>
-                  <Text style={[styles.detailValue, { color: colors.textMuted, fontSize: font(12), fontWeight: '500' }]}>
-                    Set one to also back up your access/encryption keys, so protected content can be restored on another device.
-                  </Text>
-                </View>
-              </View>
-              <TextInput
-                value={passphrase}
-                onChangeText={setPassphrase}
-                placeholder="Backup passphrase"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-                style={[styles.passphraseInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surfaceElevated }]}
-              />
-              <TextInput
-                value={confirmPassphrase}
-                onChangeText={setConfirmPassphrase}
-                placeholder="Confirm passphrase"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-                style={[styles.passphraseInput, { color: colors.text, borderColor: passphraseMismatch ? colors.error : colors.border, backgroundColor: colors.surfaceElevated }]}
-              />
-              {passphraseMismatch && (
-                <Text style={[styles.noteText, { color: colors.error, fontSize: font(11) }]}>Passphrases don&apos;t match.</Text>
-              )}
-            </View>
-
-            <View style={[styles.note, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}>
-              <View style={styles.noteRow}>
-                <Info size={14} color={colors.primary} strokeWidth={2} />
-                <Text style={[styles.noteText, { color: colors.primary, fontSize: font(11) }]}>
-                  {passphrase.trim()
-                    ? 'Your access/encryption keys will be included, encrypted under this passphrase. You will need it to restore them.'
-                    : 'No passphrase set — access/encryption keys will NOT be included. Protected files can only be restored on a device that already has the same keys.'}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.buttonRow, { gap: space(3) }]}>
-            <TouchableOpacity
-              style={[styles.cancelBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}
-              onPress={onClose}
-              disabled={isLoading}
-              activeOpacity={isLoading ? 1 : 0.7}
-            >
-              <Text style={[styles.cancelText, { color: colors.text, fontSize: font(15) }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.confirmBtn,
-                {
-                  backgroundColor: colors.primary,
-                  opacity: canConfirm ? 1 : 0.5,
-                },
-              ]}
-              onPress={canConfirm ? handleConfirm : undefined}
-              disabled={!canConfirm}
-              activeOpacity={0.7}
-            >
-              {isLoading ? (
-                <View style={styles.loadingBtnContent}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                  <Text style={[styles.confirmText, { fontSize: font(15), marginLeft: space(2) }]}>Creating...</Text>
-                </View>
-              ) : (
-                <Text style={[styles.confirmText, { fontSize: font(15) }]}>Create Backup</Text>
-              )}
-            </TouchableOpacity>
           </View>
         </View>
+
+        <TextField
+          placeholder="Backup passphrase"
+          value={passphrase}
+          onChangeText={setPassphrase}
+          secureToggle
+          editable={!isLoading}
+          accessibilityLabel="Backup passphrase"
+        />
+        {passphrase.length > 0 && (
+          <TextField
+            placeholder="Confirm passphrase"
+            value={confirmPassphrase}
+            onChangeText={setConfirmPassphrase}
+            secureToggle
+            editable={!isLoading}
+            accessibilityLabel="Confirm backup passphrase"
+            error={passphraseMismatch ? 'Passphrases do not match' : undefined}
+          />
+        )}
       </View>
-    </Modal>
+    </Dialog>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    padding: 24,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  container: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-  },
-  iconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(234,179,8,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    gap: 16,
-  },
-  message: {
-    fontWeight: '500',
-  },
-  detailCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  detailIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  detailLabel: {
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontWeight: '500',
-  },
-  divider: {
-    height: 1,
-    marginHorizontal: 16,
-  },
-  estimateRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 2,
-  },
-  estimateItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  estimateValue: {
-    fontWeight: '600',
-    fontFamily: 'monospace',
-  },
-  passphraseSection: {
-    gap: 8,
-  },
-  passphraseInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  note: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
-  },
-  noteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-  },
-  noteText: {
-    fontWeight: '500',
-    lineHeight: 16,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 12,
-  },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    minHeight: 48,
-  },
-  cancelText: {
-    fontWeight: '700',
-  },
-  confirmBtn: {
-    flex: 1.2,
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    minHeight: 48,
-  },
-  confirmText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  loadingBtnContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  detailCard: { borderWidth: StyleSheet.hairlineWidth, width: '100%' },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  detailIcon: { alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  detailText: { flex: 1, flexShrink: 1 },
+  detailLabel: { fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 },
+  detailValue: { fontWeight: '600', lineHeight: 18 },
+  divider: { height: StyleSheet.hairlineWidth, width: '100%' },
 });

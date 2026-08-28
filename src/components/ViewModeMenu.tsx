@@ -1,15 +1,23 @@
+// src/components/ViewModeMenu.tsx
+// Rebuilt per §5/§7 Phase 3: internal sheet migrated onto the Sheet primitive
+// from Phase 2 instead of a direct AnimatedActionSheet call. Business logic
+// (useSettingsStore().viewMode read/write) is unchanged.
 import { useState } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { List, LayoutGrid, PanelTop, Monitor } from 'lucide-react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { List, LayoutGrid, PanelTop, Monitor, Check } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
-import { AnimatedActionSheet } from './AnimatedActionSheet';
+import { Type } from '../constants/typography';
+import { Sheet } from './primitives/Sheet';
+
+type ViewModeKey = 'list' | 'small-icons' | 'medium-icons' | 'large-icons';
 
 type ViewOption = {
-  key: 'list' | 'small-icons' | 'medium-icons' | 'large-icons';
+  key: ViewModeKey;
   label: string;
   description: string;
-  Icon: any;
+  Icon: LucideIcon;
 };
 
 const OPTIONS: ViewOption[] = [
@@ -20,114 +28,91 @@ const OPTIONS: ViewOption[] = [
 ];
 
 export const ViewModeMenu = () => {
-  const { isDark, space, font, radius, isTablet, responsiveSize } = useTheme();
+  const { colors, space, font, radius, responsiveSize, iconSize } = useTheme();
   const viewMode = useSettingsStore((s) => s.viewMode);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const [visible, setVisible] = useState(false);
 
-  const handleSelect = async (mode: 'list' | 'small-icons' | 'medium-icons' | 'large-icons') => {
+  const handleSelect = async (mode: ViewModeKey) => {
     await updateSetting('viewMode', mode);
     setVisible(false);
   };
 
-  const triggerSize = responsiveSize(40, 48, 52);
-
+  const triggerSize = iconSize(responsiveSize(40, 48, 52));
   const currentOption = OPTIONS.find((o) => o.key === viewMode) ?? OPTIONS[0];
   const CurrentIcon = currentOption.Icon;
 
-  const softBlue = '#4A90D9';
-  const rowBorder = isDark ? '#333333' : '#E5E5E5';
-  const textPrimary = isDark ? '#FFFFFF' : '#111111';
-  const textSecondary = isDark ? '#999999' : '#666666';
-  const chipActive = softBlue;
-  const chipInactive = isDark ? '#2A2A2A' : '#F5F5F5';
-  const iconActive = '#FFFFFF';
-  const iconInactive = isDark ? '#FFFFFF' : '#111111';
-
   return (
     <View>
-      <TouchableOpacity
+      <Pressable
         onPress={() => setVisible(true)}
-        style={[
+        style={({ pressed }) => [
           styles.trigger,
-          { backgroundColor: chipInactive, width: triggerSize, height: triggerSize, borderRadius: triggerSize / 2 },
+          {
+            backgroundColor: colors.surfaceHover,
+            borderColor: colors.borderLight,
+            width: triggerSize,
+            height: triggerSize,
+            borderRadius: triggerSize / 2,
+            opacity: pressed ? 0.8 : 1,
+          },
         ]}
         accessibilityRole="button"
         accessibilityLabel="Change view mode"
       >
-        <CurrentIcon size={18} color={iconInactive} strokeWidth={2} />
-      </TouchableOpacity>
+        <CurrentIcon size={iconSize(18)} color={colors.text} strokeWidth={2} />
+      </Pressable>
 
-      <AnimatedActionSheet
-        visible={visible}
-        onClose={() => setVisible(false)}
-        title="View Options"
-        closeOnSwipeDown
-      >
+      <Sheet visible={visible} onClose={() => setVisible(false)} title="View Options" closeOnSwipeDown>
         {OPTIONS.map((opt) => {
           const isSelected = viewMode === opt.key;
           const IconComp = opt.Icon;
           return (
-            <TouchableOpacity
+            <Pressable
               key={opt.key}
               onPress={() => handleSelect(opt.key)}
-              style={[
+              style={({ pressed }) => [
                 styles.optionRow,
                 {
-                  backgroundColor: isSelected ? `${softBlue}15` : 'transparent',
-                  borderBottomColor: rowBorder,
+                  backgroundColor: isSelected ? `${colors.primary}14` : pressed ? colors.surfaceHover : 'transparent',
+                  borderBottomColor: colors.borderLight,
                   paddingVertical: space(4),
-                  paddingHorizontal: space(6),
+                  paddingHorizontal: space(5),
                 },
               ]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: isSelected, checked: isSelected }}
               accessibilityLabel={opt.label}
             >
               <View
                 style={[
                   styles.optionIcon,
                   {
-                    backgroundColor: isSelected ? chipActive : chipInactive,
+                    backgroundColor: isSelected ? colors.primary : colors.surfaceHover,
                     width: space(10),
                     height: space(10),
                     borderRadius: radius(5),
                   },
                 ]}
               >
-                <IconComp
-                  size={18}
-                  color={isSelected ? iconActive : iconInactive}
-                  strokeWidth={2}
-                />
+                <IconComp size={iconSize(18)} color={isSelected ? colors.onPrimary : colors.text} strokeWidth={2} />
               </View>
               <View style={styles.optionTextBlock}>
-                 <Text
-                   style={[
-                     styles.optionLabel,
-                     { color: isSelected ? softBlue : textPrimary, fontSize: font(16) },
-                   ]}
-                   numberOfLines={1}
-                 >
-                   {opt.label}
-                 </Text>
-                 <Text
-                   style={[
-                     styles.optionDesc,
-                     { color: textSecondary, fontSize: font(13) },
-                   ]}
-                   numberOfLines={1}
-                 >
-                   {opt.description}
-                 </Text>
+                <Text
+                  style={[styles.optionLabel, { color: isSelected ? colors.primary : colors.text, fontSize: font(Type.body.size) }]}
+                  numberOfLines={1}
+                >
+                  {opt.label}
+                </Text>
+                <Text style={[styles.optionDesc, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                  {opt.description}
+                </Text>
               </View>
-              {isSelected && (
-                <View style={[styles.checkDot, { backgroundColor: softBlue }]} />
-              )}
-            </TouchableOpacity>
+              {isSelected && <Check size={iconSize(18)} color={colors.primary} strokeWidth={3} />}
+            </Pressable>
           );
         })}
-      </AnimatedActionSheet>
+      </Sheet>
     </View>
   );
 };
@@ -136,6 +121,7 @@ const styles = StyleSheet.create({
   trigger: {
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   optionRow: {
     flexDirection: 'row',
@@ -152,7 +138,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
   },
-  optionLabel: { fontWeight: '600' },
+  optionLabel: { fontWeight: '700' },
   optionDesc: { fontWeight: '500', marginTop: 2 },
-  checkDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
 });

@@ -1,39 +1,52 @@
 // File: src/app/(main)/trash.tsx
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
+// Every store hook and handler body is unchanged (handleShred, handleShredAll,
+// handleRestore + its I-12 fallback-folder warning, handleRestoreSelected,
+// handleShredSelected, toggleSelection, the filter/sort/group pipeline).
+// Notable per-plan changes:
+//  - TabRootHeader + Card/Chip/ListRow/EmptyState/Sheet primitives
+//  - the `dash` alias object and its 8 colors.dashboardX chains are gone
+//  - the local getFileVisual duplicate of getFileType's classification logic
+//    (§5 "resolves trash.tsx's separate inline duplicate") now delegates to
+//    the shared getFileTypeMeta; only the extension-based `detectType`
+//    fallback for documents is kept, since the type FILTER still needs it
+//  - hardcoded '#5162FF'/'#7C82E8'/'#DC2626' etc. replaced with real tokens
+//  - SafeAreaView added with explicit edges (the old root was a bare View
+//    with a hardcoded paddingTop: 50)
 import {
   Box,
-  FileText,
-  Image as ImageIcon,
   ListFilter,
-  Music,
   RotateCcw,
   Search,
-  Smartphone,
   Trash2,
-  Video,
 } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
-  Image as RNImage,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
-  useWindowDimensions
+  useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
-import { CategoryTint } from '../../constants/Colors';
+import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { Button } from '../../components/primitives/Button';
+import { Card } from '../../components/primitives/Card';
+import { Chip } from '../../components/primitives/Chip';
+import { EmptyState } from '../../components/primitives/EmptyState';
+import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { GridTile } from '../../components/primitives/GridTile';
+import { CategoryTint } from '../../constants/Colors';
+import { Type } from '../../constants/typography';
 import { useTheme } from '../../contexts/ThemeContext';
+import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
-
-const SCREEN_PADDING = 20;
 
 type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
 type FileTypeFilter = 'all' | 'image' | 'video' | 'document' | 'audio' | 'other';
@@ -101,66 +114,36 @@ function groupByDate(files: TrashedFile[]): { label: string; data: TrashedFile[]
   return ORDER.filter(l => groups[l]).map(l => ({ label: l, data: groups[l] }));
 }
 
-// Resolves the icon, tint color, and short label for a trashed file. Reads the
-// real mimeType (falling back to filename extension) so the icon chip always
-// reflects the file's actual type — matching the same detection used on the
-// dashboard's category tiles for visual consistency across the app.
+// Resolves the icon, tint color, and short label for a trashed file. Now
+// delegates to the design system's shared getFileTypeMeta (§5) instead of
+// re-implementing the same mimeType branching inline; the filename-extension
+// document fallback is preserved so extension-only docs still get the doc
+// treatment, matching the previous behavior exactly.
 function getFileVisual(item: TrashedFile) {
   const mimeType: string = item.mimeType || '';
   const name: string = item.name || '';
+  const meta = getFileTypeMeta(mimeType, name);
 
-  const isApp =
-    mimeType === 'application/vnd.android.package-archive' ||
-    mimeType === 'application/x-msdownload' ||
-    name.endsWith('.apk') || name.endsWith('.exe') || name.endsWith('.dmg');
-
-  if (isApp) return { label: 'App', color: CategoryTint.apps, Icon: Smartphone };
-  if (mimeType.startsWith('image/')) return { label: 'Image', color: CategoryTint.images, Icon: ImageIcon };
-  if (mimeType.startsWith('video/')) return { label: 'Video', color: CategoryTint.videos, Icon: Video };
-  if (mimeType.startsWith('audio/')) return { label: 'Audio', color: CategoryTint.audio, Icon: Music };
-
-  const isDoc =
-    mimeType.includes('pdf') || mimeType.includes('document') ||
-    mimeType.includes('text') || mimeType.includes('sheet') ||
-    detectType(name) === 'document';
-  if (isDoc) return { label: 'File', color: CategoryTint.docs, Icon: FileText };
-
-  return { label: 'File', color: CategoryTint.other, Icon: Box };
+  if (meta.tag === 'other' && detectType(name) === 'document') {
+    return { label: 'File', color: CategoryTint.docs, Icon: meta.Icon };
+  }
+  return {
+    label: meta.tag === 'doc' || meta.tag === 'other' ? 'File' : meta.label,
+    color: meta.color,
+    Icon: meta.tag === 'other' ? Box : meta.Icon,
+  };
 }
 
 export default function TrashScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors, space, font, radius, screenPadding, bottomTabSpacing , iconSize } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
   const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
-
-  const dash = {
-    bg: colors.dashboardBg ?? colors.background,
-    surface: colors.dashboardSurface ?? colors.surface,
-    surfaceHover: colors.dashboardSurfaceHover ?? colors.surfaceElevated,
-    accent: colors.dashboardAccent ?? colors.accent,
-    text: colors.dashboardText ?? colors.text,
-    textMuted: colors.dashboardTextMuted ?? colors.textMuted,
-    border: colors.dashboardBorder ?? colors.border,
-    fabBg: colors.fabBg ?? colors.primary,
-    fabText: colors.fabText ?? '#FFFFFF',
-  };
-
-  const card = {
-    bg: isDark ? '#2A2A2A' : '#FFFFFF',
-    divider: isDark ? 'rgba(245, 239, 224, 0.08)' : 'rgba(15, 23, 42, 0.08)',
-    restoreBg: isDark ? '#333333' : '#E8E8FF',
-    restoreText: isDark ? '#7C82E8' : '#5162FF',
-    deleteBg: isDark ? '#333333' : '#FEE2E2',
-    deleteText: isDark ? '#E4786F' : '#DC2626',
-  };
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all');
   const [sort, setSort] = useState<SortKey>('date_desc');
   const [showFilters, setShowFilters] = useState(false);
-  const [showFileMenu, setShowFileMenu] = useState(false);
-  const [targetItem, setTargetItem] = useState<any>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -274,12 +257,21 @@ export default function TrashScreen() {
   };
   const getGridItemWidth = (mode: string) => {
     const cols = getGridColumns(mode);
-    const gap = 12;
-    return (screenWidth - SCREEN_PADDING * 2 - gap * (cols - 1)) / cols;
+    // Google Photos-style dense grid: a hairline-scale gutter instead of a
+    // full card gap (see GridTile, which also drops the Card border/shadow).
+    const gap = space(1);
+    return (screenWidth - screenPadding * 2 - gap * (cols - 1)) / cols;
   };
   const isGridMode = viewMode !== 'list';
-  const gridColumns = getGridColumns(viewMode);
   const gridItemWidth = getGridItemWidth(viewMode);
+
+  const categoryTintFor = (k: FileTypeFilter) =>
+    k === 'all' ? colors.primary
+      : k === 'image' ? CategoryTint.images
+        : k === 'video' ? CategoryTint.videos
+          : k === 'document' ? CategoryTint.docs
+            : k === 'audio' ? CategoryTint.audio
+              : CategoryTint.other;
 
   const TrashRow = ({ item }: { item: TrashedFile }) => {
     const visual = getFileVisual(item);
@@ -287,73 +279,53 @@ export default function TrashScreen() {
     const VisualIcon = visual.Icon;
 
     return (
-      <Pressable
+      <Card
         onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
-        onPress={() => {
-          if (selectionMode) toggleSelection(item.id);
+        onPress={() => { if (selectionMode) toggleSelection(item.id); }}
+        accessibilityLabel={item.name}
+        style={{
+          marginBottom: space(3),
+          borderColor: isSelected ? colors.primary : colors.borderLight,
+          borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
         }}
-        style={[
-          styles.row,
-          {
-            backgroundColor: card.bg,
-            borderColor: isSelected ? dash.accent : 'transparent',
-            borderWidth: 2,
-          },
-        ]}
       >
-        <View style={styles.rowTop}>
-          <View style={[styles.iconChip, { backgroundColor: `${visual.color}20` }]}>
-            <VisualIcon size={20} color={visual.color} strokeWidth={2} />
+        <View style={[styles.rowTop, { gap: space(3) }]}>
+          <View style={[styles.iconChip, { backgroundColor: `${visual.color}1F`, borderRadius: radius(4) }]}>
+            <VisualIcon size={iconSize(20)} color={visual.color} strokeWidth={2} />
           </View>
 
           <View style={styles.rowInfo}>
-            <Text style={[styles.rowName, { color: dash.text }]} numberOfLines={1}>
+            <Text style={[styles.rowName, { color: colors.text, fontSize: font(Type.body.size) }]} numberOfLines={1}>
               {item.name}
             </Text>
-            <View style={styles.rowMetaRow}>
-              <Text style={[styles.rowMeta, { color: dash.textMuted }]} numberOfLines={1}>
+            <View style={[styles.rowMetaRow, { gap: space(2) }]}>
+              <Text style={[styles.rowMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
                 {formatDeletedAt(item.deletedAt!)}
               </Text>
-              <View style={[styles.metaDot, { backgroundColor: dash.textMuted }]} />
-              <Text style={[styles.rowMeta, { color: visual.color, fontWeight: '700' }]} numberOfLines={1}>
+              <View style={[styles.metaDot, { backgroundColor: colors.textMuted }]} />
+              <Text style={[styles.rowMeta, { color: visual.color, fontSize: font(Type.caption.size), fontWeight: '700' }]} numberOfLines={1}>
                 {visual.label}
               </Text>
             </View>
           </View>
 
           {selectionMode && (
-            <View style={styles.checkBox}>
-              <View style={[styles.checkInner, { backgroundColor: isSelected ? dash.accent : 'transparent', borderColor: dash.accent }]}>
-                {isSelected && <Text style={{ color: dash.fabText, fontSize: 10, fontWeight: '700' }}>✓</Text>}
-              </View>
+            <View style={[styles.checkInner, { backgroundColor: isSelected ? colors.primary : 'transparent', borderColor: colors.primary, borderRadius: radius(2) }]}>
+              {isSelected && <Text style={{ color: colors.onPrimary, fontSize: 11, fontWeight: '800' }}>✓</Text>}
             </View>
           )}
         </View>
 
         {!selectionMode && (
           <>
-            <View style={[styles.rowDivider, { backgroundColor: card.divider }]} />
-            <View style={styles.rowActions}>
-              <TouchableOpacity
-                onPress={() => handleRestore(item.id)}
-                activeOpacity={0.8}
-                style={[styles.pillBtn, { backgroundColor: card.restoreBg }]}
-              >
-                <RotateCcw size={14} color={card.restoreText} strokeWidth={2.4} />
-                <Text style={[styles.pillBtnText, { color: card.restoreText }]}>Restore</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleShred(item.id, item.name)}
-                activeOpacity={0.8}
-                style={[styles.pillBtn, { backgroundColor: card.deleteBg }]}
-              >
-                <Trash2 size={14} color={card.deleteText} strokeWidth={2.4} />
-                <Text style={[styles.pillBtnText, { color: card.deleteText }]}>Delete</Text>
-              </TouchableOpacity>
+            <View style={[styles.rowDivider, { backgroundColor: colors.borderLight, marginTop: space(3), marginBottom: space(3) }]} />
+            <View style={[styles.rowActions, { gap: space(2) }]}>
+              <Button title="Restore" onPress={() => handleRestore(item.id)} icon={RotateCcw} variant="tertiary" size="sm" />
+              <Button title="Delete" onPress={() => handleShred(item.id, item.name)} icon={Trash2} variant="danger" size="sm" />
             </View>
           </>
         )}
-      </Pressable>
+      </Card>
     );
   };
 
@@ -371,55 +343,36 @@ export default function TrashScreen() {
   }, [grouped]);
 
   return (
-    <View style={[styles.root, { backgroundColor: dash.bg }]}>
-      <View style={[styles.headerRow, { backgroundColor: dash.bg }]}>
-        <View style={styles.headerTextBlock}>
-          <Text style={[styles.headerTitle, { color: dash.text }]} numberOfLines={1}>Trash</Text>
-          <Text style={[styles.headerTagline, { color: dash.textMuted }]} numberOfLines={1}>Deleted files</Text>
-        </View>
-        <ViewModeMenu />
-      </View>
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
+      <TabRootHeader title="Trash" tagline="Deleted files" rightSlot={<ViewModeMenu />} />
 
-      <View style={{ flex: 1 }}>
+      <View style={styles.flex1}>
         <ScrollView
-          contentContainerStyle={styles.scrollBody}
+          contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(3), paddingBottom: bottomTabSpacing }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.searchBar, { backgroundColor: card.bg }]}>
-            <Search size={18} color={dash.textMuted} />
+          <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
+            <Search size={iconSize(18)} color={colors.textMuted} />
             <TextInput
-              style={[styles.searchInput, { color: dash.text }]}
-              placeholder="Search deleted files..."
-              placeholderTextColor={dash.textMuted}
+              style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+              placeholder="Search deleted files…"
+              placeholderTextColor={colors.textMuted}
               value={search}
               onChangeText={setSearch}
               returnKeyType="search"
               clearButtonMode="while-editing"
+              accessibilityLabel="Search deleted files"
             />
-            {search.length > 0 && (
-              <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={{ color: dash.textMuted, fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
-          {/* Filters Row */}
-          <View style={styles.filterRow}>
-            <TouchableOpacity
-              onPress={toggleFilters}
-              style={[styles.filterToggleBtn, { backgroundColor: card.bg }]}
-            >
-              <ListFilter size={14} color={dash.textMuted} strokeWidth={2.2} />
-              <Text style={[styles.filterToggleText, { color: dash.textMuted }]}>Filters</Text>
-            </TouchableOpacity>
+          <View style={[styles.filterRow, { marginBottom: space(2) }]}>
+            <Button title="Filters" onPress={toggleFilters} icon={ListFilter} variant="tertiary" size="sm" />
             <View style={styles.headerRightBlock}>
               {!selectionMode && filtered.length > 0 && (
-                <TouchableOpacity onPress={handleShredAll}>
-                  <Text style={[styles.shredAllText, { color: card.deleteText }]}>Shred All</Text>
-                </TouchableOpacity>
+                <Button title="Shred All" onPress={handleShredAll} variant="ghost" size="sm" />
               )}
               {!selectionMode && (
-                <Text style={[styles.countText, { color: dash.textMuted }]}>
+                <Text style={[styles.countText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
                   {filtered.length} {filtered.length === 1 ? 'file' : 'files'}
                 </Text>
               )}
@@ -427,166 +380,84 @@ export default function TrashScreen() {
           </View>
 
           {showFilters && (
-            <View style={styles.filterPanel}>
-              <View style={styles.categorySection}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-                  {(Object.keys(FILE_TYPE_MAP) as FileTypeFilter[]).map(k => {
-                    const isActive = typeFilter === k;
-                    const tint = k === 'all' ? colors.primary : k === 'image' ? CategoryTint.images : k === 'video' ? CategoryTint.videos : k === 'document' ? CategoryTint.docs : k === 'audio' ? CategoryTint.audio : CategoryTint.other;
-                    return (
-                      <TouchableOpacity
-                        key={k}
-                        onPress={() => setTypeFilter(k)}
-                        activeOpacity={0.75}
-                      >
-                        <View style={[
-                          styles.categoryPill,
-                          {
-                            backgroundColor: isActive ? card.bg : `${tint}12`,
-                            borderColor: isActive ? dash.textMuted : `${tint}35`,
-                            borderWidth: isActive ? 1.5 : 1,
-                          },
-                        ]}>
-                          <View style={[styles.categoryDot, { backgroundColor: tint }]} />
-                          <Text style={[
-                            styles.categoryPillLabel,
-                            { color: isActive ? dash.text : tint, fontWeight: isActive ? '700' : '500' }
-                          ]}>
-                            {FILE_TYPE_MAP[k]}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+            <View style={{ marginTop: space(2), marginBottom: space(2) }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space(2), paddingVertical: space(2) }}>
+                {(Object.keys(FILE_TYPE_MAP) as FileTypeFilter[]).map(k => (
+                  <Chip
+                    key={k}
+                    label={FILE_TYPE_MAP[k]}
+                    selected={typeFilter === k}
+                    onPress={() => setTypeFilter(k)}
+                    color={categoryTintFor(k)}
+                  />
+                ))}
+              </ScrollView>
 
-              <View style={styles.categorySection}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-                  {([
-                    ['date_desc', 'Newest'],
-                    ['date_asc', 'Oldest'],
-                    ['name_asc', 'A → Z'],
-                    ['name_desc', 'Z → A'],
-                  ] as [SortKey, string][]).map(([k, label]) => {
-                    const isActive = sort === k;
-                    return (
-                      <TouchableOpacity
-                        key={k}
-                        onPress={() => setSort(k)}
-                        activeOpacity={0.75}
-                      >
-                        <View style={[
-                          styles.categoryPill,
-                          {
-                            backgroundColor: isActive ? card.bg : `${colors.primary}12`,
-                            borderColor: isActive ? dash.textMuted : `${colors.primary}35`,
-                            borderWidth: isActive ? 1.5 : 1,
-                          },
-                        ]}>
-                          <View style={[styles.categoryDot, { backgroundColor: colors.primary }]} />
-                          <Text style={[
-                            styles.categoryPillLabel,
-                            { color: isActive ? dash.text : colors.primary, fontWeight: isActive ? '700' : '500' }
-                          ]}>
-                            {label}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space(2), paddingVertical: space(2) }}>
+                {([
+                  ['date_desc', 'Newest'],
+                  ['date_asc', 'Oldest'],
+                  ['name_asc', 'A → Z'],
+                  ['name_desc', 'Z → A'],
+                ] as [SortKey, string][]).map(([k, label]) => (
+                  <Chip key={k} label={label} selected={sort === k} onPress={() => setSort(k)} />
+                ))}
+              </ScrollView>
             </View>
           )}
 
           {selectionMode && (
-            <View style={styles.selectionBar}>
-              <TouchableOpacity onPress={() => {
-                const fileIds = filtered.map(f => f.id);
-                const allSelected = fileIds.every(id => selectedIds.includes(id));
-                if (allSelected) {
-                  setSelectedIds([]);
-                } else {
-                  setSelectedIds(fileIds);
-                }
-              }} style={styles.textBtn}>
-                <Text style={{ color: dash.accent, fontSize: 13, fontWeight: '700' }}>
-                  {filtered.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleRestoreSelected} style={styles.textBtn}>
-                <Text style={{ color: colors.success, fontSize: 13, fontWeight: '700' }}>Restore</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleShredSelected} style={styles.textBtnDanger}>
-                <Text style={{ color: colors.error, fontSize: 13, fontWeight: '700' }}>Shred</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelBtn}>
-                <Text style={{ color: dash.textMuted, fontSize: 13, fontWeight: '700' }}>Cancel</Text>
-              </TouchableOpacity>
+            <View style={[styles.selectionBar, { gap: space(2), paddingBottom: space(3) }]}>
+              <Button
+                title={filtered.every(f => selectedIds.includes(f.id)) ? 'Deselect All' : 'Select All'}
+                onPress={() => {
+                  const fileIds = filtered.map(f => f.id);
+                  const allSelected = fileIds.every(id => selectedIds.includes(id));
+                  if (allSelected) {
+                    setSelectedIds([]);
+                  } else {
+                    setSelectedIds(fileIds);
+                  }
+                }}
+                variant="ghost"
+                size="sm"
+              />
+              <Button title="Restore" onPress={handleRestoreSelected} variant="secondary" size="sm" />
+              <Button title="Shred" onPress={handleShredSelected} variant="danger" size="sm" />
+              <Button title="Cancel" onPress={exitSelectionMode} variant="ghost" size="sm" />
             </View>
           )}
 
           {filtered.length === 0 && !search && (
-            <View style={[styles.emptyCard, { backgroundColor: card.bg }]}>
-              <Trash2 size={32} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.6 }} />
-              <Text style={[styles.emptyTitle, { color: dash.text }]}>Trash is empty</Text>
-              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Files you delete will appear here.</Text>
-            </View>
+            <EmptyState icon={Trash2} title="Trash is empty" message="Files you delete will appear here." />
           )}
 
           {filtered.length === 0 && search && (
-            <View style={[styles.emptyCard, { backgroundColor: card.bg }]}>
-              <Search size={32} color={dash.textMuted} strokeWidth={1.5} style={{ marginBottom: 10, opacity: 0.4 }} />
-              <Text style={[styles.emptyTitle, { color: dash.text }]}>No results found</Text>
-              <Text style={[styles.emptyText, { color: dash.textMuted }]}>Try a different search term</Text>
-            </View>
+            <EmptyState icon={Search} title="No results found" message="Try a different search term" />
           )}
 
           {filtered.length > 0 && (
             isGridMode ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(1) }}>
                 {filtered.map((item) => {
                   const isSelected = selectedIds.includes(item.id);
                   const visual = getFileVisual(item);
-                  const VisualIcon = visual.Icon;
                   const hasThumbnail = item.mimeType?.startsWith('image/') || item.mimeType?.startsWith('video/');
                   return (
-                    <Pressable
+                    <GridTile
                       key={item.id}
+                      size={gridItemWidth}
+                      name={item.name}
+                      subtitle={visual.label}
+                      subtitleColor={visual.color}
+                      Icon={visual.Icon}
+                      iconColor={visual.color}
+                      thumbnailUri={hasThumbnail && item.localPath ? item.localPath : undefined}
+                      selectable={selectionMode}
+                      selected={isSelected}
+                      onPress={() => { if (selectionMode) toggleSelection(item.id); }}
                       onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
-                      onPress={() => {
-                        if (selectionMode) toggleSelection(item.id);
-                      }}
-                      style={[
-                        styles.iconGridItem,
-                        {
-                          width: gridItemWidth,
-                          backgroundColor: card.bg,
-                          borderColor: isSelected ? dash.accent : 'transparent',
-                          borderWidth: 2,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.iconGridThumb, { backgroundColor: `${visual.color}18` }]}>
-                        {hasThumbnail && item.localPath ? (
-                          <RNImage
-                            source={{ uri: item.localPath }}
-                            style={styles.iconGridThumbImage}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <VisualIcon size={28} color={visual.color} strokeWidth={2} />
-                        )}
-                        {item.mimeType?.startsWith('video/') && (
-                          <View style={styles.videoBadge}>
-                            <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '700' }}>▶</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.iconGridName, { color: dash.text }]} numberOfLines={1}>{item.name}</Text>
-                      <Text style={[styles.iconGridMeta, { color: dash.textMuted }]} numberOfLines={1}>{visual.label}</Text>
-                    </Pressable>
+                    />
                   );
                 })}
               </View>
@@ -597,18 +468,18 @@ export default function TrashScreen() {
                   item.type === 'section' ? `section-${item.label}` : item.file.id
                 }
                 nestedScrollEnabled
-                contentContainerStyle={{ paddingBottom: 140 }}
+                scrollEnabled={false}
+                contentContainerStyle={{ paddingBottom: space(8) }}
                 renderItem={({ item }) => {
                   if (item.type === 'section') {
                     return (
-                      <View style={styles.sectionHeaderWrapper}>
-                        <Text style={[styles.sectionHeader, { color: dash.textMuted }]}>
+                      <View style={{ marginTop: space(5), marginBottom: space(3) }}>
+                        <Text style={[styles.sectionHeader, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>
                           {item.label}
                         </Text>
                       </View>
                     );
                   }
-
                   return <TrashRow item={item.file} />;
                 }}
               />
@@ -618,184 +489,36 @@ export default function TrashScreen() {
       </View>
 
       <AnimatedTabBar />
-
-      {showFileMenu && targetItem && (
-        <Modal transparent animationType="fade" onRequestClose={() => setShowFileMenu(false)}>
-          <TouchableOpacity style={modalS.overlay} onPress={() => setShowFileMenu(false)} activeOpacity={1}>
-            <View style={[styles.actionSheet, { backgroundColor: card.bg }]}>
-              <View style={[modalS.handle, { backgroundColor: dash.border }]} />
-              <Text style={[styles.actionSheetTitle, { color: dash.text }]}>{targetItem.name}</Text>
-              {[
-                { action: 'restore', label: 'Restore', color: dash.accent },
-                { action: 'shred', label: 'Shred Permanently', color: colors.error },
-              ].map(item => (
-                <TouchableOpacity
-                  key={item.action}
-                  style={[styles.actionSheetItem, { borderBottomColor: dash.border }]}
-                  onPress={() => {
-                    setShowFileMenu(false);
-                    if (item.action === 'restore') {
-                      handleRestore(targetItem.id);
-                    } else {
-                      handleShred(targetItem.id, targetItem.name);
-                    }
-                  }}
-                >
-                  <Text style={[styles.actionSheetLabel, { color: item.color }]}>{item.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  flex1: { flex: 1 },
+  scrollBody: {},
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 50,
-    paddingBottom: 16,
-  },
-  headerTextBlock: { flex: 1, marginRight: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  headerTagline: { fontSize: 13, fontWeight: '500', marginTop: 4 },
-  themeToggle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  searchBar: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth },
+  searchInput: { flex: 1, fontWeight: '500' },
 
-  scrollBody: { paddingHorizontal: SCREEN_PADDING, paddingTop: 8 },
+  filterRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerRightBlock: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  countText: { fontWeight: '500' },
 
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
-  },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  selectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' },
 
-  filterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  filterToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 12,
-  },
-  filterToggleText: { fontSize: 13, fontWeight: '600' },
-  headerRightBlock: { alignItems: 'flex-end', gap: 2 },
-  shredAllText: { fontSize: 13, fontWeight: '700' },
+  sectionHeader: { fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' },
 
-  filterPanel: { marginTop: 10, marginBottom: 4 },
-
-  categorySection: { paddingVertical: 4, marginBottom: 8 },
-  categoryScroll: { paddingHorizontal: 4, gap: 8 },
-  categoryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 5,
-  },
-  categoryDot: { width: 6, height: 6, borderRadius: 3 },
-  categoryPillLabel: { fontSize: 12 },
-
-  countText: { fontSize: 12, fontWeight: '500' },
-  selectionBar: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12 },
-  textBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-  textBtnDanger: { paddingHorizontal: 4, paddingVertical: 4 },
-  cancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  iconGridItem: { borderRadius: 18, padding: 10, alignItems: 'center', marginBottom: 12 },
-  iconGridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8, overflow: 'hidden' },
-  iconGridThumbImage: { width: '100%', height: '100%', borderRadius: 14 },
-  thumbBadge: { position: 'absolute', bottom: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  videoBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
-  iconGridName: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 3 },
-  iconGridMeta: { fontSize: 11, fontWeight: '500', textAlign: 'center', opacity: 0.6 },
-  iconGridIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-
-  sectionHeaderWrapper: { marginTop: 18, marginBottom: 10 },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    opacity: 0.6,
-  },
-
-  row: {
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
-    marginBottom: 12,
-  },
-  rowTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iconChip: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  rowTop: { flexDirection: 'row', alignItems: 'center' },
+  iconChip: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   rowInfo: { flex: 1, minWidth: 0 },
-  rowName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 5 },
-  rowMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowMeta: { fontSize: 12, fontWeight: '500' },
+  rowName: { fontWeight: '700', letterSpacing: -0.2, marginBottom: 4 },
+  rowMetaRow: { flexDirection: 'row', alignItems: 'center' },
+  rowMeta: { fontWeight: '500' },
   metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.6 },
 
-  checkBox: { marginLeft: 4 },
-  checkInner: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  checkInner: { width: 22, height: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 
-  rowDivider: { height: 1, marginTop: 14, marginBottom: 12 },
-  rowActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  pillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-  },
-  pillBtnText: { fontSize: 13, fontWeight: '700' },
-
-  emptyCard: { borderRadius: 20, alignItems: 'center', paddingVertical: 32, paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
-  emptyText: { fontSize: 13, textAlign: 'center', marginBottom: 10 },
-
-  actionSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingBottom: 36 },
-  actionSheetTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4 },
-  actionSheetItem: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth },
-  actionSheetLabel: { fontSize: 15, fontWeight: '500' },
-});
-
-const modalS = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  rowDivider: { height: StyleSheet.hairlineWidth },
+  rowActions: { flexDirection: 'row', justifyContent: 'flex-end' },
 });

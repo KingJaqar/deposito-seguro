@@ -25,6 +25,7 @@ export const Durations = {
    ripple: 200,
    reveal: 400,
    parallax: 50,
+   toggle: 180,
  } as const;
 
 export const EasingCurves = {

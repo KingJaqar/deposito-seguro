@@ -1,68 +1,88 @@
 // File path: src/components/VaultHeader.tsx
-
-import { Ionicons } from '@expo/vector-icons';
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §5/§7 Phase 3: fixes
+// the double-top-padding bug by owning its top safe-area inset internally
+// (useSafeAreaInsets), instead of relying on a host SafeAreaView plus a
+// hardcoded headerPaddingTop stacking together. Host screens now pass
+// edges={['bottom','left','right']} to their own SafeAreaView (see §7 Phase 3
+// for the 5 host files, 3 of which also needed a SafeAreaView import
+// migration off React Native's own iOS-only implementation).
+// Also drops the @expo/vector-icons Ionicons back-chevron in favor of
+// lucide-react-native, per §4's "100% lucide, no second icon set" rule.
 import { router } from 'expo-router';
+import { ChevronLeft } from 'lucide-react-native';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
+import { Type } from '../constants/typography';
 
 interface HeaderProps {
   title: string;
   showBack?: boolean;
   rightButton?: React.ReactNode;
-  scrollY?: any;
+  allowMultilineTitle?: boolean;
   style?: ViewStyle;
 }
 
-export const VaultHeader = ({ title, showBack = false, rightButton, style }: HeaderProps) => {
-  const { colors, space, font, headerPaddingTop, isTablet } = useTheme();
+export const VaultHeader = ({ title, showBack = false, rightButton, allowMultilineTitle = false, style }: HeaderProps) => {
+  const { colors, space, font, radius, iconSize, touchTarget } = useTheme();
+  const insets = useSafeAreaInsets();
+  const backBtnSize = Math.max(38, touchTarget() - 6);
 
   const handleBackPress = () => {
-    if (showBack) {
-      router.back();
-    }
+    if (showBack) router.back();
   };
 
-  const containerStyle: ViewStyle = {
-  backgroundColor: colors.glass,
-  paddingTop: headerPaddingTop,
-  paddingHorizontal: space(4),
-  paddingBottom: space(3),
-  minHeight: isTablet ? 84 : 72,
-};
-
   return (
-    <View style={[styles.container, containerStyle, style, { shadowColor: colors.text }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.navBar,
+          borderBottomColor: colors.borderLight,
+          paddingTop: insets.top + space(2),
+          paddingHorizontal: space(4),
+          paddingBottom: space(3),
+        },
+        style,
+      ]}
+    >
       <View style={styles.content}>
         {showBack && (
-          <TouchableOpacity
+          <Pressable
             onPress={handleBackPress}
-            style={styles.backBtn}
-            activeOpacity={0.7}
+            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            style={({ pressed }) => [
+              styles.backBtn,
+              {
+                width: backBtnSize,
+                height: backBtnSize,
+                borderRadius: radius(4),
+                backgroundColor: `${colors.primary}14`,
+                marginRight: space(3),
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
           >
-            <View
-              style={[
-                styles.backIconWrap,
-                { backgroundColor: `${colors.primary}14`, shadowColor: colors.primary },
-              ]}
-            >
-              <Ionicons name="chevron-back" size={19} color={colors.primary} />
-            </View>
-          </TouchableOpacity>
+            <ChevronLeft size={iconSize(20)} color={colors.primary} strokeWidth={2.5} />
+          </Pressable>
         )}
 
         <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[styles.title, { fontSize: font(Type.headline.size), color: colors.text }]}
+            numberOfLines={allowMultilineTitle ? undefined : 1}
+          >
             {title}
           </Text>
         </View>
 
         {rightButton ? (
-          <View style={styles.rightBtn}>{rightButton}</View>
+          <View style={[styles.rightBtn, { marginLeft: space(3) }]}>{rightButton}</View>
         ) : showBack ? (
-          <View style={styles.rightSpacer} />
+          <View style={{ width: backBtnSize }} />
         ) : null}
       </View>
     </View>
@@ -71,50 +91,29 @@ export const VaultHeader = ({ title, showBack = false, rightButton, style }: Hea
 
 const styles = StyleSheet.create({
   container: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    zIndex: 100,
+  },
+  content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    zIndex: 100,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  content: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   backBtn: {
-    marginRight: 14,
-  },
-  backIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 1,
   },
   titleContainer: {
     flex: 1,
     flexShrink: 1,
   },
   title: {
-    fontSize: 19,
     fontWeight: '800',
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     textAlign: 'left',
     flexShrink: 1,
   },
   rightBtn: {
-    marginLeft: 12,
     flexShrink: 0,
-  },
-  rightSpacer: {
-    width: 38,
   },
 });

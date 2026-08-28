@@ -1,9 +1,13 @@
 import { router } from 'expo-router';
 import { Delete, Lock } from 'lucide-react-native';
-import { useMemo, useRef, useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { Button } from '../../components/primitives/Button';
+import { Type } from '../../constants/typography';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useScreenEnterAnimation } from '../../hooks/useScreenEnterAnimation';
 import { PIN_LOCKOUT_KEY, useAuthStore } from '../../store/authStore';
 import { useLockoutStore } from '../../store/lockoutStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -35,9 +39,14 @@ const BUTTON_LAYOUT = [
 ];
 
 export default function LoginScreen() {
-  const { colors, isDark, font, space, isTablet } = useTheme();
+  const { colors, font, space, isTablet , iconSize } = useTheme();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+
+  // Standard PIN screen shrinks proportionally on short screens so the logo,
+  // title, dots, hint, keypad, and unlock button all fit without scrolling
+  // or clipping — 780 is the design-reference height (iPhone-class device).
+  const stdScale = Math.max(0.6, Math.min(1, height / 780));
 
   const { buttonHeight, sciButtonHeight } = useMemo(() => {
     const landscape = width > height;
@@ -54,6 +63,7 @@ export default function LoginScreen() {
     return { buttonHeight: mainHeight, sciButtonHeight: sciHeight };
   }, [width, height, isTablet, space]);
 
+  const enterStyle = useScreenEnterAnimation();
   const { authenticate, securityHint } = useAuthStore();
   const { disguiseMode, disguiseIconTheme } = useSettingsStore();
   const [inputBuffer, setInputBuffer] = useState('');
@@ -63,7 +73,6 @@ export default function LoginScreen() {
   const [calcMainDisplay, setCalcMainDisplay] = useState('0');
   const [isSecondMode, setIsSecondMode] = useState(false);
   const [showTransitionSplash, setShowTransitionSplash] = useState(false);
-  const pinInputRef = useRef<TextInput>(null);
   const isCalc = disguiseMode === 'calculator';
 
   const calcTheme = useMemo(
@@ -72,19 +81,6 @@ export default function LoginScreen() {
   );
 
   const buttonLayout = useMemo(() => BUTTON_LAYOUT, []);
-
-  const stdTheme = {
-    bg: isDark ? '#000000' : colors.background,
-    text: isDark ? '#FFFFFF' : colors.text,
-    muted: isDark ? '#8E8E93' : colors.textMuted,
-    surface: isDark ? '#2A2A2A' : colors.surface,
-    keypad: isDark ? '#333333' : colors.surfaceElevated,
-    keyText: isDark ? '#FFFFFF' : colors.text,
-    keySub: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
-    unlockBg: isDark ? '#F5F0E8' : colors.primary,
-    unlockText: isDark ? '#000000' : '#FFFFFF',
-    inputPlaceholder: isDark ? 'rgba(255,255,255,0.3)' : colors.textMuted,
-  };
 
   const handleStandardAuth = async (rawInput?: string, silent = false) => {
     const pinValue = (rawInput ?? (isCalc ? inputBuffer : pin)).replace(/[^0-9]/g, '');
@@ -513,116 +509,258 @@ export default function LoginScreen() {
     );
   }
 
-  const T9: Record<string, string> = {
-    '2': '',
-    '3': '',
-    '4': '',
-    '5': '',
-    '6': '',
-    '7': '',
-    '8': '',
-    '9': '',
-  };
+  // Standard (non-disguised) PIN entry. Per §3: a real PIN-dot display
+  // replaces the old disabled dummy TextInput, and the keypad/unlock button
+  // are rebuilt on the new design system. Dots never expose the entered
+  // value to a screen reader (§6) — only a count.
+  const pinDotSlots = Math.max(pin.length, PIN_MIN_LENGTH);
+  const keySize = Math.min(76, (Math.min(width, 400) - space(6) * 2 - space(3) * 2) / 3) * stdScale;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: stdTheme.bg }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.stdScrollContent,
-            { backgroundColor: stdTheme.bg, paddingHorizontal: space(6), paddingVertical: space(6), alignItems: 'center', minHeight: '100%' }
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <View
+            style={[
+              styles.decorCircle,
+              { top: -90, right: -70, width: 260, height: 260, backgroundColor: `${colors.primary}12` },
+            ]}
+          />
+          <View
+            style={[
+              styles.decorCircle,
+              { bottom: -60, left: -80, width: 220, height: 220, backgroundColor: `${colors.secondary}0F` },
+            ]}
+          />
+        </View>
+
+        <Animated.View
+          style={[
+            enterStyle,
+            {
+              flex: 1,
+              paddingHorizontal: space(6),
+              paddingVertical: space(3) * stdScale,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            },
           ]}
-          keyboardShouldPersistTaps="handled"
         >
-          <View style={[styles.stdContainer, { backgroundColor: 'transparent', width: '100%' }]}>
-            <View style={[styles.logoWrap, { backgroundColor: isDark ? '#2A2A2A' : colors.surfaceElevated, marginTop: space(10) }]}>
-              <Image source={require('../../../assets/logo/DepoS_logo.png')} style={[styles.logo, { width: '40%', aspectRatio: 160 / 140, maxWidth: 160 }]} resizeMode="contain" />
+          <View style={{ width: '100%', alignItems: 'center' }}>
+            <View
+              style={[
+                styles.iconBadge,
+                {
+                  backgroundColor: colors.surfaceElevated,
+                  borderColor: `${colors.primary}2A`,
+                  shadowColor: colors.shadow,
+                  width: 88 * stdScale,
+                  height: 88 * stdScale,
+                  borderRadius: 44 * stdScale,
+                },
+              ]}
+            >
+              <Image source={require('../../../assets/logo/DepoS_logo.png')} style={{ width: 52 * stdScale, height: 52 * stdScale }} resizeMode="contain" />
             </View>
-            <Text style={[styles.appName, { color: stdTheme.text, marginTop: space(5), fontSize: font(36) }]}>
+
+            <Text
+              style={[
+                styles.brandLabel,
+                { color: colors.textMuted, marginTop: space(3) * stdScale, fontSize: font(Type.label.size) },
+              ]}
+            >
               Deposito Seguro
             </Text>
 
-            <Text style={[styles.stdTitle, { color: stdTheme.text, marginTop: space(10), fontSize: font(28) }]}>Enter PIN</Text>
-            <Text style={[styles.subtitle, { color: stdTheme.muted, fontSize: font(15) }]}>
+            <Text style={[styles.titleText, { color: colors.text, marginTop: space(1), fontSize: font(Type.title.size) }]}>Enter PIN</Text>
+            <Text style={[styles.subtitleText, { color: colors.textMuted, fontSize: font(Type.body.size), marginBottom: space(4) * stdScale }]}>
               Enter your PIN to unlock the vault
             </Text>
 
-            <TextInput
-              ref={pinInputRef}
-              style={[styles.pinInput, { backgroundColor: stdTheme.surface, color: stdTheme.text, width: '100%', minHeight: 52, fontSize: font(18), letterSpacing: 4, marginBottom: space(4) }]}
-              placeholder="Enter PIN"
-              placeholderTextColor={stdTheme.inputPlaceholder}
-              value={pin}
-              onChangeText={setPin}
-              keyboardType="number-pad"
-              maxLength={20}
-              secureTextEntry
-              editable={false}
-              showSoftInputOnFocus={false}
-              autoFocus={false}
-              importantForAutofill="no"
-              autoComplete="off"
-              pointerEvents="none"
-              returnKeyType="done"
-              accessibilityLabel="PIN display"
-            />
+            <View
+              style={[
+                styles.pinCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.borderLight,
+                  shadowColor: colors.shadow,
+                  paddingVertical: space(3) * stdScale,
+                  paddingHorizontal: space(4) * stdScale,
+                  marginBottom: space(3) * stdScale,
+                },
+              ]}
+              accessibilityLabel={`PIN entered: ${pin.length} digit${pin.length === 1 ? '' : 's'}`}
+              accessibilityRole="text"
+            >
+              <View style={[styles.pinDotsRow, { gap: space(3) }]}>
+                {Array.from({ length: pinDotSlots }).map((_, i) => (
+                  <PinDot key={i} filled={i < pin.length} color={colors.primary} borderColor={colors.border} />
+                ))}
+              </View>
+            </View>
 
             {securityHint ? (
-              <Text style={[styles.hintText, { color: stdTheme.muted, fontSize: font(13), marginBottom: space(7) }]}>Hint: {securityHint}</Text>
+              <View style={[styles.hintChip, { backgroundColor: colors.surfaceHover, marginBottom: space(2) * stdScale }]}>
+                <Text style={[styles.hintChipText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
+                  Hint: {securityHint}
+                </Text>
+              </View>
             ) : null}
+          </View>
 
-            <View style={[styles.keypadGrid, { width: '100%', maxWidth: 400, alignSelf: 'center', paddingHorizontal: space(2), gap: space(1), marginBottom: space(2) }]}>
+          <View style={{ width: '100%', alignItems: 'center' }}>
+            <View style={[styles.keypadGrid, { width: '100%', maxWidth: 400, gap: space(3) * stdScale, marginBottom: space(4) * stdScale }]}>
               {[
                 ['1', '2', '3'],
                 ['4', '5', '6'],
                 ['7', '8', '9'],
                 ['clearAll', '0', 'backspace'],
               ].map((row, ri) => (
-                <View key={`row-${ri}`} style={[styles.keypadRow, { gap: space(1) }]}>
+                <View key={`row-${ri}`} style={[styles.keypadRow, { gap: space(3) * stdScale }]}>
                   {row.map((key, ci) => {
                     const btnKey = `btn-${ri}-${ci}`;
                     if (key === 'clearAll') {
                       return (
-                        <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleClearAll} activeOpacity={0.7}>
-                          <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>C</Text>
-                        </TouchableOpacity>
+                        <KeyButton
+                          key={btnKey}
+                          size={keySize}
+                          borderColor={colors.borderLight}
+                          onPress={handleClearAll}
+                          accessibilityLabel="Clear PIN"
+                        >
+                          <Text style={[styles.keyGhostText, { color: colors.textMuted, fontSize: font(18) }]}>C</Text>
+                        </KeyButton>
                       );
                     }
                     if (key === 'backspace') {
                       return (
-                        <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={handleBackspace} activeOpacity={0.7}>
-                          <Delete size={26} color={stdTheme.keyText} strokeWidth={2.5} />
-                        </TouchableOpacity>
+                        <KeyButton
+                          key={btnKey}
+                          size={keySize}
+                          borderColor={colors.borderLight}
+                          onPress={handleBackspace}
+                          accessibilityLabel="Backspace"
+                        >
+                          <Delete size={iconSize(22)} color={colors.textMuted} strokeWidth={2.25} />
+                        </KeyButton>
                       );
                     }
                     return (
-                      <TouchableOpacity key={btnKey} style={[styles.keypadBtn, { backgroundColor: stdTheme.keypad }]} onPress={() => handlePinPress(key)} activeOpacity={0.7}>
-                        <Text style={[styles.keyNum, { color: stdTheme.keyText }]}>{key}</Text>
-                        {T9[key] ? <Text style={[styles.keySub, { color: stdTheme.keySub }]}>{T9[key]}</Text> : null}
-                      </TouchableOpacity>
+                      <KeyButton
+                        key={btnKey}
+                        size={keySize}
+                        filled
+                        bg={colors.surface}
+                        borderColor={colors.borderLight}
+                        shadowColor={colors.shadow}
+                        onPress={() => handlePinPress(key)}
+                        accessibilityLabel={`Digit ${key}`}
+                      >
+                        <Text style={[styles.keyNum, { color: colors.text, fontSize: font(24) }]}>{key}</Text>
+                      </KeyButton>
                     );
                   })}
                 </View>
               ))}
             </View>
 
-            <TouchableOpacity
-              style={[styles.unlockBtn, { backgroundColor: stdTheme.unlockBg, marginTop: space(4), minHeight: 64, width: '100%', maxWidth: 400, alignSelf: 'center', paddingVertical: space(4) }]}
+            <Button
+              title="Unlock Vault"
               onPress={handleUnlockPress}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Unlock Vault"
-            >
-              <Lock size={18} color={stdTheme.unlockText} strokeWidth={2.5} />
-              <Text style={[styles.unlockBtnText, { color: stdTheme.unlockText, fontSize: font(26) }]}>Unlock Vault</Text>
-            </TouchableOpacity>
+              icon={Lock}
+              size="lg"
+              style={{
+                width: '100%',
+                maxWidth: 400,
+                height: 56 * stdScale,
+                borderRadius: 28 * stdScale,
+                shadowColor: colors.primary,
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.28,
+                shadowRadius: 16,
+                elevation: 6,
+              }}
+            />
           </View>
-        </ScrollView>
+        </Animated.View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+// A single PIN indicator. Springs into its filled state (scale + color) as
+// digits are entered so the dots read as live feedback rather than a static
+// counter. Purely visual — accessibility exposure is on the row (§6).
+function PinDot({ filled, color, borderColor }: { filled: boolean; color: string; borderColor: string }) {
+  const scale = useSharedValue(filled ? 1 : 0.86);
+
+  useEffect(() => {
+    scale.value = withSpring(filled ? 1 : 0.86, { damping: 14, stiffness: 260 });
+  }, [filled, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.pinDot,
+        animatedStyle,
+        {
+          borderColor: filled ? color : borderColor,
+          backgroundColor: filled ? color : 'transparent',
+        },
+      ]}
+    />
+  );
+}
+
+// Shared circular keypad key. `filled` gives digit keys a raised, elevated
+// surface; utility keys (clear/backspace) stay borderless/ghost so the grid
+// reads digits-first, matching modern passcode-pad conventions.
+function KeyButton({
+  size,
+  filled,
+  bg,
+  borderColor,
+  shadowColor,
+  onPress,
+  accessibilityLabel,
+  children,
+}: {
+  size: number;
+  filled?: boolean;
+  bg?: string;
+  borderColor: string;
+  shadowColor?: string;
+  onPress: () => void;
+  accessibilityLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.keyCircle,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: filled ? bg : 'transparent',
+          borderColor,
+          borderWidth: filled ? StyleSheet.hairlineWidth : 0,
+        },
+        filled && shadowColor
+          ? { shadowColor, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2 }
+          : null,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.6}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+    >
+      {children}
+    </TouchableOpacity>
   );
 }
 
@@ -702,55 +840,30 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   calcButton: { justifyContent: 'center', alignItems: 'center', flex: 1, minWidth: 44 },
   calcButtonText: { fontWeight: '400', includeFontPadding: false },
-  stdContainer: { width: '100%', alignItems: 'center' },
-  stdScrollContent: { flexGrow: 1 },
   calcScrollContent: { flexGrow: 1, backgroundColor: CALC_BG },
-  logoWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: '#2A2A2A',
+  decorCircle: { position: 'absolute', borderRadius: 999 },
+  iconBadge: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    borderWidth: 1.5,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+    elevation: 6,
   },
-  logo: {},
-  appName: { fontWeight: '800', letterSpacing: -0.2, marginBottom: 24, textAlign: 'center' },
-  stdTitle: { fontWeight: '800', letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' },
-  subtitle: { textAlign: 'center', marginBottom: 20, lineHeight: 20 },
-  hintText: { textAlign: 'center', fontStyle: 'italic' },
-  pinInput: {
-    borderRadius: 22,
-    paddingHorizontal: 20,
-    fontWeight: '500',
-    textAlign: 'center',
-    letterSpacing: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  keypadGrid: { alignSelf: 'center', marginBottom: 8 },
+  brandLabel: { fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', textAlign: 'center' },
+  titleText: { fontWeight: '800', letterSpacing: -0.4, textAlign: 'center' },
+  subtitleText: { textAlign: 'center', marginTop: 6, lineHeight: 20 },
+  pinCard: { borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2 },
+  hintChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
+  hintChipText: { textAlign: 'center' },
+  pinDotsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
+  keypadGrid: { alignSelf: 'center' },
   keypadRow: { flexDirection: 'row', justifyContent: 'center' },
-  keypadBtn: {
-    flex: 1,
-    aspectRatio: 1,
-    minHeight: 72,
-    borderRadius: 22,
-    backgroundColor: '#2D2D2D',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'column',
-  },
-  keyNum: { fontWeight: '400', includeFontPadding: false, lineHeight: 32 },
-  keySub: { fontWeight: '500', letterSpacing: 0.5, marginTop: -2, lineHeight: 12 },
-  unlockBtn: {
-    borderRadius: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    minHeight: 64,
-  },
-  unlockBtnText: { fontWeight: '800', letterSpacing: -0.2 },
+  keyCircle: { justifyContent: 'center', alignItems: 'center' },
+  keyNum: { fontWeight: '700', includeFontPadding: false },
+  keyGhostText: { fontWeight: '600', includeFontPadding: false },
   transitionSplash: {
     flex: 1,
     backgroundColor: '#2D2D2D',

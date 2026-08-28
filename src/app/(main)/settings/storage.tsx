@@ -1,176 +1,74 @@
-// File: src/app/(main)/settings/storage.tsx
+// src/app/(main)/settings/storage.tsx
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
+// Store reads/writes (getVaultUsageBytes, storageLimitBytes, updateSetting)
+// and the StorageService.getStorageQuotaInfo() load are unchanged; only
+// JSX/StyleSheet is new. Notable per-plan change — the real bug this rewrite
+// fixes: the local `StatCard`/`ProgressBar` here hardcoded track/text colors
+// as `rgba(255,255,255,...)`, invisible in light theme; the new
+// `ProgressBar`/`Card` primitives source every color from tokens instead
+// (`colors.borderLight` for the track, per §3/§5), so the bars and labels are
+// legible in every palette, not just dark ones.
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AlertTriangle, Database, HardDrive, Package, SlidersHorizontal } from 'lucide-react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
+import { Card } from '../../../components/primitives/Card';
+import { Chip } from '../../../components/primitives/Chip';
+import { ProgressBar } from '../../../components/primitives/ProgressBar';
+import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { formatBytes, STORAGE_LIMIT_OPTIONS } from '../../../constants/storageLimits';
+import { formatBytes, isStorageLimitOptionDisabled, STORAGE_LIMIT_OPTIONS } from '../../../constants/storageLimits';
 import { StorageService } from '../../../services/storage';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useVaultStore } from '../../../store/vaultStore';
 
-function ProgressBar({
-  ratio,
-  color,
-  delay = 0,
-  trackHeight = 8,
-}: {
-  ratio: number;
-  color: string;
-  delay?: number;
-  trackHeight?: number;
-}) {
-  return (
-    <View style={[barStyles.track, { height: trackHeight, backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-      <View style={[barStyles.fill, { backgroundColor: color, width: `${ratio * 100}%` }]} />
-    </View>
-  );
-}
-
-const barStyles = StyleSheet.create({
-  track: {
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  fill: { borderRadius: 4 },
-});
-
 function StatCard({
-  icon,
+  icon: Icon,
   label,
   value,
   sublabel,
   barRatio,
   barColor,
-  delay,
-  colors,
-  space,
-  font,
 }: {
-  icon: string;
+  icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
   label: string;
   value: string;
   sublabel?: string;
   barRatio?: number;
   barColor?: string;
-  delay?: number;
-  colors: any;
-  space: (key: any) => number;
-  font: (size: number) => number;
 }) {
+  const { colors, space, font , iconSize } = useTheme();
   return (
-    <View
-      style={[
-        statStyles.card,
-        {
-          padding: space(4),
-          marginBottom: space(3),
-        },
-      ]}
-    >
-      <View style={statStyles.header}>
-        <View style={[statStyles.iconBox, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
-          <Text style={statStyles.icon}>{icon}</Text>
+    <Card style={{ marginBottom: space(3) }}>
+      <View style={styles.statHeader}>
+        <View style={[styles.iconBox, { backgroundColor: colors.surfaceHover, marginRight: space(3) }]}>
+          <Icon size={iconSize(20)} color={colors.textSecondary} strokeWidth={2} />
         </View>
-        <View style={statStyles.texts}>
-          <Text style={[statStyles.label, { color: 'rgba(255,255,255,0.45)', fontSize: font(11) }]}>{label}</Text>
-          <Text style={[statStyles.value, { color: colors.text, fontSize: font(22) }]}>{value}</Text>
-          {sublabel ? (
-            <Text style={[statStyles.sublabel, { color: 'rgba(255,255,255,0.3)', fontSize: font(11) }]}>{sublabel}</Text>
-          ) : null}
+        <View style={styles.statTexts}>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: font(Type.eyebrow.size) }]}>{label}</Text>
+          <Text style={[styles.statValue, { color: colors.text, fontSize: font(Type.headline.size) }]}>{value}</Text>
+          {sublabel ? <Text style={[styles.statSublabel, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>{sublabel}</Text> : null}
         </View>
       </View>
       {barRatio !== undefined && barColor ? (
         <View style={{ marginTop: space(3) }}>
-          <ProgressBar ratio={barRatio} color={barColor} delay={delay ?? 0} trackHeight={space(2)} />
-          <Text style={[statStyles.barLabel, { color: 'rgba(255,255,255,0.3)', fontSize: font(10) }]}>
-            {Math.round(barRatio * 100)}% used
-          </Text>
+          <ProgressBar progress={barRatio} color={barColor} showPercentage />
         </View>
       ) : null}
-    </View>
+    </Card>
   );
 }
-
-const statStyles = StyleSheet.create({
-  card: {
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  header: { flexDirection: 'row', alignItems: 'center' },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  icon: {},
-  texts: { flex: 1 },
-  label: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 },
-  value: { fontWeight: '700' },
-  sublabel: { marginTop: 3 },
-  barLabel: { marginTop: 6, textAlign: 'right' },
-});
-
-function LimitChip({
-  label,
-  active,
-  onPress,
-  colors,
-  isDark,
-  space,
-  font,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  colors: any;
-  isDark: boolean;
-  space: (key: any) => number;
-  font: (size: number) => number;
-}) {
-  return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onPress}>
-      <View
-        style={[
-          chipStyles.chip,
-          {
-            paddingHorizontal: space(4),
-            paddingVertical: space(3),
-            backgroundColor: active ? colors.primary : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-            borderColor: active ? colors.primary : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-          },
-        ]}
-      >
-        <Text style={[chipStyles.label, { color: active ? '#FFFFFF' : colors.text, fontSize: font(13) }]}>
-          {label}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-const chipStyles = StyleSheet.create({
-  chip: { borderRadius: 999, borderWidth: 1.5, marginRight: 8, marginBottom: 8 },
-  label: { fontWeight: '700' },
-});
 
 export default function StorageTelemetryScreen() {
-  const { colors, isDark, space, screenPadding, bottomTabSpacing, font } = useTheme();
+  const { colors, space, screenPadding, bottomTabSpacing, font , iconSize } = useTheme();
   const [loading, setLoading] = useState(true);
-  const [quota, setQuota] = useState<{ used: number; free: number } | null>(null);
+  const [quota, setQuota] = useState<{ used: number; free: number; total: number } | null>(null);
   const [error, setError] = useState(false);
 
   const storageLimitBytes = useSettingsStore((s) => s.storageLimitBytes);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
-  // Metadata-sum vault usage (matches the figure importFile's limit
-  // enforcement actually checks against — see vaultStore.ts's
-  // getVaultUsageBytes/assertWithinStorageLimit) rather than the real-disk
-  // `quota.used` above it, which includes on-disk overhead (base64/HMAC
-  // padding on encrypted files) the limit itself doesn't account for.
   const vaultUsageBytes = useVaultStore((s) => s.getVaultUsageBytes());
 
   useEffect(() => {
@@ -186,35 +84,29 @@ export default function StorageTelemetryScreen() {
   const usedRatio = quota ? quota.used / totalBytes : 0;
 
   const limitRatio = storageLimitBytes ? Math.min(1, vaultUsageBytes / storageLimitBytes) : 0;
-  const limitBarColor = limitRatio >= 1 ? colors.error ?? '#EF4444' : limitRatio >= 0.9 ? '#F59E0B' : colors.primary;
+  const limitBarColor = limitRatio >= 1 ? colors.error : limitRatio >= 0.9 ? colors.warning : colors.primary;
   const isOverLimit = storageLimitBytes !== null && vaultUsageBytes > storageLimitBytes;
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
       <VaultHeader title="Storage" showBack />
-      <View style={[styles.content, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]}>
+      <View style={[styles.content, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing }]}>
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: 'rgba(255,255,255,0.35)', fontSize: font(13) }]}>
-              Reading partition…
-            </Text>
+            <Text style={[styles.loadingText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>Reading partition…</Text>
           </View>
         ) : error ? (
           <View style={styles.errorWrap}>
-            <Text style={styles.errorEmoji}>⚠️</Text>
-            <Text style={[styles.errorText, { color: colors.text, fontSize: font(15) }]}>
-              Could not read storage data
-            </Text>
+            <AlertTriangle size={iconSize(32)} color={colors.error} strokeWidth={1.75} style={{ marginBottom: space(3) }} />
+            <Text style={[styles.errorText, { color: colors.text, fontSize: font(Type.subtitle.size) }]}>Could not read storage data</Text>
           </View>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { color: 'rgba(255,255,255,0.38)', fontSize: font(11) }]}>
-              STORAGE LIMIT
-            </Text>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted, fontSize: font(Type.eyebrow.size), marginBottom: space(3) }]}>STORAGE LIMIT</Text>
 
             <StatCard
-              icon={isOverLimit ? '⚠️' : '🎚️'}
+              icon={isOverLimit ? AlertTriangle : SlidersHorizontal}
               label="VAULT LIMIT USAGE"
               value={`${formatBytes(vaultUsageBytes)}${storageLimitBytes !== null ? ` / ${formatBytes(storageLimitBytes)}` : ''}`}
               sublabel={
@@ -226,67 +118,31 @@ export default function StorageTelemetryScreen() {
               }
               barRatio={storageLimitBytes !== null ? limitRatio : undefined}
               barColor={storageLimitBytes !== null ? limitBarColor : undefined}
-              delay={0}
-              colors={colors}
-              space={space}
-              font={font}
             />
 
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: space(2), marginBottom: space(6) }}>
-              {STORAGE_LIMIT_OPTIONS.map((opt) => (
-                <LimitChip
-                  key={opt.label}
-                  label={opt.label}
-                  active={storageLimitBytes === opt.bytes}
-                  onPress={() => updateSetting('storageLimitBytes', opt.bytes)}
-                  colors={colors}
-                  isDark={isDark}
-                  space={space}
-                  font={font}
-                />
-              ))}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(2), marginTop: space(2) }}>
+              {STORAGE_LIMIT_OPTIONS.map((opt) => {
+                const optionDisabled = quota ? isStorageLimitOptionDisabled(opt.bytes, quota.total, quota.free) : false;
+                return (
+                  <Chip
+                    key={opt.label}
+                    label={opt.label}
+                    selected={storageLimitBytes === opt.bytes}
+                    disabled={optionDisabled}
+                    onPress={() => updateSetting('storageLimitBytes', opt.bytes)}
+                  />
+                );
+              })}
             </View>
-
-            <Text style={[styles.sectionTitle, { color: 'rgba(255,255,255,0.38)', fontSize: font(11) }]}>
-              PARTITION OVERVIEW
+            <Text style={[styles.capHint, { color: colors.textMuted, fontSize: font(Type.caption.size), marginTop: space(2), marginBottom: space(6) }]}>
+              Greyed-out options exceed this device's capacity or its currently free space.
             </Text>
 
-            <StatCard
-              icon="📦"
-              label="APP SANDBOX USAGE"
-              value={`${usedMB.toFixed(2)} MB`}
-              sublabel="Vault data on this device"
-              barRatio={usedRatio}
-              barColor={colors.primary}
-              delay={0}
-              colors={colors}
-              space={space}
-              font={font}
-            />
+            <Text style={[styles.sectionTitle, { color: colors.textMuted, fontSize: font(Type.eyebrow.size), marginBottom: space(3) }]}>PARTITION OVERVIEW</Text>
 
-            <StatCard
-              icon="💿"
-              label="FREE DEVICE STORAGE"
-              value={`${freeGB.toFixed(2)} GB`}
-              sublabel="Available on hardware"
-              barRatio={1 - usedRatio}
-              barColor="#34d399"
-              delay={120}
-              colors={colors}
-              space={space}
-              font={font}
-            />
-
-            <StatCard
-              icon="🗂️"
-              label="TOTAL DEVICE STORAGE"
-              value={`${((totalBytes) / (1024 * 1024 * 1024)).toFixed(2)} GB`}
-              sublabel="Combined capacity"
-              delay={240}
-              colors={colors}
-              space={space}
-              font={font}
-            />
+            <StatCard icon={Package} label="APP SANDBOX USAGE" value={`${usedMB.toFixed(2)} MB`} sublabel="Vault data on this device" barRatio={usedRatio} barColor={colors.primary} />
+            <StatCard icon={HardDrive} label="FREE DEVICE STORAGE" value={`${freeGB.toFixed(2)} GB`} sublabel="Available on hardware" barRatio={1 - usedRatio} barColor={colors.secondary} />
+            <StatCard icon={Database} label="TOTAL DEVICE STORAGE" value={`${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`} sublabel="Combined capacity" />
           </>
         )}
       </View>
@@ -299,15 +155,17 @@ export default function StorageTelemetryScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { flex: 1 },
-  sectionTitle: {
-    fontWeight: '700',
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
-    paddingHorizontal: 4,
-  },
+  sectionTitle: { fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase' },
   loadingWrap: { alignItems: 'center', marginTop: 80, gap: 16 },
   loadingText: {},
   errorWrap: { alignItems: 'center', marginTop: 80 },
-  errorEmoji: { marginBottom: 12 },
   errorText: { fontWeight: '600' },
+  capHint: { fontWeight: '500' },
+
+  statHeader: { flexDirection: 'row', alignItems: 'center' },
+  iconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  statTexts: { flex: 1 },
+  statLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
+  statValue: { fontWeight: '800' },
+  statSublabel: { fontWeight: '500', marginTop: 2 },
 });

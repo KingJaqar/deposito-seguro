@@ -13,7 +13,7 @@ export default function MainAppContainerLayout() {
   const appState = useRef(AppState.currentState);
   const { isAuthenticated, lastActiveTimestamp, updateActivity, terminateSession } = useAuthStore();
   const { autoLockDuration } = useSettingsStore();
-  const { disguiseMode, disguiseIconTheme, lockTransientMemory } = useSettingsStore();
+  const { disguiseMode, disguiseIconTheme, lockTransientMemory, hydrateSettings } = useSettingsStore();
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
@@ -24,6 +24,15 @@ export default function MainAppContainerLayout() {
           router.replace('/(auth)/lock');
         } else {
           updateActivity();
+          // If we backgrounded under calculator disguise, lockTransientMemory()
+          // blanked the in-memory encryption/access keys (and flipped
+          // isHydrated=false). Coming back BEFORE the auto-lock window would
+          // otherwise skip re-auth — the only other place that re-hydrates —
+          // leaving every key '' while still authenticated. Any encrypt/decrypt
+          // then silently uses the wrong (no-key) transform and corrupts files.
+          // hydrateSettings() early-returns when isHydrated is still true, so
+          // this is a no-op unless the keys were actually wiped.
+          hydrateSettings().catch((e) => console.error('Foreground re-hydration failed', e));
         }
         if (disguiseMode === 'calculator' && Platform.OS === 'android') {
           await setDisguiseIcon(disguiseIconTheme);
@@ -43,7 +52,7 @@ export default function MainAppContainerLayout() {
     return () => {
       subscription.remove();
     };
-  }, [lastActiveTimestamp, autoLockDuration, terminateSession, router, updateActivity, disguiseMode, disguiseIconTheme, lockTransientMemory]);
+  }, [lastActiveTimestamp, autoLockDuration, terminateSession, router, updateActivity, disguiseMode, disguiseIconTheme, lockTransientMemory, hydrateSettings]);
 
   // I-1: render-time auth guard. Previously route protection relied
   // entirely on the (auth) screens funneling navigation into (main)/* —
