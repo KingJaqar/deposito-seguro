@@ -265,7 +265,14 @@ export default function TrashScreen() {
           showTopToast(
             `${name} restored in `,
             'success',
-            isLocked ? undefined : () => router.push(folderId ? { pathname: '/(main)/folder/[id]', params: { id: folderId } } : '/(main)/dashboard'),
+            // folderId branch is a real drill-down (push, keeps trash beneath
+            // for back); the no-folderId branch lands on the dashboard tab
+            // root, so it uses replace like every other tab-root jump (see
+            // AnimatedTabBar.tsx) instead of stacking a dashboard instance on
+            // top of trash each time a restored-file toast is tapped.
+            isLocked ? undefined : () => (folderId
+              ? router.push({ pathname: '/(main)/folder/[id]', params: { id: folderId } })
+              : router.replace('/(main)/dashboard')),
             locationLabel
           );
           if (landedInFallbackFolder) {

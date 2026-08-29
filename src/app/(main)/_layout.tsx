@@ -76,10 +76,15 @@ export default function MainAppContainerLayout() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {/* The 5 bottom-tab destinations swap via AnimatedTabBar's router.push,
+        {/* The 5 bottom-tab destinations swap via AnimatedTabBar's router.replace,
             not a real drill-down — no slide for those, matching typical tab-bar
-            feel. Everything else (folder/[id], viewer/*, settings/* subpages)
-            keeps the default push/pop slide from screenOptions above. */}
+            feel. replace (not push) keeps this layer's stack depth at 1 instead
+            of appending a new mounted instance per tab tap — the previous
+            router.push here was the root cause of tab switches getting
+            progressively slower over a session (every old instance stays
+            mounted and subscribed to the vault/settings stores). Everything
+            else (folder/[id], viewer/*, settings/* subpages) keeps the default
+            push/pop slide from screenOptions above. */}
         <Stack.Screen name="dashboard" options={{ animation: 'none' }} />
         <Stack.Screen name="favorites" options={{ animation: 'none' }} />
         <Stack.Screen name="search" options={{ animation: 'none' }} />

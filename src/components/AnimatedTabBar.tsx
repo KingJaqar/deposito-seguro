@@ -7,8 +7,8 @@
 // detection, and router.push navigation are unchanged.
 import { router, usePathname } from 'expo-router';
 import { Home, LucideIcon, Search, Settings, Star, Trash2 } from 'lucide-react-native';
-import { useEffect, useMemo } from 'react';
-import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../contexts/ThemeContext';
 import { Durations } from '../constants/animations';
@@ -21,10 +21,20 @@ export const TABS: { route: string; Icon: LucideIcon; label: string }[] = [
   { route: '/(main)/settings', Icon: Settings, label: 'Settings' },
 ];
 
+// Tab-bar-only animation timing, scaled 0.5x vs the shared Durations values
+// so switching tabs feels instant/snappy. Kept local to this file (rather
+// than edited into constants/animations.ts) so nothing else in the app's
+// animation timing is affected — only the bottom tab bar's own feedback.
+const TAB_ANIM = {
+  press: Durations.fast * 0.5, // icon press-in scale
+  settle: Durations.tabSwitch * 0.5, // icon press-out + active pill fade
+} as const;
+const TAB_EASING = Easing.out(Easing.cubic);
+
 // Floating pill tab bar: each tab is a plain circular icon button, and the
 // active tab gets a filled rounded-square "pill" behind its icon instead of
 // a color swap + label. No text labels — icon-only, per the updated design.
-function TabButton({
+const TabButton = memo(function TabButton({
   tab,
   isActive,
   activeBg,
@@ -47,7 +57,7 @@ function TabButton({
   const bgProgress = useSharedValue(isActive ? 1 : 0);
 
   useEffect(() => {
-    bgProgress.value = withTiming(isActive ? 1 : 0, { duration: Durations.tabSwitch, easing: Easing.out(Easing.quad) });
+    bgProgress.value = withTiming(isActive ? 1 : 0, { duration: TAB_ANIM.settle, easing: TAB_EASING });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive]);
 
@@ -57,18 +67,20 @@ function TabButton({
   const Icon = tab.Icon;
   const color = isActive ? activeIconColor : mutedColor;
 
+  // Pressable + reanimated-only feedback (scale), instead of TouchableOpacity's
+  // built-in opacity animation which runs on the legacy Animated API in
+  // parallel with reanimated — one animation driver here, not two.
   return (
-    <TouchableOpacity
+    <Pressable
       style={styles.tabBtn}
-      activeOpacity={0.75}
       onPress={onPress}
       onPressIn={() => {
         // eslint-disable-next-line react-hooks/immutability
-        scale.value = withTiming(0.92, { duration: Durations.fast });
+        scale.value = withTiming(0.92, { duration: TAB_ANIM.press, easing: TAB_EASING });
       }}
       onPressOut={() => {
         // eslint-disable-next-line react-hooks/immutability
-        scale.value = withTiming(1, { duration: Durations.tabSwitch });
+        scale.value = withTiming(1, { duration: TAB_ANIM.settle, easing: TAB_EASING });
       }}
       hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
       accessibilityRole="tab"
@@ -85,9 +97,9 @@ function TabButton({
         />
         <Icon size={iconSize} color={color} strokeWidth={2} />
       </Animated.View>
-    </TouchableOpacity>
+    </Pressable>
   );
-}
+});
 
 export default function AnimatedTabBar() {
   const { colors, space, isTablet, responsiveSize, iconSize: scaleIcon } = useTheme();
@@ -101,9 +113,37 @@ export default function AnimatedTabBar() {
     return idx === -1 ? 0 : idx;
   }, [pathname]);
 
-  const handlePress = (idx: number) => {
-    router.push(TABS[idx].route as any);
-  };
+  // ROOT CAUSE of the multi-second tab-switch delay: every tab tap called
+  // router.push, which — per expo-router's own docs — always *appends* a new
+  // stack entry rather than reusing one. Since AnimatedTabBar only renders on
+  // these 5 root screens (see the Stack comment below), bouncing between
+  // tabs never popped anything, so the native stack grew by one mounted
+  // screen instance per tap for the whole session. Every one of those old
+  // instances stays subscribed to useVaultStore/useSettingsStore (zustand
+  // doesn't know about navigation focus), so they keep re-rendering off-
+  // screen on every store update — and each new push has to be reconciled
+  // against an ever-larger screen list, which is what made the delay grow
+  // the longer a session went on instead of being instant every time.
+  // router.replace navigates "without appending to the history" (expo-router
+  // docs), so switching tabs now swaps the current top-of-stack screen in
+  // place — stack depth for the tab layer stays at 1, no ghost instances.
+  const activeIndexRef = useRef(activeIndex);
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  // Stable per-tab callbacks so TabButton's memo actually skips re-rendering
+  // the 4 inactive tabs whenever the active one changes. Kept a ref-guarded
+  // no-op for re-tapping the already-active tab, instead of depending on
+  // activeIndex directly, so this array's identity (and therefore memo)
+  // never breaks.
+  const handlers = useMemo(
+    () => TABS.map((tab, idx) => () => {
+      if (activeIndexRef.current === idx) return;
+      router.replace(tab.route as any);
+    }),
+    []
+  );
 
   const iconSize = scaleIcon(isTablet ? 26 : 22);
   const circleSize = scaleIcon(responsiveSize(52, 58, 64));
@@ -130,7 +170,7 @@ export default function AnimatedTabBar() {
             activeBg={colors.primary}
             activeIconColor={colors.fabText}
             mutedColor={colors.textMuted}
-            onPress={() => handlePress(idx)}
+            onPress={handlers[idx]}
             iconSize={iconSize}
             circleSize={circleSize}
           />

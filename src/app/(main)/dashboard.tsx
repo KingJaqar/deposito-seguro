@@ -581,7 +581,11 @@ export default function DashboardScreen() {
         contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing + responsiveSize(90, 100, 110) }]}
         showsVerticalScrollIndicator={false}
       >
-        <Pressable onPress={() => router.push('/(main)/search')} accessibilityRole="button" accessibilityLabel="Search files and vaults">
+        {/* '/(main)/search' is a bottom-tab root (same as AnimatedTabBar's own
+            tabs) — replace, not push, so this shortcut doesn't grow the stack
+            with a ghost dashboard instance every time it's tapped. See
+            AnimatedTabBar.tsx's handlers for the full root-cause writeup. */}
+        <Pressable onPress={() => router.replace('/(main)/search')} accessibilityRole="button" accessibilityLabel="Search files and vaults">
           <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
             <Search size={iconSize(18)} color={colors.textMuted} />
             <Text style={[styles.searchPlaceholder, { color: colors.textMuted, fontSize: font(Type.body.size) }]}>Search files, vaults…</Text>
@@ -629,7 +633,7 @@ export default function DashboardScreen() {
         <View style={{ marginBottom: space(6) }}>
           <View style={[styles.sectionHeader, { marginBottom: space(3) }]}>
             <SectionHeaderToggle title="Categories" expanded={!collapsedSections.has('categories')} onToggle={() => toggleSectionCollapse('categories')} />
-            <TouchableOpacity onPress={() => router.push('/(main)/search')} accessibilityRole="button" accessibilityLabel="See all categories">
+            <TouchableOpacity onPress={() => router.replace('/(main)/search')} accessibilityRole="button" accessibilityLabel="See all categories">
               <Text style={[styles.seeAll, { color: colors.primary, fontSize: font(Type.label.size) }]}>See all</Text>
             </TouchableOpacity>
           </View>
@@ -661,7 +665,7 @@ export default function DashboardScreen() {
                 return (
                   <Card
                     key={item.key}
-                    onPress={() => router.push({ pathname: '/(main)/search', params: { filter: filterLabel } })}
+                    onPress={() => router.replace({ pathname: '/(main)/search', params: { filter: filterLabel } })}
                     accessibilityLabel={`${item.label}, ${item.count} files`}
                     style={{ width: categoryItemWidth, alignItems: 'center', paddingVertical: space(4), paddingHorizontal: space(2) }}
                   >
@@ -723,7 +727,7 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity onPress={() => router.push('/(main)/search')} accessibilityRole="button" accessibilityLabel="See all vaults">
+              <TouchableOpacity onPress={() => router.replace('/(main)/search')} accessibilityRole="button" accessibilityLabel="See all vaults">
                 <Text style={[styles.seeAll, { color: colors.primary, fontSize: font(Type.label.size) }]}>See all</Text>
               </TouchableOpacity>
             )}
