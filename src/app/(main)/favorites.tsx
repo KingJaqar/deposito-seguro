@@ -53,7 +53,8 @@ import { Badge } from '../../components/primitives/Badge';
 import { Chip } from '../../components/primitives/Chip';
 import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
-import { getFileThumbnailUri, getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { FileGridTile, FileListRow } from '../../components/primitives/FileTile';
 import { GridTile } from '../../components/primitives/GridTile';
 import { ListRow } from '../../components/primitives/ListRow';
 import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
@@ -666,13 +667,13 @@ export default function FavoritesScreen() {
             const meta = getFileTypeMeta(item.mimeType ?? '', item.name);
             const FileIcon = meta.Icon;
             return (
-              <GridTile
+              <FileGridTile
                 key={item.id}
+                file={item}
                 size={gridItemWidth}
                 name={item.name}
                 Icon={FileIcon}
                 iconColor={meta.color}
-                thumbnailUri={getFileThumbnailUri(item)}
                 selectable={selectionMode}
                 selected={isSelected}
                 onPress={() => { if (selectionMode) toggleSelection(item.id); else handleFileNavigate(item); }}
@@ -700,11 +701,11 @@ export default function FavoritesScreen() {
           const meta = getFileTypeMeta(item.mimeType ?? '', item.name);
           const FileIcon = meta.Icon;
           return (
-            <ListRow
+            <FileListRow
               key={item.id}
+              file={item}
               title={item.name}
               subtitle={`${(item.size / 1024).toFixed(1)} KB · ${meta.label}`}
-              thumbnailUri={getFileThumbnailUri(item)}
               leading={<FileIcon size={iconSize(22)} color={meta.color} strokeWidth={2} />}
               trailingBadges={
                 <>

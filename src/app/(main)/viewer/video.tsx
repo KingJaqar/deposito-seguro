@@ -117,6 +117,14 @@ export default function VideoViewerScreen() {
         let path = fileMeta.localPath;
         if (fileMeta.isEncrypted && fileMeta.encryptionKeyId) {
           const encryptionKey = encryptionKeys.find(k => k.id === fileMeta.encryptionKeyId)?.key;
+          // S-11: decryptSandboxFile now requires a real key (no more silent
+          // reversal fallback) — an unresolved key (deleted, or transiently
+          // blanked by settingsStore.lockTransientMemory()) must fail loudly
+          // here so the catch block below shows an error state instead of
+          // rendering corrupted video as if it decrypted successfully.
+          if (!encryptionKey) {
+            throw new Error(`Encryption key unavailable for file ${fileMeta.id}`);
+          }
           path = await StorageService.decryptSandboxFile(fileMeta.localPath, encryptionKey);
           decryptedPathRef.current = path;
         }
@@ -196,16 +204,33 @@ export default function VideoViewerScreen() {
   // Merge native time with the optimistic value. Use the native value once
   // it catches up within 0.5 s of the seek target. Guard against NaN
   // propagation: if the pending value itself was somehow set to NaN, fall back.
-  const currentTime = (pendingSeekTime !== null && Number.isFinite(pendingSeekTime))
+  //
+  // I-23: this used to be a plain "prefer pendingSeekTime whenever it's set"
+  // derivation, paired with a `useEffect` that called `setPendingSeekTime(null)`
+  // once rawCurrentTime caught up — ESLint's react-hooks/set-state-in-effect
+  // flags that setState-in-effect. A prior version of this fix left
+  // pendingSeekTime un-cleared once caught up, reasoning that playback "only
+  // moves forward" so it couldn't drift back within 0.5s of a passed target —
+  // but that reasoning only covered drifting *back toward* the target, not
+  // continuing to play *past* it: rawCurrentTime keeps advancing every frame
+  // while the un-cleared pendingSeekTime stays fixed, so the gap grows past
+  // 0.5s again within half a second of catching up, flipping the condition
+  // below back to "true" and freezing currentTime (and therefore the
+  // scrubber/clock) at the stale seek target for the rest of playback.
+  //
+  // Fix: still clear pendingSeekTime once caught up, but do it synchronously
+  // in the render body (a state write here, not inside a useEffect, doesn't
+  // trip react-hooks/set-state-in-effect — React re-renders immediately
+  // before paint, same "adjust state during render" pattern used elsewhere
+  // in this file/search.tsx for the same lint rule) instead of via a
+  // useEffect. Setting state to `null` when it's already `null` is a no-op
+  // for React (Object.is bail-out), so this can't loop.
+  const currentTime = (pendingSeekTime !== null && Number.isFinite(pendingSeekTime) && Math.abs(rawCurrentTime - pendingSeekTime) >= 0.5)
     ? pendingSeekTime
     : rawCurrentTime;
-
-  // Clear the optimistic value once timeUpdate catches up.
-  useEffect(() => {
-    if (pendingSeekTime !== null && Math.abs(rawCurrentTime - pendingSeekTime) < 0.5) {
-      setPendingSeekTime(null);
-    }
-  }, [rawCurrentTime, pendingSeekTime]);
+  if (pendingSeekTime !== null && Number.isFinite(pendingSeekTime) && Math.abs(rawCurrentTime - pendingSeekTime) < 0.5) {
+    setPendingSeekTime(null);
+  }
   const scrubberLeft = useRef(0);
   // `PanResponder.create()` below runs once (captured via `useRef(...).current`),
   // so its callbacks can only see render-scope values (`duration`, `canSeek`)

@@ -8,6 +8,7 @@ import { ClipboardItem, EncryptionKeyMetadata, FileMetadata, FolderMetadata, Pas
 import { useSettingsStore } from './settingsStore';
 import { Alert, Platform } from 'react-native';
 import { MAX_NAME_LENGTH, clampNameLength } from '../constants/naming';
+import { formatBytes } from '../constants/storageLimits';
 
 /**
  * Thrown by importFile/copyFileToFolder when completing the operation would
@@ -48,7 +49,7 @@ interface VaultStoreActions extends VaultState {
   toggleFavorite: (fileId: string) => Promise<void>;
   toggleFolderFavorite: (folderId: string, markFavorite?: boolean) => Promise<void>;
   softDeleteFile: (fileId: string) => Promise<void>;
-  restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean; folderId?: string }>;
+  restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }>;
   permanentlyDeleteFile: (fileId: string) => Promise<void>;
   permanentlyDeleteFiles: (fileIds: string[]) => Promise<void>;
   clearEverythingState: () => void;
@@ -59,12 +60,12 @@ interface VaultStoreActions extends VaultState {
   exportFileToDevice: (fileId: string) => Promise<string | null>;
   exportFolderFiles: (folderId: string) => Promise<string[]>;
   // Clipboard actions
-  copyToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => void;
-  cutToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => void;
+  copyToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => Promise<void>;
+  cutToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => Promise<void>;
   pasteFromClipboard: (targetFolderId: string, onProgress?: (current: number, total: number) => void) => Promise<PasteResult>;
-  clearClipboard: () => void;
+  clearClipboard: () => Promise<void>;
   getFolderDescendants: (folderId: string) => FolderMetadata[];
-  copyFileToFolder: (sourceFile: FileMetadata, targetFolderId: string, uniqueName?: (base: string) => string) => Promise<FileMetadata>;
+  copyFileToFolder: (sourceFile: FileMetadata, targetFolderId: string, uniqueName?: (base: string) => string, options?: { skipLimitCheck?: boolean }) => Promise<FileMetadata>;
   undoLastCut: () => Promise<void>;
   clearUndoInfo: () => void;
   persistClipboard: () => Promise<void>;
@@ -152,6 +153,33 @@ const getEncryptionKey = (keyId?: string) => {
   return useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === keyId);
 };
 
+// AES-256-CBC+HMAC output (src/security/crypto.ts) is base64 (~4/3 the raw
+// bytes) plus a small fixed IV/MAC overhead — pad the pre-encryption
+// estimate so the limit isn't quietly exceeded by ciphertext growth.
+const projectedFileBytes = (size: number, encrypt: boolean) => encrypt ? Math.ceil(size * 1.4) : size;
+
+/**
+ * Storage-limit accounting fix (found auditing item 2/I-22's own follow-up,
+ * plans/what-are-the-next-jaunty-deer.md): `FileMetadata.size` is always the
+ * original *pre-encryption* byte count — set once in importFile from the
+ * picker's `asset.size`, never touched again by encryption or re-keying (see
+ * encryptFileWithKey above). `projectedFileBytes` above pads for ciphertext
+ * growth, but only when checking the *incoming* file — once that file is
+ * committed, summing raw `f.size` for it going forward silently drops the
+ * ~40% overhead back out of the running total. Every encrypted file that
+ * lands permanently erodes the safety margin the padding exists to
+ * provide, so a vault of encrypted files can end up meaningfully over its
+ * configured limit in real disk bytes despite every individual check
+ * passing. Fix: apply the same projection to already-committed files when
+ * summing "used", not just to the one being checked — "used" and "about to
+ * use" must be computed on the same basis or the padding is pointless.
+ * Shared by assertWithinStorageLimit, assertBatchWithinStorageLimit, and
+ * getVaultUsageBytes (the number shown against the limit in
+ * settings/storage.tsx) — those three must never diverge, or the progress
+ * bar shows headroom an import then gets rejected for lacking.
+ */
+const committedFileBytes = (f: FileMetadata) => projectedFileBytes(f.size || 0, !!f.isEncrypted);
+
 /**
  * Storage-limit enforcement, shared by importFile (bringing external content
  * in) and copyFileToFolder (paste-copy / duplicate — the other way vault
@@ -162,11 +190,33 @@ const getEncryptionKey = (keyId?: string) => {
 const assertWithinStorageLimit = (currentFiles: FileMetadata[], incomingBytes: number, encrypt: boolean) => {
   const limit = useSettingsStore.getState().storageLimitBytes;
   if (limit === null) return; // Unlimited.
-  const usedBytes = currentFiles.reduce((sum, f) => sum + (f.size || 0), 0);
-  // AES-256-CBC+HMAC output (src/security/crypto.ts) is base64 (~4/3 the raw
-  // bytes) plus a small fixed IV/MAC overhead — pad the pre-encryption
-  // estimate so the limit isn't quietly exceeded by ciphertext growth.
-  const projectedBytes = encrypt ? Math.ceil(incomingBytes * 1.4) : incomingBytes;
+  const usedBytes = currentFiles.reduce((sum, f) => sum + committedFileBytes(f), 0);
+  const projectedBytes = projectedFileBytes(incomingBytes, encrypt);
+  if (usedBytes + projectedBytes > limit) {
+    throw new StorageLimitExceededError(limit, usedBytes, projectedBytes);
+  }
+};
+
+/**
+ * I-22 follow-up (plans/what-are-the-next-jaunty-deer.md item 2's own
+ * post-implementation gap): duplicateFolder and pasteFromClipboard's
+ * copy-mode both copy *multiple* files through copyFileToFolder but only
+ * commitVaultState once, at the end of the whole batch. If each file's
+ * limit check independently compares against `get().files`, none of them
+ * sees the bytes the others in the same batch are about to add — a folder
+ * of 10×200MB files against a 1GB limit passes every individual check
+ * (each sees 0 committed usage) and lands at 2GB actual usage. Callers that
+ * copy more than one file in one logical operation must sum the whole
+ * batch's projected bytes and check it here, once, up front — then pass
+ * `skipLimitCheck: true` to every copyFileToFolder call in that batch so
+ * per-call checks (correct for the single-item case) don't redundantly
+ * re-run against the stale pre-batch total.
+ */
+const assertBatchWithinStorageLimit = (currentFiles: FileMetadata[], incoming: { size: number; encrypted: boolean }[]) => {
+  const limit = useSettingsStore.getState().storageLimitBytes;
+  if (limit === null) return; // Unlimited.
+  const usedBytes = currentFiles.reduce((sum, f) => sum + committedFileBytes(f), 0);
+  const projectedBytes = incoming.reduce((sum, f) => sum + projectedFileBytes(f.size, f.encrypted), 0);
   if (usedBytes + projectedBytes > limit) {
     throw new StorageLimitExceededError(limit, usedBytes, projectedBytes);
   }
@@ -179,7 +229,15 @@ const encryptFileWithKey = async (file: FileMetadata, keyId: string) => {
   let workingPath = file.localPath;
   if (file.isEncrypted && file.encryptionKeyId !== keyId) {
     const oldKey = getEncryptionKey(file.encryptionKeyId);
-    workingPath = await StorageService.decryptSandboxFile(file.localPath, oldKey?.key);
+    // S-11: decryptSandboxFile now requires a real key rather than silently
+    // falling back to a reversible transform — surface *why* re-keying
+    // failed (deleted key, or keys transiently blanked by
+    // settingsStore.lockTransientMemory()) instead of letting a generic
+    // "encryptionKey is required" bubble up from inside StorageService.
+    if (!oldKey?.key) {
+      throw new Error(`Cannot re-key file ${file.id}: its current encryption key (${file.encryptionKeyId}) is unavailable`);
+    }
+    workingPath = await StorageService.decryptSandboxFile(file.localPath, oldKey.key);
   }
 
   const finalPath = file.isEncrypted && file.encryptionKeyId === keyId
@@ -268,7 +326,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   _isVaultHydrated: false,
   _vaultHydrationError: null as string | null,
   isVaultHydrated: () => get()._isVaultHydrated,
-  getVaultUsageBytes: () => get().files.reduce((sum, f) => sum + (f.size || 0), 0),
+  getVaultUsageBytes: () => get().files.reduce((sum, f) => sum + committedFileBytes(f), 0),
   hydrateVault: async () => {
     const state = get();
     if (state._isVaultHydrated) return;
@@ -334,9 +392,60 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     await commitVaultState(set, (state) => ({ folders: [...state.folders, newFolder] }));
   },
   deleteFolder: async (folderId) => {
+    // I-12: this is the only place folder metadata is ever discarded
+    // (FolderMetadata has no isTrash/deletedAt of its own — folders are
+    // removed outright, never trashed), so it's also the only place a file
+    // can lose the protection it was inheriting purely from its parent
+    // folder's access-key lock. assignFolderEncryptionKey/
+    // removeFolderEncryptionKey already cascade real encryption onto every
+    // child file's own isEncrypted/encryptionKeyId (I-9), so a file is never
+    // relying on folder-only encryption — but assignFolderAccessKey/
+    // removeFolderAccessKey (above) only ever touch the folder's own
+    // fields. A file with no access key of its own is protected purely by
+    // "must unlock this folder to browse into it", which deleting the
+    // folder erases. Snapshot that gate onto the file's own hasAccessKey/
+    // accessKeyId in the same update that trashes it, so it survives even
+    // though the folder itself is gone by the time restoreFileFromTrash
+    // runs — covers both orderings (file trashed earlier, folder deleted
+    // now; or this cascade trashing the file for the first time).
     await commitVaultState(set, (state) => {
+      const folder = state.folders.find(f => f.id === folderId);
       const folders = state.folders.filter(f => f.id !== folderId);
-      const files = state.files.map(f => f.folderId === folderId ? { ...f, isTrash: true, deletedAt: Date.now() } : f);
+
+      // I-12 follow-up (found in re-verification, same disposition as the
+      // I-22 batch-check gap above: a completion gap in an already-"done"
+      // item, fixed in place rather than filed separately): the original
+      // fix only checked the deleted folder's *own* hasAccessKey, not its
+      // ancestor chain. assignFolderAccessKey never cascades onto child
+      // folders, so a file with no key of its own, sitting in an unlocked
+      // folder nested under a *locked* grandparent, was still only reachable
+      // by unlocking that grandparent — deleting the unlocked immediate
+      // parent (a completely ordinary action, independent of ever touching
+      // the locked ancestor) erases that gate just as surely as deleting the
+      // locked folder itself would, and the single-level check missed it.
+      // Walk the chain and inherit the nearest lock found, if any.
+      let inheritedAccessKeyId: string | undefined;
+      let cursor = folder;
+      const visited = new Set<string>();
+      while (cursor && !visited.has(cursor.id)) {
+        visited.add(cursor.id);
+        if (cursor.hasAccessKey && cursor.accessKeyId) {
+          inheritedAccessKeyId = cursor.accessKeyId;
+          break;
+        }
+        cursor = cursor.parentId ? state.folders.find(f => f.id === cursor!.parentId) : undefined;
+      }
+
+      const files = state.files.map(f => {
+        if (f.folderId !== folderId) return f;
+        const inheritsAccessKey = !f.hasAccessKey && !f.accessKeyId && !!inheritedAccessKeyId;
+        return {
+          ...f,
+          isTrash: true,
+          deletedAt: Date.now(),
+          ...(inheritsAccessKey ? { hasAccessKey: true, accessKeyId: inheritedAccessKeyId } : {}),
+        };
+      });
       return { folders, files };
     });
   },
@@ -375,12 +484,33 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // was set unconditionally, so a resolution failure (missing key) left
     // a plaintext file wearing a false "encrypted" badge.
     let didEncrypt = false;
+    let iconEncrypted = false;
 
     if (encrypt && encryptionKeyId) {
       const encryptionKey = useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === encryptionKeyId)?.key;
       if (encryptionKey) {
         finalPath = await StorageService.encryptSandboxFile(remuxedPath, encryptionKey);
         didEncrypt = true;
+
+        // S-12: encrypt the extracted icon under the same key, so an
+        // encrypted .apk doesn't leak its real launcher icon in plaintext.
+        // encryptSandboxFile now throws without a key (S-11) rather than
+        // silently falling back — only reachable here when `encryptionKey`
+        // is confirmed present, matching didEncrypt's own success gate.
+        // Best-effort: an icon-encrypt failure never fails the import
+        // itself (mirrors extractApkIcon's own never-throws contract) —
+        // worst case the icon just falls back to the generic app glyph
+        // rather than blocking an otherwise-successful encrypted import.
+        if (iconPath) {
+          try {
+            iconPath = await StorageService.encryptSandboxFile(iconPath, encryptionKey);
+            iconEncrypted = true;
+          } catch (err) {
+            console.error('Failed to encrypt app icon cache, falling back to generic icon:', err);
+            await StorageService.removeSandboxFile(iconPath);
+            iconPath = undefined;
+          }
+        }
       }
     }
 
@@ -394,6 +524,7 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       mimeType,
       localPath: finalPath,
       iconPath,
+      iconEncrypted,
       isEncrypted: didEncrypt,
       encryptionKeyId: didEncrypt ? encryptionKeyId : undefined,
       isFavorite: false,
@@ -469,7 +600,18 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       return { folders, files };
     });
 
-    return { landedInFallbackFolder: !!targetFile && !originalFolderExists, folderId: resolvedFolderId };
+    // I-12: hasAccessKey/accessKeyId are never cleared anywhere in this
+    // function, so a lock snapshotted onto the file by deleteFolder's
+    // cascade (or one the file always had of its own) rides through the
+    // restore untouched — report it so the UI can say the file is still
+    // protected instead of defaulting to "unprotected" just because it
+    // landed in the unprotected fallback folder.
+    const restoredFile = get().files.find(f => f.id === fileId);
+    return {
+      landedInFallbackFolder: !!targetFile && !originalFolderExists,
+      folderId: resolvedFolderId,
+      filePreservedAccessKey: !!(restoredFile?.hasAccessKey && restoredFile?.accessKeyId),
+    };
   },
   permanentlyDeleteFile: async (fileId) => {
     const targetFile = get().files.find(f => f.id === fileId);
@@ -686,7 +828,16 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const currentFile = get().files.find(f => f.id === fileId);
     let nextLocalPath = currentFile?.localPath;
     if (currentFile) {
-      nextLocalPath = await encryptFileWithKey(currentFile, keyId);
+      // S-11: encryptFileWithKey can now throw (missing/unavailable key on
+      // re-key) instead of silently corrupting via the old reversal
+      // fallback — mirror assignFolderEncryptionKey's per-file try/catch so
+      // that failure surfaces as a logged error, not an unhandled rejection.
+      try {
+        nextLocalPath = await encryptFileWithKey(currentFile, keyId);
+      } catch (err) {
+        console.error(`Failed to assign encryption key to file ${fileId}:`, err);
+        return;
+      }
     }
 
     await commitVaultState(set, (state) => ({
@@ -737,7 +888,20 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     if (currentFile?.isEncrypted && currentFile.encryptionKeyId) {
       const encryptionKey = getEncryptionKey(currentFile.encryptionKeyId);
       if (encryptionKey?.key && currentFile.localPath) {
-        decryptedPath = await StorageService.decryptSandboxFile(currentFile.localPath, encryptionKey.key);
+        // S-11 follow-up: decryptSandboxFile can throw for reasons besides a
+        // missing key (e.g. an HMAC/integrity failure on a corrupted .enc
+        // file) — mirror removeFolderEncryptionKey's per-file try/catch
+        // above so that surfaces as a logged, aborted removal instead of an
+        // unhandled rejection. No live UI caller today (this store action
+        // has none), but it's exported on the public store interface, same
+        // gap this diff's own S-11 pass closed at every other decrypt call
+        // site.
+        try {
+          decryptedPath = await StorageService.decryptSandboxFile(currentFile.localPath, encryptionKey.key);
+        } catch (err) {
+          console.error(`Failed to decrypt file ${fileId} during file encryption removal:`, err);
+          return;
+        }
       }
     }
 
@@ -807,6 +971,13 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     return descendants;
   },
 
+  // I-11 residual: this used to swallow every failure internally, so
+  // `await persistClipboard()` always resolved even when the write failed —
+  // in-memory `clipboard` state could silently desync from what's on disk.
+  // Rethrows now, mirroring persistFolders/persistFiles above; its three
+  // callers below own the catch (see their own comments for why the catch
+  // lives there and not further up at the ~10+ UI call sites that invoke
+  // them fire-and-forget).
   persistClipboard: async () => {
     const clipboard = get().clipboard;
     try {
@@ -817,10 +988,11 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to persist clipboard', e);
+      throw e;
     }
   },
 
-  copyToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
+  copyToClipboard: async (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
     const allFolderIds = new Set<string>(folderIds);
     const allFileIds = new Set<string>(fileIds);
     const folders = get().folders;
@@ -843,10 +1015,24 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     };
 
     set({ clipboard });
-    get().persistClipboard();
+    // I-11 residual: persistClipboard now throws instead of swallowing —
+    // caught right here rather than propagated to this function's ~10+
+    // fire-and-forget UI call sites (search/favorites/dashboard/folder
+    // .tsx's context-menu and toolbar copy/cut actions call this
+    // synchronously, no await, no .catch of their own). In-memory
+    // `clipboard` state above is already set and paste already works for
+    // the rest of this session regardless — the only thing a failed write
+    // here costs is the clipboard not surviving an app kill, which doesn't
+    // justify plumbing a rethrow through every caller. Logged clearly so
+    // it's not silent, just not user-facing for this low-stakes a failure.
+    try {
+      await get().persistClipboard();
+    } catch (e) {
+      console.error('Failed to persist clipboard after copy (clipboard will not survive an app restart):', e);
+    }
   },
 
-  cutToClipboard: (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
+  cutToClipboard: async (folderIds: string[], fileIds: string[], sourceFolderId: string | null) => {
     const allFolderIds = new Set<string>(folderIds);
     const allFileIds = new Set<string>(fileIds);
 
@@ -867,12 +1053,22 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     };
 
     set({ clipboard });
-    get().persistClipboard();
+    // Same rationale as copyToClipboard's identical catch just above.
+    try {
+      await get().persistClipboard();
+    } catch (e) {
+      console.error('Failed to persist clipboard after cut (clipboard will not survive an app restart):', e);
+    }
   },
 
-  clearClipboard: () => {
+  clearClipboard: async () => {
     set({ clipboard: null, undoInfo: null });
-    get().persistClipboard();
+    // Same rationale as copyToClipboard's identical catch above.
+    try {
+      await get().persistClipboard();
+    } catch (e) {
+      console.error('Failed to persist clipboard-clear (a stale clipboard entry may reappear after an app restart):', e);
+    }
   },
 
   undoLastCut: async () => {
@@ -914,6 +1110,11 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
     let pastedFiles = 0;
     let pastedFolders = 0;
+    // I-22 follow-up: hoisted out of the copy-mode branch below so the
+    // outer catch can clean up any physical copies already made before a
+    // later file in the same batch failed (see the cleanup comment in the
+    // catch block). Stays empty, and the cleanup a no-op, for cut mode.
+    const newFiles: FileMetadata[] = [];
 
     try {
       const targetFolder = get().folders.find(f => f.id === targetFolderId);
@@ -956,7 +1157,19 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       if (clipboard.mode === 'copy') {
         const folderIdToNewId = new Map<string, string>();
         const newFolders: FolderMetadata[] = [];
-        const newFiles: FileMetadata[] = [];
+
+        // I-22 follow-up: recurses the same clipboard.folderIds/fileIds
+        // filters createFolderCopy below applies, purely to enumerate (not
+        // copy) every file this paste will touch, so the whole batch can be
+        // validated in one assertBatchWithinStorageLimit call before any
+        // byte is copied. See that function's doc comment for why a
+        // per-file check here would miss the batch's own running total.
+        const collectPasteFiles = (sourceFolder: FolderMetadata): FileMetadata[] => {
+          const subfolders = srcFolders.filter(f => f.parentId === sourceFolder.id && clipboard.folderIds.includes(f.id));
+          const nested = subfolders.flatMap(collectPasteFiles);
+          const folderFiles = srcFiles.filter(f => f.folderId === sourceFolder.id && !f.isTrash && clipboard.fileIds.includes(f.id));
+          return [...nested, ...folderFiles];
+        };
 
         const createFolderCopy = async (sourceFolder: FolderMetadata, parentId: string | undefined): Promise<string> => {
           const newId = SecureCrypto.generateUUID();
@@ -979,7 +1192,8 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
           const folderFiles = srcFiles.filter(f => f.folderId === sourceFolder.id && !f.isTrash && clipboard.fileIds.includes(f.id));
           for (const file of folderFiles) {
-            const copiedFile = await get().copyFileToFolder(file, newId, uniqueName);
+            // skipLimitCheck: whole batch validated up front below.
+            const copiedFile = await get().copyFileToFolder(file, newId, uniqueName, { skipLimitCheck: true });
             newFiles.push(copiedFile);
           }
 
@@ -988,22 +1202,27 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
         const topLevelFiles = srcFiles.filter(f => clipboard.fileIds.includes(f.id) && f.folderId === targetFolderId && !f.isTrash);
         const orphanFiles = srcFiles.filter(f => clipboard.fileIds.includes(f.id) && !clipboard.folderIds.includes(f.folderId) && f.folderId !== targetFolderId);
+        const topLevelFolders = srcFolders.filter(f => clipboard.folderIds.includes(f.id) && !clipboard.folderIds.includes(f.parentId || ''));
+
+        // I-22 follow-up: single batch check covering every file this paste
+        // will copy — top-level files, orphaned files, and every file
+        // nested under the folders being pasted — before any copy starts.
+        const filesToCopy = [...topLevelFiles, ...orphanFiles, ...topLevelFolders.flatMap(collectPasteFiles)];
+        assertBatchWithinStorageLimit(get().files, filesToCopy.map(f => ({ size: f.size, encrypted: !!f.isEncrypted })));
 
         for (const file of topLevelFiles) {
-          const copied = await get().copyFileToFolder(file, targetFolderId, uniqueName);
+          const copied = await get().copyFileToFolder(file, targetFolderId, uniqueName, { skipLimitCheck: true });
           newFiles.push(copied);
           pastedFiles++;
           onProgress?.(pastedFiles + pastedFolders, clipboard.fileIds.length + clipboard.folderIds.length);
         }
 
         for (const file of orphanFiles) {
-          const copied = await get().copyFileToFolder(file, targetFolderId, uniqueName);
+          const copied = await get().copyFileToFolder(file, targetFolderId, uniqueName, { skipLimitCheck: true });
           newFiles.push(copied);
           pastedFiles++;
           onProgress?.(pastedFiles + pastedFolders, clipboard.fileIds.length + clipboard.folderIds.length);
         }
-
-        const topLevelFolders = srcFolders.filter(f => clipboard.folderIds.includes(f.id) && !clipboard.folderIds.includes(f.parentId || ''));
 
         for (const folder of topLevelFolders) {
           await createFolderCopy(folder, targetFolderId);
@@ -1044,8 +1263,27 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         get().clearClipboard();
       }
     } catch (e) {
-      console.error('Paste failed', e);
-      Alert.alert('Paste Failed', 'An error occurred during paste. Please try again.');
+      // I-22 follow-up: copy-mode's commitVaultState never ran (it's the
+      // last line of that branch), so any file already physically copied
+      // to disk earlier in this batch before a later one failed is
+      // orphaned — real bytes on disk, no metadata entry. newFiles is
+      // hoisted to the outer scope above specifically so this can reach
+      // it; it's empty (a no-op) when the failure happened during cut mode.
+      await Promise.all(newFiles.map(f => removeFilePayload(f).catch(() => {})));
+
+      // I-22: copyFileToFolder (paste-copy's underlying call, above) can now
+      // throw StorageLimitExceededError — give it the same specific message
+      // duplicateFile/duplicateFolder and the import flow (folder/[id].tsx)
+      // show, instead of folding it into the generic paste-failure alert.
+      if (e instanceof StorageLimitExceededError) {
+        Alert.alert(
+          'Storage Limit Reached',
+          `This vault is capped at ${formatBytes(e.limitBytes)}. It's currently using ${formatBytes(e.usedBytes)}, and pasting this needs ${formatBytes(e.incomingBytes)} more. Raise the limit in Settings → Storage, or free up space first.`
+        );
+      } else {
+        console.error('Paste failed', e);
+        Alert.alert('Paste Failed', 'An error occurred during paste. Please try again.');
+      }
     } finally {
       set({ pasteInProgress: false });
     }
@@ -1053,7 +1291,22 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     return { pastedFiles, pastedFolders };
   },
 
-  copyFileToFolder: async (sourceFile: FileMetadata, targetFolderId: string, uniqueName?: (base: string) => string): Promise<FileMetadata> => {
+  copyFileToFolder: async (sourceFile: FileMetadata, targetFolderId: string, uniqueName?: (base: string) => string, options?: { skipLimitCheck?: boolean }): Promise<FileMetadata> => {
+    // I-22: this is the single choke point for paste-copy and duplicateFile
+    // (the "other way vault usage grows" per this file's own doc comment on
+    // assertWithinStorageLimit above) — previously only importFile enforced
+    // the limit, so copy/paste/duplicate could exceed it indefinitely.
+    // Checked before any byte copy, same as importFile.
+    //
+    // skipLimitCheck: multi-file batch callers (duplicateFolder,
+    // pasteFromClipboard's copy mode) already ran assertBatchWithinStorageLimit
+    // once for the whole batch before starting — re-running this per-call
+    // check here would compare against the stale pre-batch `get().files`
+    // total and miss what the batch's own earlier copies are about to add.
+    if (!options?.skipLimitCheck) {
+      assertWithinStorageLimit(get().files, sourceFile.size, !!sourceFile.isEncrypted);
+    }
+
     const newId = SecureCrypto.generateUUID();
     const ext = sourceFile.localPath?.includes('.') ? sourceFile.localPath.slice(sourceFile.localPath.lastIndexOf('.')) : '';
     const baseName = sourceFile.name.replace(ext, '');
@@ -1077,7 +1330,16 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // file missing.
     let newIconPath: string | undefined;
     if (sourceFile.iconPath) {
-      newIconPath = `${sourceFile.iconPath}_copy_${newId}`;
+      // S-12: when the icon is encrypted, iconPath ends in `.enc` — the
+      // suffix must land at the *end* of the copy's path too (not have
+      // `_copy_<id>` appended after it), or decryptSandboxFile's suffix-
+      // anchored `.enc` check (storage.ts) won't recognize this copy as
+      // encrypted and will decrypt it back onto itself, corrupting it.
+      // Mirrors newLocalPath's own ext-preserving naming just above.
+      const iconExt = sourceFile.iconPath.includes('.') ? sourceFile.iconPath.slice(sourceFile.iconPath.lastIndexOf('.')) : '';
+      newIconPath = iconExt
+        ? `${sourceFile.iconPath.slice(0, -iconExt.length)}_copy_${newId}${iconExt}`
+        : `${sourceFile.iconPath}_copy_${newId}`;
       try {
         await StorageService.copySandboxFile(sourceFile.iconPath, newIconPath);
       } catch (e) {
@@ -1093,6 +1355,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       folderId: targetFolderId,
       localPath: newLocalPath ?? sourceFile.localPath ?? '',
       iconPath: newIconPath,
+      // Keep this consistent with iconPath: if the icon copy failed above,
+      // don't leave a stale iconEncrypted:true dangling on an undefined path.
+      iconEncrypted: newIconPath ? sourceFile.iconEncrypted : false,
       isTrash: false,
       deletedAt: undefined,
       importedAt: Date.now(),
@@ -1122,8 +1387,27 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       return name;
     };
 
-    const copied = await get().copyFileToFolder(file, file.folderId, uniqueName);
-    await commitVaultState(set, (state) => ({ files: [...state.files, copied] }));
+    // I-22: copyFileToFolder can now throw StorageLimitExceededError (and
+    // duplicateFile is called fire-and-forget from every UI call site, with
+    // no try/catch of its own — dashboard.tsx/favorites.tsx/folder/[id].tsx/
+    // search.tsx all do `duplicateFile(file.id)` without awaiting) — an
+    // uncaught rejection here would be a straight regression (same lesson
+    // as item 6/I-11: a newly-thrown error needs a catch at every call site
+    // it can now reach, not just at the throw site).
+    try {
+      const copied = await get().copyFileToFolder(file, file.folderId, uniqueName);
+      await commitVaultState(set, (state) => ({ files: [...state.files, copied] }));
+    } catch (e) {
+      if (e instanceof StorageLimitExceededError) {
+        Alert.alert(
+          'Storage Limit Reached',
+          `This vault is capped at ${formatBytes(e.limitBytes)}. It's currently using ${formatBytes(e.usedBytes)}, and duplicating this file needs ${formatBytes(e.incomingBytes)} more. Raise the limit in Settings → Storage, or free up space first.`
+        );
+        return;
+      }
+      console.error('Failed to duplicate file:', e);
+      Alert.alert('Duplicate Failed', 'Could not duplicate this file. Please try again.');
+    }
   },
 
   duplicateFolder: async (folderId: string) => {
@@ -1173,6 +1457,9 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
       const folderFiles = srcFiles.filter(f => f.folderId === sourceFolder.id && !f.isTrash);
       for (const file of folderFiles) {
+        // skipLimitCheck: the whole subtree's bytes are validated as one
+        // batch below, before this recursion starts — see assertBatchWithinStorageLimit's
+        // own doc comment for why a per-file check here would be wrong.
         const copiedFile = await get().copyFileToFolder(file, newId, (base) => {
           const ext = base.includes('.') ? base.slice(base.lastIndexOf('.')) : '';
           const nameWithoutExt = base.replace(ext, '');
@@ -1186,18 +1473,58 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
             counter++;
           }
           return name;
-        });
+        }, { skipLimitCheck: true });
         newFiles.push(copiedFile);
       }
 
       return newId;
     };
 
-    await createFolderCopy(folder, parentId);
+    // I-22 follow-up: validate the *entire* subtree's projected bytes in one
+    // batch check before copying a single byte, rather than letting each
+    // file check itself against the pre-batch committed total (see
+    // assertBatchWithinStorageLimit's doc comment above for why the
+    // per-file version misses a multi-file batch's own running total).
+    const filesToCopy: FileMetadata[] = [];
+    const collectFilesToCopy = (sourceFolder: FolderMetadata) => {
+      srcFolders.filter(f => f.parentId === sourceFolder.id).forEach(collectFilesToCopy);
+      filesToCopy.push(...srcFiles.filter(f => f.folderId === sourceFolder.id && !f.isTrash));
+    };
+    collectFilesToCopy(folder);
 
-    await commitVaultState(set, (state) => ({
-      folders: [...state.folders, ...newFolders],
-      files: [...state.files, ...newFiles],
-    }));
+    // Same rationale as duplicateFile just above: createFolderCopy calls
+    // copyFileToFolder per file, which can now throw StorageLimitExceededError,
+    // and duplicateFolder is likewise called fire-and-forget from every UI
+    // call site (dashboard.tsx/favorites.tsx/folder/[id].tsx/search.tsx).
+    try {
+      assertBatchWithinStorageLimit(get().files, filesToCopy.map(f => ({ size: f.size, encrypted: !!f.isEncrypted })));
+
+      await createFolderCopy(folder, parentId);
+
+      await commitVaultState(set, (state) => ({
+        folders: [...state.folders, ...newFolders],
+        files: [...state.files, ...newFiles],
+      }));
+    } catch (e) {
+      // I-22 follow-up: createFolderCopy only ever pushes copied entries
+      // into newFiles/newFolders — commitVaultState above is what actually
+      // lands them in the store, and it never runs on this path. Without
+      // this cleanup, any file already physically copied to disk before a
+      // later file in the same batch tripped the limit (or copySandboxFile
+      // itself threw) would be orphaned: real bytes on disk, no metadata
+      // entry pointing at them, no future sweep to catch them (item 9's
+      // boot sweep only targets decrypt-to-temp files, not this).
+      await Promise.all(newFiles.map(f => removeFilePayload(f).catch(() => {})));
+
+      if (e instanceof StorageLimitExceededError) {
+        Alert.alert(
+          'Storage Limit Reached',
+          `This vault is capped at ${formatBytes(e.limitBytes)}. It's currently using ${formatBytes(e.usedBytes)}, and duplicating this folder needs ${formatBytes(e.incomingBytes)} more. Raise the limit in Settings → Storage, or free up space first.`
+        );
+        return;
+      }
+      console.error('Failed to duplicate folder:', e);
+      Alert.alert('Duplicate Failed', 'Could not duplicate this folder. Please try again.');
+    }
   },
 }));

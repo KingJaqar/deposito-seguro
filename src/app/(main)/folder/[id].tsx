@@ -67,7 +67,8 @@ import { Badge } from '../../../components/primitives/Badge';
 import { Card } from '../../../components/primitives/Card';
 import { Dialog } from '../../../components/primitives/Dialog';
 import { EmptyState } from '../../../components/primitives/EmptyState';
-import { getFileThumbnailUri, getFileTypeMeta } from '../../../components/primitives/FileTypeIcon';
+import { getFileTypeMeta } from '../../../components/primitives/FileTypeIcon';
+import { FileGridTile, FileListRow } from '../../../components/primitives/FileTile';
 import { GridTile } from '../../../components/primitives/GridTile';
 import { ListRow } from '../../../components/primitives/ListRow';
 import { SectionHeaderToggle, CollapsibleSection } from '../../../components/primitives/SectionHeaderToggle';
@@ -235,12 +236,7 @@ export default function FolderDetailsScreen() {
 
   const handleCreateNestedFolder = () => {
     if (!id) return;
-    if (Platform.OS === 'web') {
-      const name = window.prompt('New folder name:');
-      if (name !== null) handleCreateFolder(name);
-    } else {
-      setShowCreateFolderModal(true);
-    }
+    setShowCreateFolderModal(true);
   };
 
   const confirmCreateFolder = () => {
@@ -905,13 +901,13 @@ export default function FolderDetailsScreen() {
                 const meta = getFileTypeMeta(file.mimeType ?? '', file.name);
                 const FileIcon = meta.Icon;
                 return (
-                  <GridTile
+                  <FileGridTile
                     key={file.id}
+                    file={file}
                     size={gridItemWidthValue}
                     name={file.name}
                     Icon={FileIcon}
                     iconColor={meta.color}
-                    thumbnailUri={getFileThumbnailUri(file)}
                     selectable={selectionMode}
                     selected={isSelected}
                     dimmed={isCutPending}
@@ -936,11 +932,11 @@ export default function FolderDetailsScreen() {
               const meta = getFileTypeMeta(file.mimeType ?? '', file.name);
               const FileIcon = meta.Icon;
               return (
-                <ListRow
+                <FileListRow
                   key={file.id}
+                  file={file}
                   title={file.name}
                   subtitle={`${(file.size / 1024).toFixed(1)} KB · ${meta.label}`}
-                  thumbnailUri={getFileThumbnailUri(file)}
                   leading={<FileIcon size={iconSize(22)} color={meta.color} strokeWidth={2} />}
                   trailingBadges={
                     <>

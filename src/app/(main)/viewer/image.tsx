@@ -176,6 +176,12 @@ export default function ImageViewerScreen() {
         let isTempDecrypt = false;
         if (fileMeta.isEncrypted && fileMeta.encryptionKeyId) {
           const encryptionKey = encryptionKeys.find(k => k.id === fileMeta.encryptionKeyId)?.key;
+          // S-11: decryptSandboxFile no longer silently falls back when the
+          // key can't be resolved — fail loudly here so the catch below
+          // shows an error state instead of rendering corrupted image bytes.
+          if (!encryptionKey) {
+            throw new Error(`Encryption key unavailable for file ${fileMeta.id}`);
+          }
           path = await StorageService.decryptSandboxFile(fileMeta.localPath, encryptionKey);
           isTempDecrypt = true;
         }

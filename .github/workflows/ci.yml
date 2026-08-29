@@ -29,5 +29,8 @@ jobs:
       - name: Test
         run: npx jest --ci
 
+      - name: Vendor bundle check
+        run: npm run vendor:check
+
       - name: Expo config sanity check
         run: npx expo-doctor

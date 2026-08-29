@@ -47,18 +47,23 @@ export function ListRow({
   const [checkboxFocused, setCheckboxFocused] = useState(false);
   const [overflowFocused, setOverflowFocused] = useState(false);
 
+  // The row used to be one big Pressable with the checkbox/overflow buttons
+  // nested inside it. On react-native-web a Pressable with
+  // accessibilityRole="button" renders as an HTML <button>, so that nesting
+  // produced <button><button>…</button></button> — invalid HTML. Browsers
+  // repair that by closing the outer button early, which silently detaches
+  // the inner button from its intended place in the tree and breaks its
+  // click handling (the overflow "…" menu looked static: nothing happened
+  // on tap). Native (iOS/Android) never hit this — Pressable-in-Pressable
+  // is fine there — which is why the bug only showed up in the web preview.
+  // Fix: the checkbox and overflow controls are now siblings of the main
+  // row Pressable (all children of a plain View), not descendants of it, so
+  // no control is ever a <button> inside another <button>.
+  const [rowPressed, setRowPressed] = useState(false);
+
   return (
-    <Pressable
-      onPress={selectable ? onToggleSelect : onPress}
-      onLongPress={onLongPress}
-      onFocus={() => setRowFocused(true)}
-      onBlur={() => setRowFocused(false)}
-      disabled={disabled}
-      android_ripple={{ color: `${colors.text}0F` }}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ selected: selectable ? selected : undefined, disabled }}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.row,
         {
           minHeight: touchTarget() + space(2),
@@ -68,7 +73,7 @@ export function ListRow({
           backgroundColor: selected ? `${colors.primary}14` : 'transparent',
           borderWidth: rowFocused ? StyleSheet.hairlineWidth * 2 : 0,
           borderColor: colors.secondary,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: disabled ? 0.5 : rowPressed ? 0.85 : 1,
         },
       ]}
     >
@@ -95,32 +100,47 @@ export function ListRow({
         </Pressable>
       )}
 
-      <View style={[styles.leading, { width: leadingSize, height: leadingSize, marginRight: space(3), borderRadius: radius(3), backgroundColor: colors.vaultIconBg }]}>
-        {thumbnailUri ? (
-          <Image source={{ uri: thumbnailUri }} style={[styles.thumbnail, { width: leadingSize, height: leadingSize, borderRadius: radius(3) }]} resizeMode="cover" />
-        ) : (
-          leading
-        )}
-      </View>
+      <Pressable
+        onPress={selectable ? onToggleSelect : onPress}
+        onLongPress={onLongPress}
+        onPressIn={() => setRowPressed(true)}
+        onPressOut={() => setRowPressed(false)}
+        onFocus={() => setRowFocused(true)}
+        onBlur={() => setRowFocused(false)}
+        disabled={disabled}
+        android_ripple={{ color: `${colors.text}0F` }}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ selected: selectable ? selected : undefined, disabled }}
+        style={styles.rowBody}
+      >
+        <View style={[styles.leading, { width: leadingSize, height: leadingSize, marginRight: space(3), borderRadius: radius(3), backgroundColor: colors.vaultIconBg }]}>
+          {thumbnailUri ? (
+            <Image source={{ uri: thumbnailUri }} style={[styles.thumbnail, { width: leadingSize, height: leadingSize, borderRadius: radius(3) }]} resizeMode="cover" />
+          ) : (
+            leading
+          )}
+        </View>
 
-      <View style={styles.textCol}>
-        {titleLines.map((line, i) => (
-          <Text
-            key={i}
-            numberOfLines={allowMultilineTitle ? undefined : 1}
-            style={[styles.title, { fontSize: font(Type.body.size), color: colors.text }]}
-          >
-            {line}
-          </Text>
-        ))}
-        {subtitle ? (
-          <Text numberOfLines={1} style={[styles.subtitle, { fontSize: font(Type.caption.size), color: colors.textMuted, marginTop: 2 }]}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
+        <View style={styles.textCol}>
+          {titleLines.map((line, i) => (
+            <Text
+              key={i}
+              numberOfLines={allowMultilineTitle ? undefined : 1}
+              style={[styles.title, { fontSize: font(Type.body.size), color: colors.text }]}
+            >
+              {line}
+            </Text>
+          ))}
+          {subtitle ? (
+            <Text numberOfLines={1} style={[styles.subtitle, { fontSize: font(Type.caption.size), color: colors.textMuted, marginTop: 2 }]}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
 
-      {trailingBadges ? <View style={[styles.badges, { marginLeft: space(2), gap: space(1) }]}>{trailingBadges}</View> : null}
+        {trailingBadges ? <View style={[styles.badges, { marginLeft: space(2), gap: space(1) }]}>{trailingBadges}</View> : null}
+      </Pressable>
 
       {onOverflowPress && !selectable && (
         <Pressable
@@ -141,12 +161,17 @@ export function ListRow({
           <MoreVertical size={iconSize(18)} color={colors.textMuted} strokeWidth={2} />
         </Pressable>
       )}
-    </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rowBody: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
   },

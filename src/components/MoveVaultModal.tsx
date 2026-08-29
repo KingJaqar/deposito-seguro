@@ -60,7 +60,7 @@ interface PathEntry {
 }
 
 export function MoveVaultModal({ visible, onClose, item, folders, onMove }: MoveVaultModalProps) {
-  const { colors, space, font, radius, isTablet, iconSize, touchTarget } = useTheme();
+  const { colors, space, font, radius, iconSize, touchTarget } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [path, setPath] = useState<PathEntry[]>([]);
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -198,7 +198,13 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
 
   return (
     <>
-      <Sheet visible={visible} onClose={handleDismiss} closeOnSwipeDown={!moving} title={`Move ${item.type === 'folder' ? 'Vault' : 'File'}`}>
+      <Sheet
+        visible={visible}
+        onClose={handleDismiss}
+        closeOnSwipeDown={!moving}
+        title={`Move ${item.type === 'folder' ? 'Vault' : 'File'}`}
+        fixedHeightFraction={0.75}
+      >
         <View style={{ paddingHorizontal: space(5) }}>
           <View style={[styles.itemInfo, { backgroundColor: colors.surfaceHover, borderRadius: radius(4), paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(3), gap: space(2) }]}>
             <Text style={[styles.itemInfoLabel, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>Moving:</Text>
@@ -256,50 +262,59 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
           </View>
         </View>
 
-        {/* Root is only a valid destination for folders — files always need a
-            real containing folder (FileMetadata.folderId is non-optional),
-            so this option isn't offered for a file move at all rather than
-            silently accepting a selection that can never actually apply. */}
-        {path.length === 0 && !isSearching && item.type === 'folder' && (
-          <Pressable
-            onPress={() => handleMove(null)}
-            disabled={moving}
-            accessibilityRole="button"
-            accessibilityLabel="Move to top level"
-            android_ripple={{ color: `${colors.text}0F` }}
-            style={({ pressed }) => [
-              styles.folderItem,
-              {
-                borderBottomColor: colors.borderLight,
-                backgroundColor: pressed ? colors.surfaceHover : 'transparent',
-                opacity: moving ? 0.5 : 1,
-                paddingVertical: space(3),
-                paddingHorizontal: space(5),
-                gap: space(3),
-                minHeight: touchTarget(),
-              },
-            ]}
-          >
-            <View style={[styles.folderIcon, { backgroundColor: `${colors.secondary}1F`, borderRadius: radius(3), width: iconSize(36), height: iconSize(36) }]}>
-              <Folder size={iconSize(18)} color={colors.secondary} strokeWidth={2} />
-            </View>
-            <Text style={[styles.folderName, { color: colors.text, fontSize: font(Type.body.size) }]}>
-              Root (Move to top level)
-            </Text>
-          </Pressable>
-        )}
-
-        <ScrollView style={{ maxHeight: isTablet ? 360 : 280 }} showsVerticalScrollIndicator={false}>
-          {filteredFolders.length === 0 ? (
-            <EmptyState
-              icon={Folder}
-              title={isSearching ? 'No folders match your search' : (path.length > 0 ? 'No subfolders here' : 'No folders available')}
-              message={!isSearching && path.length > 0 ? `Tap "Move Here" above to place it in ${currentLocationName}.` : undefined}
-            />
-          ) : (
-            filteredFolders.map((folder) => renderFolderRow(folder))
+        {/* Fills whatever vertical space the sheet's fixed height leaves
+            after the header/search block above, so the list area itself
+            stays a constant size (only its own contents scroll) instead of
+            the sheet growing or shrinking with the folder count. */}
+        <View style={{ flex: 1 }}>
+          {/* Root is only a valid destination for folders — files always need
+              a real containing folder (FileMetadata.folderId is
+              non-optional), so this option isn't offered for a file move at
+              all rather than silently accepting a selection that can never
+              actually apply. */}
+          {path.length === 0 && !isSearching && item.type === 'folder' && (
+            <Pressable
+              onPress={() => handleMove(null)}
+              disabled={moving}
+              accessibilityRole="button"
+              accessibilityLabel="Move to top level"
+              android_ripple={{ color: `${colors.text}0F` }}
+              style={({ pressed }) => [
+                styles.folderItem,
+                {
+                  borderBottomColor: colors.borderLight,
+                  backgroundColor: pressed ? colors.surfaceHover : 'transparent',
+                  opacity: moving ? 0.5 : 1,
+                  paddingVertical: space(3),
+                  paddingHorizontal: space(5),
+                  gap: space(3),
+                  minHeight: touchTarget(),
+                },
+              ]}
+            >
+              <View style={[styles.folderIcon, { backgroundColor: `${colors.secondary}1F`, borderRadius: radius(3), width: iconSize(36), height: iconSize(36) }]}>
+                <Folder size={iconSize(18)} color={colors.secondary} strokeWidth={2} />
+              </View>
+              <Text style={[styles.folderName, { color: colors.text, fontSize: font(Type.body.size) }]}>
+                Root (Move to top level)
+              </Text>
+            </Pressable>
           )}
-        </ScrollView>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: space(4), flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+            {filteredFolders.length === 0 ? (
+              <View style={styles.emptyStateFill}>
+                <EmptyState
+                  icon={Folder}
+                  title={isSearching ? 'No folders match your search' : (path.length > 0 ? 'No subfolders here' : 'No folders available')}
+                  message={!isSearching && path.length > 0 ? `Tap "Move Here" above to place it in ${currentLocationName}.` : undefined}
+                />
+              </View>
+            ) : (
+              filteredFolders.map((folder) => renderFolderRow(folder))
+            )}
+          </ScrollView>
+        </View>
       </Sheet>
 
       <Dialog
@@ -332,4 +347,5 @@ const styles = StyleSheet.create({
   folderName: { fontWeight: '500' },
   folderSubtitle: { fontWeight: '500', marginTop: 1 },
   trailing: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+  emptyStateFill: { flex: 1, justifyContent: 'center' },
 });

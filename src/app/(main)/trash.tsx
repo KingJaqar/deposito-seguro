@@ -47,8 +47,8 @@ import { Card } from '../../components/primitives/Card';
 import { Chip } from '../../components/primitives/Chip';
 import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
-import { getFileThumbnailUri, getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
-import { GridTile } from '../../components/primitives/GridTile';
+import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { FileGridTile } from '../../components/primitives/FileTile';
 import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
 import { CategoryTint } from '../../constants/Colors';
 import { Type } from '../../constants/typography';
@@ -247,7 +247,7 @@ export default function TrashScreen() {
       message: `"${name}" will be moved back to its original location.`,
       onConfirm: async () => {
         try {
-          const { landedInFallbackFolder, folderId } = await restoreFileFromTrash(fileId);
+          const { landedInFallbackFolder, folderId, filePreservedAccessKey } = await restoreFileFromTrash(fileId);
           // Read folders fresh off the store rather than this callback's
           // captured closure — a fallback "Restored Files" folder can have
           // just been created by the restore above, and the closure's
@@ -269,9 +269,16 @@ export default function TrashScreen() {
             locationLabel
           );
           if (landedInFallbackFolder) {
+            // I-12: hasAccessKey/accessKeyId (the file's own, or one
+            // snapshotted from the original folder by deleteFolder) survive
+            // this restore even though the destination folder doesn't
+            // require unlocking — say so accurately instead of implying the
+            // file is now fully exposed.
             Alert.alert(
               'Restored to "Restored Files"',
-              'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
+              filePreservedAccessKey
+                ? 'This file’s original folder no longer exists, so it was restored into the "Restored Files" folder, which anyone can browse into. The file itself is still password-protected, so its contents stay locked.'
+                : 'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
             );
           }
         } catch {
@@ -296,13 +303,19 @@ export default function TrashScreen() {
         const results = await Promise.allSettled(selectedIds.map(id => restoreFileFromTrash(id)));
         setSelectedIds([]);
         setSelectionMode(false);
-        const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ landedInFallbackFolder: boolean; folderId?: string }> => r.status === 'fulfilled');
+        const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }> => r.status === 'fulfilled');
         const { message, tone } = bulkOutcomeToast(fulfilled.length, count, 'file', 'restored', 'restore');
         showTopToast(message, tone);
-        if (fulfilled.some(r => r.value.landedInFallbackFolder)) {
+        const landedInFallback = fulfilled.filter(r => r.value.landedInFallbackFolder);
+        if (landedInFallback.length > 0) {
+          // I-12: same accuracy fix as the single-file toast above — only
+          // claim full exposure for the files that actually lost their lock.
+          const allPreserved = landedInFallback.every(r => r.value.filePreservedAccessKey);
           Alert.alert(
             'Some Files Restored to "Restored Files"',
-            'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
+            allPreserved
+              ? 'One or more original folders no longer exist, so those files were restored into the "Restored Files" folder, which anyone can browse into. Those files are still password-protected, so their contents stay locked.'
+              : 'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
           );
         }
       },
@@ -608,15 +621,15 @@ export default function TrashScreen() {
                   const isSelected = selectedIds.includes(item.id);
                   const visual = getFileVisual(item);
                   return (
-                    <GridTile
+                    <FileGridTile
                       key={item.id}
+                      file={item}
                       size={gridItemWidth}
                       name={item.name}
                       subtitle={visual.label}
                       subtitleColor={visual.color}
                       Icon={visual.Icon}
                       iconColor={visual.color}
-                      thumbnailUri={getFileThumbnailUri(item)}
                       selectable={selectionMode}
                       selected={isSelected}
                       onPress={() => { if (selectionMode) toggleSelection(item.id); }}

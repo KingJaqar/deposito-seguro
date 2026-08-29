@@ -135,7 +135,7 @@ export default function StorageTelemetryScreen() {
               })}
             </View>
             <Text style={[styles.capHint, { color: colors.textMuted, fontSize: font(Type.caption.size), marginTop: space(2), marginBottom: space(6) }]}>
-              Greyed-out options exceed this device's capacity or its currently free space.
+              Greyed-out options exceed this device&apos;s capacity or its currently free space.
             </Text>
 
             <Text style={[styles.sectionTitle, { color: colors.textMuted, fontSize: font(Type.eyebrow.size), marginBottom: space(3) }]}>PARTITION OVERVIEW</Text>

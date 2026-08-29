@@ -41,26 +41,32 @@ const backdropEasing = Easing.bezier(...EasingCurves.modal);
 // damped spring would otherwise have — motion, not wobble. The rest
 // thresholds are tightened so the spring commits to its final frame
 // promptly instead of visibly micro-settling for an extra beat.
+//
+// 0.5x animation-scale pass: for a critically-damped-ish spring, settle
+// time is governed by the decay envelope (~friction/2), independent of
+// tension — tension alone only changes oscillation frequency, not overall
+// speed. To make the whole motion land in half the time while keeping the
+// exact same shape (same damping ratio zeta = friction / (2*sqrt(tension))),
+// tension has to scale by 4x and friction by 2x together (zeta is preserved
+// exactly at that ratio, and the decay rate — friction/2 — doubles). Values
+// below are each original tension*4 / friction*2, not eyeballed.
 const SHEET_SPRING = {
   useNativeDriver: true,
-  tension: 68,
-  friction: 14,
+  tension: 272,
+  friction: 28,
   overshootClamping: true,
   restDisplacementThreshold: 0.5,
   restSpeedThreshold: 0.5,
 } as const;
 
-// Closing gets its own, stiffer spring. SHEET_SPRING's tension/friction sit
-// just under critical damping (see above), which settles in ~550-600ms —
-// fine for the opening reveal, but a dismissal reads as sluggish at that
-// length since the user's already moved on (tapped close, picked an
-// action). Raising tension while keeping the ratio to friction just past
-// critical (zeta ~0.9) roughly halves settle time to ~300ms without
-// introducing any bounce — still a spring, just a quicker one.
+// Closing gets its own, stiffer spring. Same 4x-tension/2x-friction scaling
+// as SHEET_SPRING above applied on top of the original close tuning (which
+// was already ~2x the open spring's stiffness) — still a spring, same
+// shape, just running at 0.5x the settle time throughout.
 const SHEET_SPRING_EXIT = {
   ...SHEET_SPRING,
-  tension: 180,
-  friction: 24,
+  tension: 720,
+  friction: 48,
 } as const;
 
 export interface SheetProps {
@@ -69,6 +75,13 @@ export interface SheetProps {
   title?: string;
   children: React.ReactNode;
   maxHeightFraction?: number; // fraction of screen height, default 0.85
+  // When set, the sheet takes exactly this fraction of screen height instead
+  // of shrinking to fit its content — for content whose size varies at
+  // runtime (e.g. a folder list), so the sheet doesn't resize as the user
+  // navigates. Content that doesn't fill it is padded, not shrunk to; content
+  // is expected to manage its own internal scrolling via flex (see
+  // MoveVaultModal) rather than relying on the sheet's own ScrollView.
+  fixedHeightFraction?: number;
   closeOnSwipeDown?: boolean;
 }
 
@@ -78,6 +91,7 @@ export function Sheet({
   title,
   children,
   maxHeightFraction = 0.85,
+  fixedHeightFraction,
   closeOnSwipeDown = true,
 }: SheetProps) {
   const { colors, space, font, radius, shadow, isTablet, iconSize, touchTarget } = useTheme();
@@ -105,12 +119,44 @@ export function Sheet({
   // random offset instead of the clean 400 every time. `mounted` stays true
   // until the exit animation actually finishes, then tears the Modal down.
   const [mounted, setMounted] = useState(visible);
+  // I-23 originally moved `setMounted(true)` out of the effect below and into
+  // a synchronous "adjust state during render" check here (comparing against
+  // a tracked `prevVisible`), purely to satisfy the react-hooks/set-state-in-effect
+  // lint rule. Reverted: on a screen that re-renders in quick succession right
+  // after the triggering click (confirmed on search.tsx — a second parent
+  // render lands ~70-100ms after the first, well within the open animation),
+  // this render-phase pattern intermittently read `mounted`/`prevVisible` back
+  // at their stale pre-open values on that second render, as if the sheet had
+  // never opened — reproduced directly via instrumented logging, not
+  // theoretical. A plain effect doesn't have that failure mode: React commits
+  // whatever `mounted` was set to before the next effect run ever sees new
+  // props, so there's no window where a second render can observe stale
+  // state. This is a deliberate, scoped exception to the lint rule — the
+  // race it exists to catch (an effect chasing its own state in a loop) is
+  // not present here: this effect only ever transitions mounted false→true,
+  // is gated by `visible`, and settles in one commit.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (visible) setMounted(true);
+  }, [visible]);
   // Read fresh inside the exit animation's completion callback (a stale
   // closure would otherwise be the `visible=false` this exit run started
   // with, even after a fast re-open flips it back to true) so a reopen that
   // interrupts a still-finishing close doesn't get hidden out from under it.
+  //
+  // I-23: the assignment itself used to happen directly in the render body
+  // (flagged by react-hooks/refs — refs aren't meant to be written outside
+  // an effect/event handler). Confirmed by reading every read site: both
+  // reads of visibleRef.current are inside the two `Animated...start()`
+  // completion callbacks below (never synchronously during render or from
+  // an event handler), which fire asynchronously — hundreds of ms later,
+  // well after any `useEffect` scheduled this render has already run — so
+  // moving the write into its own effect (below) cannot reintroduce the
+  // stale-closure bug this ref exists to guard against.
   const visibleRef = useRef(visible);
-  visibleRef.current = visible;
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then((v) => { reduceMotionRef.current = v; });
@@ -118,10 +164,18 @@ export function Sheet({
 
   useEffect(() => {
     const reduceMotion = reduceMotionRef.current;
-    const enterMs = reduceMotion ? Durations.instant : Durations.sheetEnter;
-    const exitMs = reduceMotion ? Durations.instant : Durations.sheetExit;
+    // 0.5x animation-scale pass: halved locally (not the shared
+    // Durations.sheetEnter/sheetExit constant, which TopToast/Snackbar also
+    // read for their own, unrelated timings) so the reduce-motion fallback
+    // and the backdrop fade stay in lockstep with SHEET_SPRING/_EXIT's own
+    // halved settle time above, without touching any other component.
+    const enterMs = reduceMotion ? Durations.instant : Durations.sheetEnter / 2;
+    const exitMs = reduceMotion ? Durations.instant : Durations.sheetExit / 2;
     if (visible) {
-      setMounted(true);
+      // The sibling effect above (declared first, so it runs first within
+      // this same commit) has already called setMounted(true) by this point
+      // — it doesn't need to be duplicated here. This effect only drives the
+      // animation values themselves, not `mounted`.
       dragY.setValue(0);
       if (reduceMotion) {
         Animated.parallel([
@@ -209,7 +263,9 @@ export function Sheet({
             // parent it's unresolvable, so this constraint was silently
             // dropped. That's what was cutting the option list down to a
             // sliver that needed scrolling instead of showing all of it.
-            maxHeight: Math.round(screenHeight * maxHeightFraction),
+            ...(fixedHeightFraction
+              ? { height: Math.round(screenHeight * fixedHeightFraction) }
+              : { maxHeight: Math.round(screenHeight * maxHeightFraction) }),
             maxWidth: isTablet ? 560 : undefined,
             transform: [{ translateY: Animated.add(translateY, dragY) }],
           },
@@ -248,14 +304,26 @@ export function Sheet({
             </Pressable>
           </View>
         ) : null}
-        <ScrollView
-          style={{ flexShrink: 1 }}
-          contentContainerStyle={{ paddingBottom: insets.bottom + space(4) }}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          {children}
-        </ScrollView>
+        {fixedHeightFraction ? (
+          // Fixed-height sheets hand scrolling responsibility to their
+          // content (flex:1 all the way down to whatever list actually
+          // needs to scroll) instead of wrapping everything in a ScrollView
+          // here — a ScrollView can't be told to stop at a flex boundary,
+          // so it would just keep growing to fit content and defeat the
+          // fixed height.
+          <View style={[styles.fixedBody, { paddingBottom: insets.bottom }]}>
+            {children}
+          </View>
+        ) : (
+          <ScrollView
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ paddingBottom: insets.bottom + space(4) }}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            {children}
+          </ScrollView>
+        )}
       </Animated.View>
     </BaseModal>
   );
@@ -286,5 +354,8 @@ const styles = StyleSheet.create({
   closeBtn: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  fixedBody: {
+    flex: 1,
   },
 });

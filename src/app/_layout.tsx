@@ -17,6 +17,7 @@ import { HydrationProvider } from '../contexts/HydrationContext';
 import { useLockoutStore } from '../store/lockoutStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
+import { StorageService } from '../services/storage';
 import { initializeDisguiseIcon, setFlagSecure } from '../utils/disguiseIcon';
 
 // Same exemption class as login.tsx's CALC_* constants (§1): this is the
@@ -59,6 +60,10 @@ export default function RootLayout() {
        useSettingsStore.getState().hydrateSettings(),
        useVaultStore.getState().hydrateVault(),
        useLockoutStore.getState().hydrateLockouts(),
+       // Item 9: independent of the three hydrate calls above (scans the
+       // sandbox directory itself, not vault metadata — see its own doc
+       // comment), so it runs alongside them rather than waiting its turn.
+       StorageService.sweepOrphanedPlaintextTempFiles(),
      ])
        .then(async () => {
          if (!mounted) return;

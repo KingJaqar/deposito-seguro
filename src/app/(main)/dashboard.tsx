@@ -240,12 +240,7 @@ export default function DashboardScreen() {
   };
 
   const handleDirectoryProvisioning = () => {
-    if (Platform.OS === 'web') {
-      const name = window.prompt('Folder name:');
-      if (name !== null) handleCreateFolder(name);
-    } else {
-      setShowFolderModal(true);
-    }
+    setShowFolderModal(true);
   };
 
   const confirmFolderCreation = () => {

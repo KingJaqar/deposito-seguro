@@ -23,6 +23,16 @@
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system/legacy';
 
+// readAsStringAsync below has to hold the whole APK in memory as a base64
+// string (~4/3 the file's byte size), and JSZip.loadAsync then decodes that
+// back into its own buffer on top of it — two oversized copies alive at
+// once. Android's default per-app JS heap is only ~192-256MB, so a
+// large-but-completely-normal APK (games/media-heavy apps easily clear
+// 100MB) reliably blows that budget and OOMs the whole runtime rather than
+// just failing this best-effort extraction. Skip extraction outright above
+// this size instead of attempting a read we already know won't fit.
+const MAX_APK_SIZE_FOR_ICON_EXTRACTION_BYTES = 20 * 1024 * 1024; // 20MB
+
 const DENSITY_RANK: Record<string, number> = {
   xxxhdpi: 7,
   xxhdpi: 6,
@@ -67,6 +77,9 @@ function scoreIconEntry(path: string): number {
  */
 export async function extractApkIcon(apkPath: string, outputPngPath: string): Promise<string | null> {
   try {
+    const info = await FileSystem.getInfoAsync(apkPath);
+    if (!info.exists || (info.size ?? 0) > MAX_APK_SIZE_FOR_ICON_EXTRACTION_BYTES) return null;
+
     const base64 = await FileSystem.readAsStringAsync(apkPath, { encoding: FileSystem.EncodingType.Base64 });
     const zip = await JSZip.loadAsync(base64, { base64: true });
 

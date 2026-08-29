@@ -83,20 +83,33 @@ class DisguiseIconModule(private val reactContext: ReactApplicationContext) : Re
 
   @ReactMethod
   fun setFlagSecure(enabled: Boolean, promise: Promise) {
-    try {
-      val activity = reactContext.currentActivity
-      if (activity != null) {
+    val activity = reactContext.currentActivity
+    if (activity == null) {
+      promise.reject("NO_ACTIVITY", "Activity not available")
+      return
+    }
+    // @ReactMethod bodies run on a background thread by default, but
+    // Window/View mutations are UI-thread-only — calling addFlags/clearFlags
+    // directly here throws android.view.ViewRootImpl.CalledFromWrongThreadException
+    // ("Only the original thread that created a view hierarchy can touch its
+    // views"), silently caught below every single time on a real device.
+    // Found on-device (2026-08-29 Phase E pass): this meant the S-9
+    // screenshot-protection feature — on by default — never actually applied
+    // FLAG_SECURE at all. Fixed by hopping to the UI thread via
+    // Activity.runOnUiThread, matching how setIcon above is already safe
+    // (setComponentEnabledSetting is not a View/Window API, so it never had
+    // this problem).
+    activity.runOnUiThread {
+      try {
         if (enabled) {
           activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
           activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         promise.resolve(true)
-      } else {
-        promise.reject("NO_ACTIVITY", "Activity not available")
+      } catch (e: Exception) {
+        promise.reject("FLAG_SECURE_FAILED", e.message ?: "Unknown error", e)
       }
-    } catch (e: Exception) {
-      promise.reject("FLAG_SECURE_FAILED", e.message ?: "Unknown error", e)
     }
   }
 }
@@ -122,6 +135,17 @@ class DisguiseIconPackage : ReactPackage {
 
 const ICON_THEMES = ['black-white', 'black-orange', 'black-red'];
 const DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+
+// Android file-based resource names (mipmap PNG filenames, and the
+// @mipmap/<name> references to them) may only contain lowercase a-z, 0-9,
+// and underscore — aapt2 rejects a hyphen outright. `calculator-icon-${theme}`
+// is a valid *asset* filename (assets/icons/calculator-icons/ isn't a
+// resource directory) but not a valid *resource* filename once copied into
+// android/app/src/main/res/mipmap-*/. Route every mipmap filename and every
+// manifest icon reference through this so they can't drift out of sync.
+function mipmapResourceName(theme) {
+  return `calculator_icon_${theme.replace(/-/g, '_')}`;
+}
 
 function withDisguiseIconNativeFiles(config) {
   return withDangerousMod(config, [
@@ -149,7 +173,15 @@ function withDisguiseIconNativeFiles(config) {
             `app/src/main/res/mipmap-${density}`
           );
           fs.mkdirSync(destDir, { recursive: true });
-          fs.copyFileSync(srcFile, path.join(destDir, `calculator-icon-${theme}.png`));
+          // Android file-based resource names must be lowercase a-z/0-9/underscore
+          // only — a hyphen (as the source asset filenames use, and as this used
+          // to copy straight through) makes aapt2 reject the whole resource merge
+          // with "'-' is not a valid file-based resource name character", which
+          // only ever surfaces on an actual native build (never caught by
+          // tsc/eslint/jest — see plans/what-are-the-next-jaunty-deer.md's Phase E
+          // notes). mipmapResourceName() below applies the same substitution here
+          // and to the manifest's @mipmap/... references so the two stay in sync.
+          fs.copyFileSync(srcFile, path.join(destDir, `${mipmapResourceName(theme)}.png`));
         }
       }
 
@@ -191,9 +223,9 @@ function withDisguiseIconManifest(config) {
 
     const desiredAliases = [
       { name: '.MainActivityAliasDefault', icon: '@mipmap/ic_launcher', enabled: 'true' },
-      { name: '.MainActivityAliasWhite', icon: '@mipmap/calculator-icon-black-white', enabled: 'false' },
-      { name: '.MainActivityAliasOrange', icon: '@mipmap/calculator-icon-black-orange', enabled: 'false' },
-      { name: '.MainActivityAliasRed', icon: '@mipmap/calculator-icon-black-red', enabled: 'false' },
+      { name: '.MainActivityAliasWhite', icon: `@mipmap/${mipmapResourceName('black-white')}`, enabled: 'false' },
+      { name: '.MainActivityAliasOrange', icon: `@mipmap/${mipmapResourceName('black-orange')}`, enabled: 'false' },
+      { name: '.MainActivityAliasRed', icon: `@mipmap/${mipmapResourceName('black-red')}`, enabled: 'false' },
     ];
 
     for (const alias of desiredAliases) {

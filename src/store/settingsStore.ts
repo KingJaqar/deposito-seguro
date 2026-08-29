@@ -33,11 +33,11 @@ interface SettingsState {
   updateSetting: (key: SettingsSettingKey, val: unknown) => Promise<void>;
   createAccessKey: (label: string, password: string, description?: string) => Promise<AccessKeyMetadata | null>;
   accessKeyExists: (label: string) => boolean;
-  deleteAccessKey: (accessKeyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
+  deleteAccessKey: (accessKeyId: string) => Promise<'deleted' | 'in-use' | 'not-found' | 'persist-failed'>;
   updateAccessKey: (accessKeyId: string, options: { label?: string; description?: string; password?: string }) => Promise<boolean>;
   createEncryptionKey: (name: string, customKey?: string, description?: string) => Promise<EncryptionKeyMetadata | null>;
   encryptionKeyExists: (name: string) => boolean;
-  deleteEncryptionKey: (keyId: string) => Promise<'deleted' | 'in-use' | 'not-found'>;
+  deleteEncryptionKey: (keyId: string) => Promise<'deleted' | 'in-use' | 'not-found' | 'persist-failed'>;
   restoreKeysFromBackup: (accessKeys: AccessKeyMetadata[], encryptionKeys: EncryptionKeyMetadata[]) => Promise<void>;
   lockTransientMemory: () => void;
 }
@@ -144,13 +144,60 @@ function buildPersistSnapshot(state: SettingsState): Partial<SettingsState> {
   return snapshot;
 }
 
-function persistSnapshot(state: SettingsState) {
-  AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(buildPersistSnapshot(state))).catch(
-    (err) => console.error('Settings persist error:', err)
-  );
+/**
+ * I-11 residual (plans/deposito-seguro-audit-report-2026-08-28.md §11/§20,
+ * plans/what-are-the-next-jaunty-deer.md item 6): this used to fire
+ * AsyncStorage.setItem(...).catch(console.error) without ever awaiting it —
+ * every one of this store's mutations called it from inside a synchronous
+ * zustand `set()` updater and returned immediately, so a caller's `await
+ * store.updateSetting(...)` resolved before the write even landed. Now
+ * mirrors vaultStore.ts's persistFolders/persistFiles: rethrows on failure
+ * so an awaiting caller (via commitSettingsState below) can see it.
+ */
+async function persistSnapshot(state: SettingsState): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(buildPersistSnapshot(state)));
+  } catch (err) {
+    console.error('Settings persist error:', err);
+    throw err;
+  }
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+type SettingsPatch = Partial<SettingsState>;
+type SettingsSetFn = (updater: (state: SettingsState) => SettingsPatch) => void;
+
+/**
+ * Mirrors vaultStore.ts's commitVaultState: applies the in-memory `set()`
+ * update immediately (UI stays responsive), then awaits the AsyncStorage
+ * write against the merged post-update state, rethrowing on failure so the
+ * caller's own try/catch can surface it rather than silently believing the
+ * setting persisted. `get` is used (not the patch alone) because
+ * persistSnapshot needs the *full* settings snapshot, not just the changed
+ * keys — the persisted blob is one JSON object per plan item 6's design.
+ */
+const commitSettingsState = async (
+  set: SettingsSetFn,
+  get: () => SettingsState,
+  updater: (state: SettingsState) => SettingsPatch
+): Promise<SettingsPatch> => {
+  let patch: SettingsPatch = {};
+  set((state) => {
+    patch = updater(state);
+    return patch;
+  });
+  // An updater returning `{}` (e.g. createAccessKey's/createEncryptionKey's
+  // duplicate-label/limit-reached validation rejections) made no actual
+  // change to persist — skip the write. Without this, every rejected
+  // create still did a full AsyncStorage write, and once persistSnapshot
+  // started rethrowing (I-11 residual), a storage failure on that pointless
+  // write turned a pure validation no-op into a thrown error the caller had
+  // no reason to expect from a rejection path.
+  if (Object.keys(patch).length === 0) return patch;
+  await persistSnapshot(get());
+  return patch;
+};
+
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   themeMode: 'dark',
   disguiseMode: 'default',
   viewMode: 'list',
@@ -194,26 +241,41 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
   },
 
+  // I-11 residual: persistSnapshot/commitSettingsState now throw on a real
+  // AsyncStorage failure instead of silently logging. updateSetting has
+  // ~15 fire-and-forget call sites across the app (theme toggles, view
+  // mode, font size, disguise options, storage limit...) with no catch of
+  // their own — rethrowing here would turn a rare storage hiccup into an
+  // unhandled promise rejection at every one of them. commitSettingsState
+  // applies the in-memory change before the throwing await, so the toggle
+  // still works for this session either way; only surviving an app restart
+  // is at risk on failure. Caught and logged here rather than plumbed
+  // through every caller — same call vaultStore.ts's own
+  // copyToClipboard/cutToClipboard/clearClipboard make for the same reason.
   updateSetting: async (key, val) => {
-    set((state) => {
-      const updated = { ...state, [key]: val };
-      persistSnapshot(updated);
-      return updated;
-    });
+    try {
+      await commitSettingsState(set, get, () => ({ [key]: val } as SettingsPatch));
+    } catch (e) {
+      console.error(`Failed to persist setting "${key}":`, e);
+    }
   },
 
+  // I-11 residual: commitSettingsState can now throw on a persist failure —
+  // deliberately left uncaught here. AccessKeyRegistrationModal.tsx and
+  // access-keys.tsx already wrap this call in their own try/catch
+  // specifically anticipating this (see their own comments).
   createAccessKey: async (label, password, description) => {
     const normalizedLabel = label.trim();
     const id = SecureCrypto.generateUUID();
 
     let created: AccessKeyMetadata | null = null;
-    set((state) => {
+    await commitSettingsState(set, get, (state) => {
       if (state.accessKeys.length >= 20) {
-        return state;
+        return {};
       }
 
       if (state.accessKeys.some(k => k.label.toLowerCase() === normalizedLabel.toLowerCase())) {
-        return state;
+        return {};
       }
 
       const accessKey: AccessKeyMetadata = {
@@ -224,14 +286,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         fingerprint: SecureCrypto.fingerprint(password),
         createdAt: Date.now(),
       };
-      const accessKeys = [...state.accessKeys, accessKey];
-      persistSnapshot({ ...state, accessKeys });
-      SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), password).catch(
+      created = accessKey;
+      return { accessKeys: [...state.accessKeys, accessKey] };
+    });
+
+    // TS can't trace the reassignment inside commitSettingsState's callback
+    // across the `await` above, so it narrows `created` no further than its
+    // declared union type here — hence the cast (`created` is genuinely
+    // AccessKeyMetadata | null at runtime; this doesn't change behavior).
+    const createdKey = created as AccessKeyMetadata | null;
+    if (createdKey) {
+      SecureStore.setItemAsync(getSecureKeyPath(createdKey.id, ACCESS_KEY_PREFIX), password).catch(
         (err) => console.error('Access key secure storage error:', err)
       );
-      created = accessKey;
-      return { accessKeys };
-    });
+    }
 
     return created;
   },
@@ -242,6 +310,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   deleteAccessKey: async (accessKeyId) => {
+    let inUse: boolean;
     try {
       const [filesRaw, foldersRaw] = await Promise.all([
         AsyncStorage.getItem('@vault_files'),
@@ -249,75 +318,94 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       ]);
       const files = filesRaw ? JSON.parse(filesRaw) : [];
       const folders = foldersRaw ? JSON.parse(foldersRaw) : [];
-      const inUse = files.some((file: any) => file.accessKeyId === accessKeyId) ||
+      inUse = files.some((file: any) => file.accessKeyId === accessKeyId) ||
         folders.some((folder: any) => folder.accessKeyId === accessKeyId);
-
-      if (inUse) return 'in-use';
-
-      let deleted = false;
-      set((state) => {
-        const accessKeys = state.accessKeys.filter(k => k.id !== accessKeyId);
-        if (accessKeys.length === state.accessKeys.length) {
-          return state;
-        }
-
-        deleted = true;
-        persistSnapshot({ ...state, accessKeys });
-        SecureStore.deleteItemAsync(getSecureKeyPath(accessKeyId, ACCESS_KEY_PREFIX)).catch(
-          (err) => console.error('Access key secure deletion error:', err)
-        );
-        return { accessKeys };
-      });
-
-      return deleted ? 'deleted' : 'not-found';
     } catch (e) {
-      console.error('Access key deletion failed', e);
+      console.error('Access key in-use check failed', e);
       return 'not-found';
     }
+
+    if (inUse) return 'in-use';
+
+    if (!get().accessKeys.some(k => k.id === accessKeyId)) return 'not-found';
+
+    // I-11 residual follow-up: this used to share one outer try/catch with
+    // the in-use check above, both returning 'not-found' on any failure.
+    // That conflated "this key never existed" with "the key WAS just
+    // removed from in-memory state (commitSettingsState's set() runs before
+    // its throwing persist await) but failed to write to disk" — which told
+    // the user a just-deleted key "no longer exists" instead of warning
+    // them the deletion might not survive an app restart. Split into its
+    // own try/catch with a distinct return value so the caller can tell
+    // the two apart. Only called once we've already confirmed there's an
+    // actual change to make, so a "not found"/"in-use" result never
+    // triggers a wasted write.
+    try {
+      await commitSettingsState(set, get, (state) => ({
+        accessKeys: state.accessKeys.filter(k => k.id !== accessKeyId),
+      }));
+    } catch (e) {
+      console.error('Access key deletion failed to persist', e);
+      return 'persist-failed';
+    }
+
+    SecureStore.deleteItemAsync(getSecureKeyPath(accessKeyId, ACCESS_KEY_PREFIX)).catch(
+      (err) => console.error('Access key secure deletion error:', err)
+    );
+
+    return 'deleted';
   },
 
+  // I-11 residual: commitSettingsState can now throw on a persist failure —
+  // deliberately left uncaught. access-keys.tsx's handleEditConfirm already
+  // wraps this call in its own try/catch for exactly this.
   updateAccessKey: async (accessKeyId, options) => {
-    let updated = false;
-    set((state) => {
-      const idx = state.accessKeys.findIndex(ak => ak.id === accessKeyId);
-      if (idx === -1) return state;
-      const existing = state.accessKeys[idx];
-      const updatedLabel = options.label !== undefined ? options.label.trim() : existing.label;
-      const updatedDescription = options.description !== undefined ? options.description.trim() : existing.description;
-      const updatedPassword = options.password !== undefined ? options.password : existing.password;
-      const accessKey: AccessKeyMetadata = {
-        ...existing,
-        label: updatedLabel || 'Untitled Access Key',
-        description: updatedDescription || undefined,
-        password: updatedPassword,
-        fingerprint: SecureCrypto.fingerprint(updatedPassword),
-        createdAt: existing.createdAt,
-      };
-      const accessKeys = [...state.accessKeys];
-      accessKeys[idx] = accessKey;
-      persistSnapshot({ ...state, accessKeys });
-      SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), updatedPassword).catch(
-        (err) => console.error('Access key secure storage error:', err)
-      );
-      updated = true;
-      return { accessKeys };
-    });
-    return updated;
+    const state = get();
+    const idx = state.accessKeys.findIndex(ak => ak.id === accessKeyId);
+    if (idx === -1) return false;
+
+    const existing = state.accessKeys[idx];
+    const updatedLabel = options.label !== undefined ? options.label.trim() : existing.label;
+    const updatedDescription = options.description !== undefined ? options.description.trim() : existing.description;
+    const updatedPassword = options.password !== undefined ? options.password : existing.password;
+    const accessKey: AccessKeyMetadata = {
+      ...existing,
+      label: updatedLabel || 'Untitled Access Key',
+      description: updatedDescription || undefined,
+      password: updatedPassword,
+      fingerprint: SecureCrypto.fingerprint(updatedPassword),
+      createdAt: existing.createdAt,
+    };
+    const accessKeys = [...state.accessKeys];
+    accessKeys[idx] = accessKey;
+
+    await commitSettingsState(set, get, () => ({ accessKeys }));
+
+    SecureStore.setItemAsync(getSecureKeyPath(accessKey.id, ACCESS_KEY_PREFIX), updatedPassword).catch(
+      (err) => console.error('Access key secure storage error:', err)
+    );
+
+    return true;
   },
 
+  // I-11 residual: commitSettingsState can now throw on a persist failure —
+  // deliberately left uncaught, matching createAccessKey's contract. This
+  // store export currently has no live UI caller (grep-confirmed), same
+  // disposition as vaultStore.ts's assignFileEncryptionKey from Phase A —
+  // kept consistent with its sibling rather than special-cased.
   createEncryptionKey: async (name, customKey, description) => {
     const normalizedLabel = name.trim();
     const id = SecureCrypto.generateUUID();
     const key = await SecureCrypto.generateEncryptionKey(customKey);
 
     let created: EncryptionKeyMetadata | null = null;
-    set((state) => {
+    await commitSettingsState(set, get, (state) => {
       if (state.encryptionKeys.length >= 20) {
-        return state;
+        return {};
       }
 
       if (state.encryptionKeys.some(k => k.name.toLowerCase() === normalizedLabel.toLowerCase())) {
-        return state;
+        return {};
       }
 
       const encryptionKey: EncryptionKeyMetadata = {
@@ -328,14 +416,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         fingerprint: SecureCrypto.fingerprint(key),
         createdAt: Date.now(),
       };
-      const encryptionKeys = [...state.encryptionKeys, encryptionKey];
-      persistSnapshot({ ...state, encryptionKeys });
-      SecureStore.setItemAsync(getSecureKeyPath(encryptionKey.id, ENCRYPTION_KEY_PREFIX), key).catch(
+      created = encryptionKey;
+      return { encryptionKeys: [...state.encryptionKeys, encryptionKey] };
+    });
+
+    // Same TS-narrowing note as createAccessKey's identical cast above.
+    const createdKey = created as EncryptionKeyMetadata | null;
+    if (createdKey) {
+      SecureStore.setItemAsync(getSecureKeyPath(createdKey.id, ENCRYPTION_KEY_PREFIX), key).catch(
         (err) => console.error('Encryption key secure storage error:', err)
       );
-      created = encryptionKey;
-      return { encryptionKeys };
-    });
+    }
 
     return created;
   },
@@ -346,6 +437,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   deleteEncryptionKey: async (encryptionKeyId) => {
+    let inUse: boolean;
     try {
       const [filesRaw, foldersRaw] = await Promise.all([
         AsyncStorage.getItem('@vault_files'),
@@ -353,31 +445,32 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       ]);
       const files = filesRaw ? JSON.parse(filesRaw) : [];
       const folders = foldersRaw ? JSON.parse(foldersRaw) : [];
-      const inUse = files.some((file: any) => file.encryptionKeyId === encryptionKeyId) ||
+      inUse = files.some((file: any) => file.encryptionKeyId === encryptionKeyId) ||
         folders.some((folder: any) => folder.encryptionKeyId === encryptionKeyId);
-
-      if (inUse) return 'in-use';
-
-      let deleted = false;
-      set((state) => {
-        const encryptionKeys = state.encryptionKeys.filter(k => k.id !== encryptionKeyId);
-        if (encryptionKeys.length === state.encryptionKeys.length) {
-          return state;
-        }
-
-        deleted = true;
-        persistSnapshot({ ...state, encryptionKeys });
-        SecureStore.deleteItemAsync(getSecureKeyPath(encryptionKeyId, ENCRYPTION_KEY_PREFIX)).catch(
-          (err) => console.error('Encryption key secure deletion error:', err)
-        );
-        return { encryptionKeys };
-      });
-
-      return deleted ? 'deleted' : 'not-found';
     } catch (e) {
-      console.error('Encryption key deletion failed', e);
+      console.error('Encryption key in-use check failed', e);
       return 'not-found';
     }
+
+    if (inUse) return 'in-use';
+
+    if (!get().encryptionKeys.some(k => k.id === encryptionKeyId)) return 'not-found';
+
+    // Same rationale as deleteAccessKey's identical comment above.
+    try {
+      await commitSettingsState(set, get, (state) => ({
+        encryptionKeys: state.encryptionKeys.filter(k => k.id !== encryptionKeyId),
+      }));
+    } catch (e) {
+      console.error('Encryption key deletion failed to persist', e);
+      return 'persist-failed';
+    }
+
+    SecureStore.deleteItemAsync(getSecureKeyPath(encryptionKeyId, ENCRYPTION_KEY_PREFIX)).catch(
+      (err) => console.error('Encryption key secure deletion error:', err)
+    );
+
+    return 'deleted';
   },
   /**
    * Restores access/encryption key metadata AND their real secret values
@@ -400,11 +493,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         )
       ),
     ]);
-    set((state) => {
-      const updated = { ...state, accessKeys, encryptionKeys };
-      persistSnapshot(updated);
-      return updated;
-    });
+    // I-11 residual: commitSettingsState can now throw on a persist
+    // failure — deliberately left uncaught here. backupService.ts's
+    // restoreBackup call site keeps this call outside its
+    // passphrase-decrypt try/catch specifically so a persist failure
+    // surfaces via that function's own outer catch as an accurate "Restore
+    // operation failed" instead of a misleading "wrong passphrase" prompt
+    // (see that file's own comment on the call site).
+    await commitSettingsState(set, get, () => ({ accessKeys, encryptionKeys }));
   },
   /**
    * Wipes decrypted secrets from memory while the app is backgrounded
@@ -412,13 +508,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
    * deleting anything from SecureStore, so it must also flip `isHydrated`
    * back to false — otherwise `hydrateSettings()`'s early-return (`if
    * (state.isHydrated) return`) leaves every key permanently blank for the
-   * rest of the app session. A blank key is falsy, so
-   * `StorageService.encryptSandboxFile`/`decryptSandboxFile` silently fall
-   * back to their no-key path instead of real AES — any file touched while
-   * the keys are wiped gets encrypted/decrypted with the wrong transform,
-   * which reads back as "corrupted" garbage. `authenticate()` in authStore
-   * calls `hydrateSettings()` again on unlock, which re-reads the real
-   * secrets from SecureStore once this flag says they're needed.
+   * rest of the app session. A blank key is falsy — since S-11's
+   * remediation, `StorageService.encryptSandboxFile`/`decryptSandboxFile`
+   * both throw rather than silently falling back to a reversible transform,
+   * so any attempt to touch an encrypted file while the keys are wiped now
+   * fails loudly (caught by the calling viewer/store action) instead of
+   * reading back as "corrupted" garbage. `authenticate()` in authStore calls
+   * `hydrateSettings()` again on unlock, which re-reads the real secrets
+   * from SecureStore once this flag says they're needed.
    */
   lockTransientMemory: () => {
     set((state) => ({

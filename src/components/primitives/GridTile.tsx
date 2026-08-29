@@ -5,7 +5,7 @@
 // hairline-scale gutter between them, matching Google Photos' Albums grid.
 // Shared by dashboard.tsx's vault grid and folder/[id].tsx's subfolder/file
 // grid so every "small/medium/large icons" view mode renders the same way.
-import React from 'react';
+import React, { useState } from 'react';
 import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CheckCircle2, Circle, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -59,68 +59,84 @@ export function GridTile({
 }: GridTileProps) {
   const { colors, font, radius, iconSize } = useTheme();
 
+  // The menu/restore/delete buttons used to be nested inside the tile's own
+  // Pressable. On react-native-web a Pressable with accessibilityRole="button"
+  // renders as an HTML <button>, so nesting one Pressable inside another
+  // produced <button><button>…</button></button> — invalid HTML that
+  // browsers repair by closing the outer button early, detaching the inner
+  // button from the tree and breaking its click handling (the "…" menu
+  // looked static — tapping it did nothing). Native never hit this — only
+  // the web preview did — since Pressable-in-Pressable is fine there. Fix:
+  // the menu/restore/delete Pressables are now siblings of the main content
+  // Pressable (all children of a plain View), overlaid with absolute
+  // positioning where needed, so no button is ever nested inside another.
+  const [tilePressed, setTilePressed] = useState(false);
+
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? name}
-      accessibilityState={{ selected: selectable ? selected : undefined }}
-      style={({ pressed }) => [styles.tile, { width: size, opacity: dimmed ? 0.5 : pressed ? 0.85 : 1 }]}
-    >
-      <View
-        style={[
-          styles.thumb,
-          {
-            width: size,
-            height: size,
-            backgroundColor: thumbnailUri ? colors.surfaceHover : `${iconColor}1F`,
-            borderRadius: radius(2),
-          },
-        ]}
+    <View style={[styles.tile, { width: size, opacity: dimmed ? 0.5 : tilePressed ? 0.85 : 1 }]}>
+      <Pressable
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={() => setTilePressed(true)}
+        onPressOut={() => setTilePressed(false)}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? name}
+        accessibilityState={{ selected: selectable ? selected : undefined }}
       >
-        {thumbnailUri ? (
-          <RNImage source={{ uri: thumbnailUri }} style={styles.thumbImage} resizeMode="cover" />
-        ) : (
-          <Icon size={Math.round(size * 0.4)} color={iconColor} strokeWidth={1.75} />
-        )}
+        <View
+          style={[
+            styles.thumb,
+            {
+              width: size,
+              height: size,
+              backgroundColor: thumbnailUri ? colors.surfaceHover : `${iconColor}1F`,
+              borderRadius: radius(2),
+            },
+          ]}
+        >
+          {thumbnailUri ? (
+            <RNImage source={{ uri: thumbnailUri }} style={styles.thumbImage} resizeMode="cover" />
+          ) : (
+            <Icon size={Math.round(size * 0.4)} color={iconColor} strokeWidth={1.75} />
+          )}
 
-        {selected && (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: `${colors.primary}40`, borderRadius: radius(2) }]} />
-        )}
+          {selected && (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: `${colors.primary}40`, borderRadius: radius(2) }]} />
+          )}
 
-        {!!badges && <View style={styles.badgeCorner}>{badges}</View>}
+          {!!badges && <View style={styles.badgeCorner}>{badges}</View>}
 
-        {selectable ? (
-          <View style={[styles.checkBadge, { width: iconSize(22), height: iconSize(22), borderRadius: iconSize(11), backgroundColor: selected ? colors.primary : 'rgba(0,0,0,0.4)' }]}>
-            {selected ? (
-              <CheckCircle2 size={iconSize(16)} color={colors.onPrimary} strokeWidth={2.5} />
-            ) : (
-              <Circle size={iconSize(16)} color="#fff" strokeWidth={2.5} />
-            )}
-          </View>
-        ) : (
-          onMenuPress && (
-            <Pressable
-              onPress={onMenuPress}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`More actions for ${name}`}
-              style={[styles.menuBtn, { width: iconSize(22), height: iconSize(22), borderRadius: iconSize(11), backgroundColor: 'rgba(0,0,0,0.45)' }]}
-            >
-              <Text style={styles.menuDots}>•••</Text>
-            </Pressable>
-          )
-        )}
-      </View>
+          {selectable && (
+            <View style={[styles.checkBadge, { width: iconSize(22), height: iconSize(22), borderRadius: iconSize(11), backgroundColor: selected ? colors.primary : 'rgba(0,0,0,0.4)' }]}>
+              {selected ? (
+                <CheckCircle2 size={iconSize(16)} color={colors.onPrimary} strokeWidth={2.5} />
+              ) : (
+                <Circle size={iconSize(16)} color="#fff" strokeWidth={2.5} />
+              )}
+            </View>
+          )}
+        </View>
 
-      <Text numberOfLines={1} style={[styles.label, { color: colors.text, fontSize: font(Type.caption.size), width: size }]}>
-        {name}
-      </Text>
-      {!!subtitle && (
-        <Text numberOfLines={1} style={[styles.subtitle, { color: subtitleColor ?? colors.textMuted, fontSize: font(Type.caption.size), width: size }]}>
-          {subtitle}
+        <Text numberOfLines={1} style={[styles.label, { color: colors.text, fontSize: font(Type.caption.size), width: size }]}>
+          {name}
         </Text>
+        {!!subtitle && (
+          <Text numberOfLines={1} style={[styles.subtitle, { color: subtitleColor ?? colors.textMuted, fontSize: font(Type.caption.size), width: size }]}>
+            {subtitle}
+          </Text>
+        )}
+      </Pressable>
+
+      {!selectable && onMenuPress && (
+        <Pressable
+          onPress={onMenuPress}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`More actions for ${name}`}
+          style={[styles.menuBtn, { width: iconSize(22), height: iconSize(22), borderRadius: iconSize(11), backgroundColor: 'rgba(0,0,0,0.45)' }]}
+        >
+          <Text style={styles.menuDots}>•••</Text>
+        </Pressable>
       )}
 
       {!selectable && (onRestorePress || onDeletePress) && (
@@ -155,7 +171,7 @@ export function GridTile({
           )}
         </View>
       )}
-    </Pressable>
+    </View>
   );
 }
 

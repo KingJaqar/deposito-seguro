@@ -36,3 +36,19 @@ jest.mock('expo-secure-store', () => {
     },
   };
 });
+
+// Item 15 (component tests): react-native-safe-area-context has no native
+// measurement layer under Jest, so useSafeAreaInsets()/useSafeAreaFrame()
+// would otherwise throw without a real device. The library ships its own
+// jest mock (fixed 320x640 frame, zero insets, falls back to those defaults
+// even with no <SafeAreaProvider> in the tree) — shared here so every
+// component test gets it for free rather than re-mocking per test file.
+jest.mock('react-native-safe-area-context', () => {
+  // The library's own jest mock is an ES `export default {...}` — compiled
+  // to `{ __esModule: true, default: {...} }` under CJS require(). Returning
+  // that whole wrapper as-is from a jest.mock factory would leave consumers'
+  // `{ useSafeAreaInsets } from 'react-native-safe-area-context'` looking for
+  // `.useSafeAreaInsets` on the wrapper instead of on `.default`. Unwrap it.
+  const mock = require('react-native-safe-area-context/jest/mock');
+  return mock.default ?? mock;
+});

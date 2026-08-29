@@ -48,14 +48,20 @@ export interface FileMetadata {
   mimeType: string;
   localPath: string;
   /**
-   * Plaintext-cache path to a small preview image extracted at import time,
-   * independent of `localPath`/encryption — currently only populated for
-   * .apk files (see src/services/apkIconExtractor.ts), which get the real
-   * app launcher icon here instead of the generic Smartphone glyph. Kept
-   * unencrypted even when the file body is (like a thumbnail, not the file
-   * content itself) so the icon still renders for encrypted APKs.
+   * Cache path to a small preview image extracted at import time,
+   * independent of `localPath` — currently only populated for .apk files
+   * (see src/services/apkIconExtractor.ts), which get the real app launcher
+   * icon here instead of the generic Smartphone glyph.
+   *
+   * S-12 remediation: this used to always stay plaintext even when the file
+   * body was marked encrypted, revealing which app was hidden to anyone
+   * with filesystem access. When `iconEncrypted` is true, this path points
+   * to ciphertext (same key as the file body) and must be decrypted before
+   * rendering — see src/hooks/useFileThumbnailUri.ts.
    */
   iconPath?: string;
+  /** True if `iconPath` above points to ciphertext, not a plaintext PNG. Only meaningful when `iconPath` is set. */
+  iconEncrypted?: boolean;
   // Access key fields
   hasAccessKey?: boolean;
   accessKeyId?: string;

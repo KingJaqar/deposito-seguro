@@ -53,7 +53,8 @@ import { ViewModeMenu } from '../../components/ViewModeMenu';
 import { Badge } from '../../components/primitives/Badge';
 import { Chip } from '../../components/primitives/Chip';
 import { EmptyState } from '../../components/primitives/EmptyState';
-import { getFileThumbnailUri, getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
+import { FileGridTile, FileListRow } from '../../components/primitives/FileTile';
 import { GridTile } from '../../components/primitives/GridTile';
 import { ListRow } from '../../components/primitives/ListRow';
 import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
@@ -113,6 +114,21 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState(filterParam ?? 'All');
+  // I-23: was `useEffect(() => { if (filterParam) setActiveFilter(filterParam) }, [filterParam])`,
+  // which ESLint's react-hooks/set-state-in-effect flags (setState inside an
+  // effect body triggers a second, avoidable render). activeFilter can't be
+  // purely derived from filterParam — the filter chips below (onPress ->
+  // setActiveFilter) let the user change it independently after landing on
+  // the screen — so this needs the "adjusting state when a prop changes"
+  // pattern from the React docs: compare against the last-seen filterParam
+  // during render and call setState synchronously (not in an effect) when
+  // it changes, folding the sync into the same render instead of a
+  // following one.
+  const [prevFilterParam, setPrevFilterParam] = useState(filterParam);
+  if (filterParam !== prevFilterParam) {
+    setPrevFilterParam(filterParam);
+    if (filterParam) setActiveFilter(filterParam);
+  }
   const [collapsedSections, setCollapsedSections] = useState<Set<VaultSectionKey>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -127,7 +143,6 @@ export default function SearchScreen() {
   const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string; targetType: 'file' | 'folder' | 'bulk' } | null>(null);
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
-  useEffect(() => { if (filterParam) setActiveFilter(filterParam); }, [filterParam]);
 
   const allFiles = files.filter(f => !f.isTrash);
   const allFolders = folders.filter((f: any) => !f.isTrash);
@@ -636,13 +651,13 @@ export default function SearchScreen() {
             const meta = getFileTypeMeta(item.mimeType ?? '', item.name);
             const FileIcon = meta.Icon;
             return (
-              <GridTile
+              <FileGridTile
                 key={item.id}
+                file={item}
                 size={gridItemWidth}
                 name={item.name}
                 Icon={FileIcon}
                 iconColor={meta.color}
-                thumbnailUri={getFileThumbnailUri(item)}
                 selectable={selectionMode}
                 selected={isSelected}
                 dimmed={isCutPending}
@@ -671,11 +686,11 @@ export default function SearchScreen() {
           const meta = getFileTypeMeta(item.mimeType ?? '', item.name);
           const FileIcon = meta.Icon;
           return (
-            <ListRow
+            <FileListRow
               key={item.id}
+              file={item}
               title={item.name}
               subtitle={`${(item.size / 1024).toFixed(1)} KB · ${meta.label}`}
-              thumbnailUri={getFileThumbnailUri(item)}
               leading={<FileIcon size={iconSize(22)} color={meta.color} strokeWidth={2} />}
               trailingBadges={
                 <>

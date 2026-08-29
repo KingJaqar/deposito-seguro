@@ -47,6 +47,7 @@ import { TopToast, useTopToast } from '../../../components/primitives/TopToast';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useScreenEnterAnimation } from '../../../hooks/useScreenEnterAnimation';
+import { SecureCrypto } from '../../../security/crypto';
 import { LOCKOUT_DURATION_MS, MAX_PASSWORD_ATTEMPTS, useLockoutStore } from '../../../store/lockoutStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { AccessKeyMetadata } from '../../../types';
@@ -98,7 +99,11 @@ export default function AccessKeysScreen() {
       return;
     }
 
-    if (deleteVerificationPassword === pendingDeletePassword.password) {
+    // S-7 residual: constant-time compare, same as AccessKeyUnlockModal's
+    // unlock check and authStore's master-password check — a plain `===`
+    // here leaks timing info about how many leading characters of the real
+    // password the guess got right.
+    if (SecureCrypto.secureCompare(deleteVerificationPassword, pendingDeletePassword.password)) {
       const result = await deleteAccessKey(pendingDeletePassword.id);
       setShowDeleteVerificationModal(false);
       setPendingDeletePassword(null);
@@ -109,6 +114,13 @@ export default function AccessKeysScreen() {
         Alert.alert('Password In Use', 'This password is assigned to at least one file or folder. Reassign or remove before deleting it.');
       } else if (result === 'not-found') {
         Alert.alert('Password Not Found', 'This access key no longer exists.');
+      } else if (result === 'persist-failed') {
+        // I-11 residual follow-up: distinct from 'not-found' — the key WAS
+        // just removed from the in-memory list (it will disappear from
+        // screen right now) but the write to disk failed, so it may come
+        // back on next launch. Telling the user "no longer exists" here
+        // would be actively wrong.
+        Alert.alert('Deletion May Not Be Saved', `${pendingDeletePassword.label} was removed, but saving that change failed. It may still be here after restarting the app — try deleting it again.`);
       } else {
         Alert.alert('Password Deleted', `${pendingDeletePassword.label} has been deleted.`);
       }

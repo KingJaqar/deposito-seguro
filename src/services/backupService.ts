@@ -437,18 +437,30 @@ export class EnhancedBackupService {
           needsPassphrase = true;
         } else {
           onProgress?.('Decrypting access & encryption keys...', 88);
+          let decryptedKeys: { accessKeys: AccessKeyMetadata[]; encryptionKeys: EncryptionKeyMetadata[] } | null = null;
           try {
             const derivedKey = await SecureCrypto.hashPassword(backupPassphrase.trim(), manifest.keyMaterial.salt);
             const payloadBase64 = await SecureCrypto.decrypt(manifest.keyMaterial.ciphertext, derivedKey);
             const payloadJson = SecureCrypto.base64ToUtf8(payloadBase64);
-            const { accessKeys, encryptionKeys } = JSON.parse(payloadJson) as {
+            decryptedKeys = JSON.parse(payloadJson) as {
               accessKeys: AccessKeyMetadata[];
               encryptionKeys: EncryptionKeyMetadata[];
             };
-            await useSettingsStore.getState().restoreKeysFromBackup(accessKeys, encryptionKeys);
           } catch (e) {
             console.error('Failed to decrypt backup key material (wrong passphrase?)', e);
             needsPassphrase = true;
+          }
+          // I-11 residual: restoreKeysFromBackup can now throw on an
+          // AsyncStorage persist failure (settingsStore.ts's
+          // commitSettingsState) — deliberately called outside the decrypt
+          // try/catch above, so a persist failure doesn't get misreported as
+          // "wrong passphrase" (which would send the user into a confusing
+          // passphrase-retry loop for an unrelated storage error). Left
+          // uncaught here on purpose: the outer try/catch at the bottom of
+          // this function already gives an accurate, if generic, "Restore
+          // operation failed" result for this case.
+          if (decryptedKeys) {
+            await useSettingsStore.getState().restoreKeysFromBackup(decryptedKeys.accessKeys, decryptedKeys.encryptionKeys);
           }
         }
       }
