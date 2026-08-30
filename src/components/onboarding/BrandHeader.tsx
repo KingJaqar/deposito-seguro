@@ -1,14 +1,17 @@
 // src/components/onboarding/BrandHeader.tsx
-// Shared top-of-screen identity row for the onboarding wizard: a small
-// lock-badge icon plus the "Deposito Seguro / Local vault" wordmark, per the
-// onboarding screen references. An optional back-chevron button renders
-// above it on the master-key/confirm-key steps — laid out as its own row
-// with real margin (not stacked on top of the badge) so it never overlaps
-// the wordmark.
-import { ChevronLeft, Lock } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+// Shared top-of-screen identity row for the onboarding wizard: the
+// DepoS_logo badge plus the "Deposito Seguro / Local vault" wordmark. Used
+// as-is (no per-step variant) on steps 1–3 so the header stays identical
+// across the overview, master-key, and confirm-key screens. An optional
+// back-chevron button renders above it on the master-key/confirm-key steps
+// — laid out as its own row with real margin (not stacked on top of the
+// badge) so it never overlaps the wordmark.
+import { ChevronLeft } from 'lucide-react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
+
+const LOGO_SOURCE = require('../../../assets/logo/DepoS_logo.png');
 
 export interface BrandHeaderProps {
   onBack?: () => void;
@@ -44,7 +47,7 @@ export function BrandHeader({ onBack }: BrandHeaderProps) {
             },
           ]}
         >
-          <Lock size={iconSize(18)} color={colors.primary} strokeWidth={2.25} />
+          <Image source={LOGO_SOURCE} style={{ width: iconSize(26), height: iconSize(26) }} resizeMode="contain" />
         </View>
         <View style={{ marginLeft: space(3) }}>
           <Text style={[styles.title, { color: colors.text, fontSize: font(Type.subtitle.size) }]}>Deposito Seguro</Text>

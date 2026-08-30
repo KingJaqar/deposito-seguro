@@ -15,7 +15,6 @@ interface SettingsState {
   encryptionDefault: boolean;
   accentColor: string;
   fontSizeMultiplier: number;
-  displayScale: number;
   screenshotProtection: boolean;
   clipboardClearEnabled: boolean;
   fakeCrashEnabled: boolean;
@@ -97,7 +96,7 @@ const loadEncryptionKeyValues = async (encryptionKeys: EncryptionKeyMetadata[]) 
     .map((r) => r.value);
 };
 
-type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'displayScale' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'storageLimitBytes' | 'accessKeys' | 'encryptionKeys';
+type SettingsSettingKey = 'themeMode' | 'disguiseMode' | 'viewMode' | 'autoLockDuration' | 'encryptionDefault' | 'accentColor' | 'fontSizeMultiplier' | 'screenshotProtection' | 'clipboardClearEnabled' | 'fakeCrashEnabled' | 'showHiddenFiles' | 'disguiseAppName' | 'disguiseIconTheme' | 'storageLimitBytes' | 'accessKeys' | 'encryptionKeys';
 
 const PERSIST_KEYS: SettingsSettingKey[] = [
   'themeMode',
@@ -107,7 +106,6 @@ const PERSIST_KEYS: SettingsSettingKey[] = [
   'encryptionDefault',
   'accentColor',
   'fontSizeMultiplier',
-  'displayScale',
   'screenshotProtection',
   'clipboardClearEnabled',
   'fakeCrashEnabled',
@@ -205,7 +203,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   encryptionDefault: false,
   accentColor: '#0A84FF',
   fontSizeMultiplier: 1.0,
-  displayScale: 1.0,
   // S-9: default to on — a vault app should protect screenshots/recent-apps
   // thumbnails out of the box, not require the user to discover and enable it.
   screenshotProtection: true,

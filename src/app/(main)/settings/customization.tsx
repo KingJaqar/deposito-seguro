@@ -5,7 +5,8 @@
 // of the app (so it really is live, not a static illustration), value
 // summaries on every section header, and swatch/pill pickers in place of the
 // old uppercase-eyebrow section labels + plain segmented control everywhere.
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Check,
@@ -25,7 +26,6 @@ import { CategoryTint, Palette } from '../../../constants/Colors';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { MIN_TOUCH_TARGET } from '../../../utils/responsive';
 
 const THEME_OPTIONS = [
   { value: 'light' as const, label: 'Light', sub: 'Bright backgrounds, dark text' },
@@ -40,48 +40,35 @@ const VIEW_MODE_OPTIONS = [
   { value: 'small-icons' as const, label: 'Small', sub: 'Up to 5 columns' },
 ];
 
-// SegmentedControl/SizePickerRow are generic over string values, so the
-// multiplier persisted in settingsStore (fontSizeMultiplier / displayScale)
-// is looked up by a string key here rather than driving the control directly.
-const FONT_SIZE_OPTIONS = [
-  { value: 'very-small' as const, label: 'Very Small', sub: 'Most compact reading size', multiplier: 0.75 },
-  { value: 'small' as const, label: 'Small', sub: 'Compact reading size', multiplier: 0.875 },
-  { value: 'medium' as const, label: 'Medium', sub: 'Standard reading size', multiplier: 1.0 },
-  { value: 'large' as const, label: 'Large', sub: 'Easier to read', multiplier: 1.15 },
-  { value: 'very-large' as const, label: 'Very Large', sub: 'Maximum readability', multiplier: 1.3 },
-];
-
-const DISPLAY_SIZE_OPTIONS = [
-  { value: '25' as const, label: '25%', sub: 'Tightest spacing, most on screen', multiplier: 0.25 },
-  { value: '50' as const, label: '50%', sub: 'Very tight spacing', multiplier: 0.5 },
-  { value: '100' as const, label: '100%', sub: 'Recommended spacing', multiplier: 1.0 },
-  { value: '150' as const, label: '150%', sub: 'Roomier touch targets', multiplier: 1.5 },
-  { value: '200' as const, label: '200%', sub: 'Largest spacing and touch targets', multiplier: 2.0 },
-];
-
-// The picker itself always shows "Aa" — the descriptive word ("Very Small"…)
-// only ever appears in the section's current-value summary and caption —
-// with each option's own glyph sized to its multiplier so the row reads as a
-// graduated scale, independent of whatever text size is currently applied to
-// the rest of the app.
-const TEXT_SIZE_PICKER_OPTIONS = FONT_SIZE_OPTIONS.map((o) => ({
-  value: o.value,
-  label: 'Aa',
-  a11yLabel: o.label,
-  fontSize: Math.round(o.multiplier * 18),
-}));
-
-const DISPLAY_SIZE_PICKER_OPTIONS = DISPLAY_SIZE_OPTIONS.map((o) => ({
-  value: o.value,
-  label: o.label,
-  a11yLabel: o.label,
-}));
+// Text size is a direct percentage-of-normal scale (25%–250%, in 10 even
+// 25-point steps) rather than 5 named presets — the multiplier persisted in
+// settingsStore (fontSizeMultiplier) is just percent / 100, so 100% (the
+// 4th stop) is the app's normal, un-scaled reading size and DEFAULTS below
+// stays anchored there; steps below it shrink text to fit more on screen,
+// steps above it enlarge it for readability.
+const FONT_SIZE_OPTIONS = Array.from({ length: 10 }, (_, i) => {
+  const percent = (i + 1) * 25;
+  return {
+    value: String(percent),
+    label: `${percent}%`,
+    sub:
+      percent === 100
+        ? 'Standard reading size'
+        : percent > 100
+          ? percent >= 200
+            ? 'Maximum readability — largest text'
+            : 'Larger — easier to read'
+          : percent >= 50
+            ? 'Slightly reduced — more fits on screen'
+            : 'Very compact — may be hard to read',
+    multiplier: percent / 100,
+  };
+});
 
 const DEFAULTS = {
   themeMode: 'dark' as const,
   viewMode: 'list' as const,
   fontSizeMultiplier: 1.0,
-  displayScale: 1.0,
 };
 
 const PREVIEW_ITEMS: { name: string; sub: string; Icon: LucideIcon; tint?: string; isFolder?: boolean }[] = [
@@ -187,68 +174,140 @@ function ThemeSwatchPicker({
   );
 }
 
-interface SizePickerOption<T extends string> {
-  value: T;
-  label: string;
-  a11yLabel: string;
-  fontSize?: number;
-}
-
 /**
- * A row of variable-width pills where the selected option gets a filled
- * "chip" background — used for Text Size (options are graduated "Aa" glyphs,
- * so a shared-width sliding thumb like SegmentedControl's doesn't fit) and
- * Display Size (uniform width, but styled to match).
+ * A discrete 10-stop drag slider — track fills from the left up to the
+ * thumb, with a tick per stop, replacing the Text Size chip grid. Tracks its
+ * own pixel width via onLayout (percent-of-track math needs real pixels,
+ * not the 0..1 layout fraction alone) and its own screen-space origin via
+ * `measure()` so drag math stays correct regardless of scroll position —
+ * `nativeEvent.locationX` isn't used because on Android it's reported
+ * relative to whatever view is currently under the finger, not the view
+ * that captured the gesture, so it drifts once the finger leaves the
+ * responder's original bounds mid-drag.
  */
-function SizePickerRow<T extends string>({
+function TextSizeSlider({
   options,
   value,
   onChange,
-  accessibilityLabel,
 }: {
-  options: SizePickerOption<T>[];
-  value: T;
-  onChange: (v: T) => void;
-  accessibilityLabel: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
 }) {
-  const { colors, font, radius } = useTheme();
+  const { colors, space, font, radius } = useTheme();
+  const trackRef = useRef<View>(null);
+  const trackOriginX = useRef(0);
+  const [trackWidth, setTrackWidth] = useState(0);
+
+  const stepCount = options.length;
+  const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const fraction = stepCount > 1 ? activeIndex / (stepCount - 1) : 0;
+
+  const commitFromPageX = (pageX: number) => {
+    if (trackWidth <= 0) return;
+    const localX = pageX - trackOriginX.current;
+    const clamped = Math.max(0, Math.min(trackWidth, localX));
+    const idx = Math.round((clamped / trackWidth) * (stepCount - 1));
+    const opt = options[idx];
+    if (opt && opt.value !== value) onChange(opt.value);
+  };
+
+  // `PanResponder.create()` lives in a `useRef` so it's built exactly once —
+  // its handler closures would otherwise see stale `trackWidth`/`value`
+  // (captured from whichever render happened to run first, typically before
+  // onLayout's measure() ever fires, permanently reading trackWidth as 0 and
+  // silently no-op'ing every drag). `commitRef` is refreshed every render so
+  // the fixed PanResponder instance always calls into the latest closure.
+  const commitRef = useRef(commitFromPageX);
+  commitRef.current = commitFromPageX;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => commitRef.current(e.nativeEvent.pageX),
+      onPanResponderMove: (e) => commitRef.current(e.nativeEvent.pageX),
+    })
+  ).current;
+
+  const thumbSize = 24;
+
+  // Reference-line markers at fixed percentages (not tied to the option
+  // stops themselves, so they'd still land correctly if the step size ever
+  // changes) — positioned by their fraction across [min, max], same as the
+  // thumb/fill, and skipped if out of the current range.
+  const minPercent = Number(options[0]?.value ?? 0);
+  const maxPercent = Number(options[stepCount - 1]?.value ?? 0);
+  const markerPercents = [50, 100, 150, 200].filter((p) => p >= minPercent && p <= maxPercent);
 
   return (
-    <View
-      accessibilityRole="radiogroup"
-      accessibilityLabel={accessibilityLabel}
-      style={[styles.pickerTrack, { backgroundColor: colors.surfaceHover, borderRadius: radius(4), borderColor: colors.borderLight, padding: 3 }]}
-    >
-      {options.map((opt) => {
-        const selected = opt.value === value;
-        return (
-          <Pressable
-            key={opt.value}
-            onPress={() => onChange(opt.value)}
-            accessibilityRole="radio"
-            accessibilityLabel={opt.a11yLabel}
-            accessibilityState={{ checked: selected }}
-            style={[
-              styles.pickerOption,
-              {
-                minHeight: MIN_TOUCH_TARGET - 8,
-                borderRadius: radius(3),
-                backgroundColor: selected ? colors.surface : 'transparent',
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: opt.fontSize ?? font(Type.label.size),
-                fontWeight: selected ? '800' : '600',
-                color: selected ? colors.text : colors.textMuted,
-              }}
-            >
-              {opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View accessibilityRole="adjustable" accessibilityLabel="Text size" accessibilityValue={{ min: 1, max: stepCount, now: activeIndex + 1, text: options[activeIndex]?.label }}>
+      <View
+        ref={trackRef}
+        onLayout={() => {
+          trackRef.current?.measure((_x, _y, width, _height, pageX) => {
+            trackOriginX.current = pageX;
+            setTrackWidth(width);
+          });
+        }}
+        hitSlop={{ top: 16, bottom: 16 }}
+        {...panResponder.panHandlers}
+        style={styles.sliderHitArea}
+      >
+        <View style={[styles.sliderTrack, { backgroundColor: colors.borderLight, borderRadius: radius(2) }]}>
+          <View style={[styles.sliderFill, { width: `${fraction * 100}%`, backgroundColor: colors.primary, borderRadius: radius(2) }]} />
+        </View>
+        {/* Pinned to all four edges of sliderHitArea (a definite, already-
+         * measured size by the time this paints) so every child's `top`/
+         * `left` percentage below resolves against real pixels — the ticks
+         * row previously left `top` unset, which made its vertical position
+         * ambiguous, and the marker lines used `colors.surfaceElevated`,
+         * which in the AMOLED palette (#161616) is nearly identical to the
+         * track's own unfilled color (#1A1A1A) and invisible against it. */}
+        <View pointerEvents="none" style={styles.sliderOverlay}>
+          {options.map((opt, i) => (
+            <View
+              key={opt.value}
+              style={[
+                styles.sliderTick,
+                {
+                  left: `${(i / (stepCount - 1)) * 100}%`,
+                  backgroundColor: i <= activeIndex ? colors.primary : colors.borderLight,
+                  borderRadius: radius(1),
+                },
+              ]}
+            />
+          ))}
+          {markerPercents.map((p) => (
+            <View
+              key={p}
+              style={[
+                styles.sliderMarkerLine,
+                { left: `${((p - minPercent) / (maxPercent - minPercent)) * 100}%`, backgroundColor: colors.text },
+              ]}
+            />
+          ))}
+        </View>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.sliderThumb,
+            {
+              width: thumbSize,
+              height: thumbSize,
+              borderRadius: thumbSize / 2,
+              left: `${fraction * 100}%`,
+              marginLeft: -thumbSize / 2,
+              backgroundColor: colors.primary,
+              borderColor: colors.surfaceElevated,
+            },
+          ]}
+        />
+      </View>
+      <View style={[styles.sliderEndLabels, { marginTop: space(2) }]}>
+        <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: font(Type.caption.size) }}>{options[0]?.label}</Text>
+        <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: font(Type.caption.size) }}>{options[stepCount - 1]?.label}</Text>
+      </View>
     </View>
   );
 }
@@ -297,18 +356,16 @@ function PreviewCard() {
 
 export default function CustomizationSettingsScreen() {
   const { colors, space, font, screenPadding, bottomTabSpacing } = useTheme();
-  const { themeMode, viewMode, fontSizeMultiplier, displayScale, updateSetting } = useSettingsStore();
+  const { themeMode, viewMode, fontSizeMultiplier, updateSetting } = useSettingsStore();
 
   const activeTheme = THEME_OPTIONS.find(o => o.value === themeMode) ?? THEME_OPTIONS[1];
   const activeViewMode = VIEW_MODE_OPTIONS.find(o => o.value === viewMode) ?? VIEW_MODE_OPTIONS[0];
   const activeFontSize = closestOption(FONT_SIZE_OPTIONS, fontSizeMultiplier);
-  const activeDisplaySize = closestOption(DISPLAY_SIZE_OPTIONS, displayScale);
 
   const handleReset = () => {
     updateSetting('themeMode', DEFAULTS.themeMode);
     updateSetting('viewMode', DEFAULTS.viewMode);
     updateSetting('fontSizeMultiplier', DEFAULTS.fontSizeMultiplier);
-    updateSetting('displayScale', DEFAULTS.displayScale);
   };
 
   return (
@@ -343,24 +400,12 @@ export default function CustomizationSettingsScreen() {
 
         <SectionHeader label="Text size" value={activeFontSize.label} />
         <Card style={{ marginBottom: space(6) }}>
-          <SizePickerRow
-            options={TEXT_SIZE_PICKER_OPTIONS}
+          <TextSizeSlider
+            options={FONT_SIZE_OPTIONS}
             value={activeFontSize.value}
             onChange={(v) => updateSetting('fontSizeMultiplier', FONT_SIZE_OPTIONS.find(o => o.value === v)!.multiplier)}
-            accessibilityLabel="Text size"
           />
           <SectionCaption text={activeFontSize.sub} />
-        </Card>
-
-        <SectionHeader label="Display size" value={`${activeDisplaySize.label} spacing`} />
-        <Card>
-          <SizePickerRow
-            options={DISPLAY_SIZE_PICKER_OPTIONS}
-            value={activeDisplaySize.value}
-            onChange={(v) => updateSetting('displayScale', DISPLAY_SIZE_OPTIONS.find(o => o.value === v)!.multiplier)}
-            accessibilityLabel="Display size"
-          />
-          <SectionCaption text={activeDisplaySize.sub} />
         </Card>
       </ScrollView>
       <AnimatedTabBar />
@@ -377,8 +422,14 @@ const styles = StyleSheet.create({
   swatchPreview: { width: '100%', height: 56, position: 'relative' },
   swatchBar: { height: 8 },
   checkBadge: { position: 'absolute', top: 6, right: 6, alignItems: 'center', justifyContent: 'center' },
-  pickerTrack: { flexDirection: 'row', justifyContent: 'space-between', borderWidth: StyleSheet.hairlineWidth },
-  pickerOption: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  sliderHitArea: { justifyContent: 'center', paddingVertical: 10 },
+  sliderTrack: { height: 4, overflow: 'hidden' },
+  sliderFill: { height: 4 },
+  sliderOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  sliderTick: { position: 'absolute', top: '50%', width: 4, height: 4, marginTop: -2, marginLeft: -2 },
+  sliderMarkerLine: { position: 'absolute', top: '50%', width: 2, height: 14, marginTop: -7, marginLeft: -1 },
+  sliderThumb: { position: 'absolute', borderWidth: 3 },
+  sliderEndLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   livePill: { paddingVertical: 3, borderWidth: StyleSheet.hairlineWidth },
   previewRow: { flexDirection: 'row', justifyContent: 'space-between' },

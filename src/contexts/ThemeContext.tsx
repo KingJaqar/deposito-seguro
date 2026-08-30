@@ -53,14 +53,12 @@ interface ResponsiveThemeValues {
   shadow: (key: ShadowKey) => ShadowToken;
   percentageWidth: (pct: number) => string;
   percentageHeight: (pct: number) => string;
-  /** Scales an icon/glyph/avatar size (or any other raw pixel dimension —
-   * checkmarks, badges, thumbnails) by the user's Display Size setting. This
-   * is the Display Size counterpart to font(): font() only ever scales text
-   * (Text Size setting), iconSize() scales everything else that isn't text. */
+  /** Icon/glyph/avatar size (or any other raw pixel dimension — checkmarks,
+   * badges, thumbnails). This is the non-text counterpart to font(): font()
+   * only ever scales text, iconSize() covers everything else that isn't. */
   iconSize: (base: number) => number;
-  /** MIN_TOUCH_TARGET scaled by Display Size — use instead of the raw
-   * MIN_TOUCH_TARGET import wherever a control's tap target should grow/
-   * shrink with the rest of the UI. */
+  /** MIN_TOUCH_TARGET — use instead of the raw MIN_TOUCH_TARGET import
+   * wherever a control needs its minimum tap target. */
   touchTarget: (base?: number) => number;
 }
 
@@ -75,14 +73,13 @@ interface ResponsiveThemeValues {
 function computeResponsiveTheme(
   width: number,
   colors: ThemeColors,
-  fontSizeMultiplier: number = 1,
-  displayScale: number = 1
+  fontSizeMultiplier: number = 1
 ): ResponsiveThemeValues {
   const isTab = detectTablet(width);
 
   const space = (key: SpacingKey): number => {
     const base = getSpacing(key);
-    return Math.round(base * (isTab ? 1.25 : 1) * displayScale);
+    return Math.round(base * (isTab ? 1.25 : 1));
   };
 
   const screenPadding = space(isTab ? 12 : 8); // 24 tablet / 16 phone
@@ -112,15 +109,8 @@ function computeResponsiveTheme(
     return getResponsiveSize(phone, tabletVal, desktop, width);
   };
 
-  // Display Size feeds a scaled minItemWidth in rather than scaling the
-  // resulting column count/width directly — with a bigger minItemWidth,
-  // getGridColumns naturally fits fewer, larger columns (and vice versa),
-  // which is exactly "how much fits on screen" the Appearance screen's
-  // Display Size caption describes. gridItemWidth itself stays pure geometry
-  // (container width / columns / gaps) — it doesn't need its own scaling
-  // since it already reflects however many columns gridColumns decided on.
   const gridColumns = (viewMode: 'list' | 'small-icons' | 'medium-icons' | 'large-icons', minItemWidth: number = 80): number => {
-    return getGridColumns(viewMode, width, minItemWidth * displayScale);
+    return getGridColumns(viewMode, width, minItemWidth);
   };
 
   const gridItemWidth = (columns: number, gap: number = getSpacing(6), px: number = screenPadding): number => {
@@ -129,7 +119,7 @@ function computeResponsiveTheme(
 
   const radius = (key: RadiusKey): number => {
     const base = getRadius(key);
-    return Math.round(base * (isTab ? 1.25 : 1) * displayScale);
+    return Math.round(base * (isTab ? 1.25 : 1));
   };
 
   const shadow = (key: ShadowKey): ShadowToken => {
@@ -140,9 +130,9 @@ function computeResponsiveTheme(
     };
   };
 
-  const iconSize = (base: number): number => Math.round(base * displayScale);
+  const iconSize = (base: number): number => Math.round(base);
 
-  const touchTarget = (base: number = MIN_TOUCH_TARGET): number => Math.round(base * displayScale);
+  const touchTarget = (base: number = MIN_TOUCH_TARGET): number => Math.round(base);
 
   return {
     spacing: spacingScale,
@@ -176,7 +166,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export const CustomThemeProvider = ({ children }: { children: ReactNode }) => {
-  const { themeMode, disguiseMode, fontSizeMultiplier, displayScale } = useSettingsStore();
+  const { themeMode, disguiseMode, fontSizeMultiplier } = useSettingsStore();
 
   const activePalette = useMemo(() => {
     let palette = Palette[themeMode as keyof typeof Palette] || Palette.dark;
@@ -188,8 +178,8 @@ export const CustomThemeProvider = ({ children }: { children: ReactNode }) => {
   const { width } = useWindowDimensions();
 
   const responsive = useMemo<ResponsiveThemeValues>(
-    () => computeResponsiveTheme(width, activePalette, fontSizeMultiplier, displayScale),
-    [width, activePalette, fontSizeMultiplier, displayScale]
+    () => computeResponsiveTheme(width, activePalette, fontSizeMultiplier),
+    [width, activePalette, fontSizeMultiplier]
   );
 
   const value = useMemo<ThemeContextValue>(
@@ -239,7 +229,7 @@ interface UseThemeReturn {
 export const useTheme = (): UseThemeReturn => {
   const context = useContext(ThemeContext);
   const colors = context?.colors || Palette.dark;
-  const { themeMode, updateSetting, fontSizeMultiplier, displayScale } = useSettingsStore();
+  const { themeMode, updateSetting, fontSizeMultiplier } = useSettingsStore();
 
   const toggleTheme = () => {
     updateSetting('themeMode', themeMode === 'light' ? 'dark' : 'light');
@@ -250,7 +240,7 @@ export const useTheme = (): UseThemeReturn => {
   // the whole app in src/app/_layout.tsx) so a real window width is still
   // used instead of silently returning stale/default responsive values.
   const { width: fallbackWidth } = useWindowDimensions();
-  const responsive = context?.responsive ?? computeResponsiveTheme(fallbackWidth, colors, fontSizeMultiplier, displayScale);
+  const responsive = context?.responsive ?? computeResponsiveTheme(fallbackWidth, colors, fontSizeMultiplier);
 
   return {
     colors,
