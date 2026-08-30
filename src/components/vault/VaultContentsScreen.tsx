@@ -66,6 +66,7 @@ import { ClipboardBar } from '../ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../DestructiveConfirmModal';
 import { VaultHeader } from '../VaultHeader';
 import { ViewModeMenu } from '../ViewModeMenu';
+import { SortMenu } from '../SortMenu';
 import { Badge } from '../primitives/Badge';
 import { Card } from '../primitives/Card';
 import { Dialog } from '../primitives/Dialog';
@@ -95,6 +96,9 @@ import { useVaultStore, StorageLimitExceededError, AlbumMediaOnlyError } from '.
 import { getFolderStatsMap, toMoveDestinations } from '../../utils/folderStats';
 import { chunkIntoRows } from '../../utils/gridRows';
 import { groupFilesByDate } from '../../utils/dateGroups';
+import { sortFolders, sortFiles, SortKey } from '../../utils/vaultSort';
+
+const DEFAULT_SORT: SortKey = 'name_asc';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 
 export interface VaultContentsScreenProps {
@@ -184,15 +188,22 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
   const photoCount = useMemo(() => matchedFiles.filter(f => f.mimeType?.startsWith('image/')).length, [matchedFiles]);
   const videoCount = useMemo(() => matchedFiles.filter(f => f.mimeType?.startsWith('video/')).length, [matchedFiles]);
 
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
+
   const searchQuery = search.trim().toLowerCase();
+  // isAlbum-guarded (Fix 4): the album variant's displayedFiles also feeds
+  // groupFilesByDate below, which re-sorts by date internally regardless of
+  // input order — sorting here first would be wasted work and would drift
+  // from "leave the album branch untouched". No sort control is shown for
+  // albums either (rightSlot below), so sortKey never changes there anyway.
   const displayedFolders = useMemo(() => {
-    if (!searchQuery) return matchedFolders;
-    return matchedFolders.filter(f => f.name.toLowerCase().includes(searchQuery));
-  }, [matchedFolders, searchQuery]);
+    const filtered = searchQuery ? matchedFolders.filter(f => f.name.toLowerCase().includes(searchQuery)) : matchedFolders;
+    return isAlbum ? filtered : sortFolders(filtered, sortKey);
+  }, [matchedFolders, searchQuery, isAlbum, sortKey]);
   const displayedFiles = useMemo(() => {
-    if (!searchQuery) return matchedFiles;
-    return matchedFiles.filter(f => f.name.toLowerCase().includes(searchQuery));
-  }, [matchedFiles, searchQuery]);
+    const filtered = searchQuery ? matchedFiles.filter(f => f.name.toLowerCase().includes(searchQuery)) : matchedFiles;
+    return isAlbum ? filtered : sortFiles(filtered, sortKey);
+  }, [matchedFiles, searchQuery, isAlbum, sortKey]);
   const isSearching = searchQuery.length > 0;
   const hasNoSearchResults = isSearching && displayedFolders.length === 0 && displayedFiles.length === 0;
 
@@ -1170,6 +1181,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         showBack
         rightButton={
           <View style={styles.headerRightRow}>
+            {!isAlbum && <SortMenu value={sortKey} onChange={setSortKey} defaultKey={DEFAULT_SORT} />}
             <ViewModeMenu />
             <TouchableOpacity
               onPress={() => setShowFolderMenu(true)}

@@ -50,6 +50,7 @@ import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { SortMenu } from '../../components/SortMenu';
 import { Badge } from '../../components/primitives/Badge';
 import { Chip } from '../../components/primitives/Chip';
 import { Dialog } from '../../components/primitives/Dialog';
@@ -73,6 +74,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
 import { buildVaultSections, VaultSectionData, VaultSectionKey, CategoryFilter } from '../../utils/vaultSections';
+import { sortFolders, sortFiles, SortKey } from '../../utils/vaultSort';
+
+const DEFAULT_SORT: SortKey = 'name_asc';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 
@@ -138,17 +142,25 @@ export default function FavoritesScreen() {
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
   const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string; targetType: 'file' | 'folder' | 'bulk' } | null>(null);
 
-  const favoriteFiles = files.filter(f => f.isFavorite && !f.isTrash);
-  const favoriteFolders = folders.filter(f => f.isFavorite);
+  // Relocated above searchedFolders/searchedFiles/sections (was declared
+  // after them) so those can safely reference it without a
+  // temporal-dead-zone crash — see plans/sorting function implementation
+  // plan.md Fix 3. Pure reordering: its own dependency is only `files`.
+  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
-  const searchedFiles = favoriteFiles.filter(f => {
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
+
+  const favoriteFiles = useMemo(() => files.filter(f => f.isFavorite && !f.isTrash), [files]);
+  const favoriteFolders = useMemo(() => folders.filter(f => f.isFavorite), [folders]);
+
+  const searchedFiles = useMemo(() => sortFiles(favoriteFiles.filter(f => {
     if (!debouncedQuery.trim()) return true;
     return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
-  });
-  const searchedFolders = favoriteFolders.filter(f => {
+  }), sortKey), [favoriteFiles, debouncedQuery, sortKey]);
+  const searchedFolders = useMemo(() => sortFolders(favoriteFolders.filter(f => {
     if (!debouncedQuery.trim()) return true;
     return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
-  });
+  }), sortKey), [favoriteFolders, debouncedQuery, sortKey]);
 
   // contentFiles: the un-searched, non-trash file list — a folder "contains"
   // a given type regardless of whether the folder's own name matched the
@@ -172,8 +184,6 @@ export default function FavoritesScreen() {
   const totalCount = (sectionByKey('folders')?.folders?.length ?? 0)
     + (sectionByKey('files')?.files?.length ?? 0)
     + (sectionByKey('albums')?.folders?.length ?? 0);
-
-  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 200);
@@ -862,7 +872,16 @@ export default function FavoritesScreen() {
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
-      <TabRootHeader title="Favorites" tagline="Your starred items" rightSlot={<ViewModeMenu />} />
+      <TabRootHeader
+        title="Favorites"
+        tagline="Your starred items"
+        rightSlot={
+          <View style={styles.headerControls}>
+            <SortMenu value={sortKey} onChange={setSortKey} defaultKey={DEFAULT_SORT} />
+            <ViewModeMenu />
+          </View>
+        }
+      />
 
       <ScrollView
         contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing + space(8) }]}
@@ -1064,6 +1083,7 @@ export default function FavoritesScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scrollBody: { paddingTop: 12 },
+  headerControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   searchBar: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth },
   searchInput: { flex: 1, fontWeight: '500' },

@@ -41,6 +41,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AnimatedTabBar from '../../components/AnimatedTabBar';
 import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { SortMenu } from '../../components/SortMenu';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { Button } from '../../components/primitives/Button';
 import { Card } from '../../components/primitives/Card';
@@ -57,8 +58,10 @@ import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { getFolderPathLabel } from '../../utils/folderStats';
+import { sortFiles, SortKey } from '../../utils/vaultSort';
 
-type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc';
+const DEFAULT_SORT: SortKey = 'date_desc';
+
 type FileTypeFilter = 'all' | 'image' | 'video' | 'document' | 'audio' | 'other';
 
 interface TrashedFile {
@@ -169,7 +172,7 @@ export default function TrashScreen() {
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all');
-  const [sort, setSort] = useState<SortKey>('date_desc');
+  const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
   const [showFilters, setShowFilters] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -204,14 +207,10 @@ export default function TrashScreen() {
       result = result.filter(f => detectType(f.name) === typeFilter);
     }
 
-    result = [...result].sort((a, b) => {
-      switch (sort) {
-        case 'date_desc': return new Date(b.deletedAt!).getTime() - new Date(a.deletedAt!).getTime();
-        case 'date_asc': return new Date(a.deletedAt!).getTime() - new Date(b.deletedAt!).getTime();
-        case 'name_asc': return a.name.localeCompare(b.name);
-        case 'name_desc': return b.name.localeCompare(a.name);
-      }
-    });
+    // dateField: 'deletedAt' — trash's date_* keys sort by deletion time,
+    // not import time (Fix 1). size_*/type_* are now available here too,
+    // previously unique to this screen's old 4-option sort.
+    result = sortFiles(result, sort, { dateField: 'deletedAt' });
 
     return result;
   }, [enrichedFiles, search, typeFilter, sort]);
@@ -517,7 +516,16 @@ export default function TrashScreen() {
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
-      <TabRootHeader title="Trash" tagline="Deleted files" rightSlot={<ViewModeMenu />} />
+      <TabRootHeader
+        title="Trash"
+        tagline="Deleted files"
+        rightSlot={
+          <View style={styles.headerControls}>
+            <SortMenu value={sort} onChange={setSort} defaultKey={DEFAULT_SORT} />
+            <ViewModeMenu />
+          </View>
+        }
+      />
 
       <View style={styles.flex1}>
         <ScrollView
@@ -567,17 +575,6 @@ export default function TrashScreen() {
                     onPress={() => setTypeFilter(k)}
                     color={categoryTintFor(k)}
                   />
-                ))}
-              </ScrollView>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space(2), paddingVertical: space(2) }}>
-                {([
-                  ['date_desc', 'Newest'],
-                  ['date_asc', 'Oldest'],
-                  ['name_asc', 'A → Z'],
-                  ['name_desc', 'Z → A'],
-                ] as [SortKey, string][]).map(([k, label]) => (
-                  <Chip key={k} label={label} selected={sort === k} onPress={() => setSort(k)} />
                 ))}
               </ScrollView>
             </View>
@@ -722,6 +719,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex1: { flex: 1 },
   scrollBody: {},
+  headerControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   searchBar: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth },
   searchInput: { flex: 1, fontWeight: '500' },

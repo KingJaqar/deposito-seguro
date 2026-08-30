@@ -53,6 +53,7 @@ import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { SortMenu } from '../../components/SortMenu';
 import { Badge } from '../../components/primitives/Badge';
 import { Card } from '../../components/primitives/Card';
 import { Dialog } from '../../components/primitives/Dialog';
@@ -79,7 +80,10 @@ import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { StorageService } from '../../services/storage';
 import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
+import { sortFolders, SortKey } from '../../utils/vaultSort';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
+
+const DEFAULT_SORT: SortKey = 'name_asc';
 
 export default function DashboardScreen() {
   const { colors, space, font, radius, screenPadding, bottomTabSpacing, isTablet, responsiveSize, iconSize } = useTheme();
@@ -253,13 +257,28 @@ export default function DashboardScreen() {
     }
   }, [selectionMode, toggleFolderSelection, setUnlockTarget, setShowUnlockModal]);
 
+  // Relocated above rootFolders/subFolders/albums (was declared after them)
+  // so those memos can safely reference it without a temporal-dead-zone
+  // crash — see plans/sorting function implementation plan.md Fix 2. Pure
+  // reordering: its own dependency is only `files`, unchanged.
+  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
+
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
+
   // rootFolders/subFolders exclude albums (own "My Albums" section below) —
   // otherwise an album would render under both sections at once.
-  const rootFolders = useMemo(() => folders.filter(f => !f.parentId && f.type !== 'album'), [folders]);
-  const subFolders = useMemo(() => folders.filter(f => !!f.parentId), [folders]);
-  const albums = useMemo(() => folders.filter(f => f.type === 'album'), [folders]);
-
-  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
+  const rootFolders = useMemo(
+    () => sortFolders(folders.filter(f => !f.parentId && f.type !== 'album'), sortKey),
+    [folders, sortKey]
+  );
+  const subFolders = useMemo(
+    () => sortFolders(folders.filter(f => !!f.parentId), sortKey),
+    [folders, sortKey]
+  );
+  const albums = useMemo(
+    () => sortFolders(folders.filter(f => f.type === 'album'), sortKey),
+    [folders, sortKey]
+  );
 
   const handleCreateFolder = async (name: string) => {
     const finalName = name.trim() || (pendingVaultType === 'album' ? 'New Album' : 'New Folder');
@@ -658,7 +677,16 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
-      <TabRootHeader title={displayName} tagline="Your secure storage vault" rightSlot={<ViewModeMenu />} />
+      <TabRootHeader
+        title={displayName}
+        tagline="Your secure storage vault"
+        rightSlot={
+          <View style={styles.headerControls}>
+            <SortMenu value={sortKey} onChange={setSortKey} defaultKey={DEFAULT_SORT} />
+            <ViewModeMenu />
+          </View>
+        }
+      />
 
       <ScrollView
         ref={scrollViewRef}
@@ -1046,6 +1074,7 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   scrollBody: { paddingTop: 12 },
   rowCenter: { flexDirection: 'row', alignItems: 'center' },
+  headerControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   searchBar: {
     flexDirection: 'row',

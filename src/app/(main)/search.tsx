@@ -51,6 +51,7 @@ import { ClipboardBar } from '../../components/ClipboardBar';
 import { DestructiveConfirmModal, useConfirmDestructive } from '../../components/DestructiveConfirmModal';
 import { TabRootHeader } from '../../components/TabRootHeader';
 import { ViewModeMenu } from '../../components/ViewModeMenu';
+import { SortMenu } from '../../components/SortMenu';
 import { Badge } from '../../components/primitives/Badge';
 import { Chip } from '../../components/primitives/Chip';
 import { EmptyState } from '../../components/primitives/EmptyState';
@@ -72,6 +73,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
 import { buildVaultSections, VaultSectionData, VaultSectionKey, CategoryFilter } from '../../utils/vaultSections';
+import { sortFolders, sortFiles, SortKey } from '../../utils/vaultSort';
+
+const DEFAULT_SORT: SortKey = 'name_asc';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
 
@@ -150,17 +154,25 @@ export default function SearchScreen() {
 
   useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
-  const allFiles = files.filter(f => !f.isTrash);
-  const allFolders = folders.filter((f: any) => !f.isTrash);
+  // Relocated above searchedFolders/searchedFiles/sections (was declared
+  // after them) so those can safely reference it without a
+  // temporal-dead-zone crash — see plans/sorting function implementation
+  // plan.md Fix 3. Pure reordering: its own dependency is only `files`.
+  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
-  const searchedFiles = allFiles.filter(f => {
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
+
+  const allFiles = useMemo(() => files.filter(f => !f.isTrash), [files]);
+  const allFolders = useMemo(() => folders.filter((f: any) => !f.isTrash), [folders]);
+
+  const searchedFiles = useMemo(() => sortFiles(allFiles.filter(f => {
     if (!debouncedQuery.trim()) return true;
     return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
-  });
-  const searchedFolders = allFolders.filter(f => {
+  }), sortKey), [allFiles, debouncedQuery, sortKey]);
+  const searchedFolders = useMemo(() => sortFolders(allFolders.filter(f => {
     if (!debouncedQuery.trim()) return true;
     return f.name.toLowerCase().includes(debouncedQuery.trim().toLowerCase());
-  });
+  }), sortKey), [allFolders, debouncedQuery, sortKey]);
 
   const sections = useMemo(() => buildVaultSections({
     activeFilter: activeFilter as CategoryFilter,
@@ -180,8 +192,6 @@ export default function SearchScreen() {
     + (sectionByKey('files')?.files?.length ?? 0)
     + (sectionByKey('albums')?.folders?.length ?? 0);
   const showResults = debouncedQuery.trim().length > 0 || totalResults > 0;
-
-  const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 200);
@@ -842,7 +852,16 @@ export default function SearchScreen() {
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
-      <TabRootHeader title="Search" tagline="Find files & folders" rightSlot={<ViewModeMenu />} />
+      <TabRootHeader
+        title="Search"
+        tagline="Find files & folders"
+        rightSlot={
+          <View style={styles.headerControls}>
+            <SortMenu value={sortKey} onChange={setSortKey} defaultKey={DEFAULT_SORT} />
+            <ViewModeMenu />
+          </View>
+        }
+      />
 
       <ScrollView
         contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing + space(8) }]}
@@ -1036,6 +1055,7 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scrollBody: { paddingTop: 12 },
+  headerControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   searchBar: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth },
   searchInput: { flex: 1, fontWeight: '500' },
