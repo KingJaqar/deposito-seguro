@@ -5,6 +5,17 @@ export interface MoveItem {
   name: string;
   type: 'file' | 'folder';
   folderId?: string; // For files, the folder they belong to
+  /**
+   * 'move' (default, when omitted) is the original relocate-in-place
+   * semantics. 'add-to-album' (plan §7, Phase 6) reuses this exact same
+   * "pick a destination folder" modal for the "Add to Album…" quick action
+   * — which *copies* the file instead of moving it — so MoveVaultModal and
+   * MoveVaultModalWrapper both need to know which one they're presenting:
+   * hardcoded "Move"/"Moved to X" copy would be actively wrong (the file
+   * wasn't moved, and the original wasn't touched) for the add-to-album
+   * case, not just cosmetically off.
+   */
+  mode?: 'move' | 'add-to-album';
 }
 
 export interface MoveDestination {

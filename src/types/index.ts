@@ -28,6 +28,15 @@ export interface FolderMetadata {
   name: string;
   color?: string;
   icon?: string;
+  /**
+   * undefined/'folder' = today's regular vault/subfolder (no migration
+   * needed for old data — `undefined !== 'album'` naturally reads as a
+   * regular folder everywhere). 'album' = a root-only, media-only
+   * container (see plans/album implementation plan.md) — can never have a
+   * parentId, enforced at creation (vaultStore.createFolder) and at every
+   * paste/move site that could otherwise give it one.
+   */
+  type?: 'folder' | 'album';
   // Access key fields
   hasAccessKey?: boolean;
   accessKeyId?: string;

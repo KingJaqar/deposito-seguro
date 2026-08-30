@@ -186,6 +186,7 @@ export class EnhancedBackupService {
           name: f.name,
           color: f.color,
           icon: f.icon,
+          type: f.type,
           isEncrypted: f.isEncrypted,
           encryptionKeyId: f.encryptionKeyId,
           hasAccessKey: f.hasAccessKey,
@@ -202,6 +203,19 @@ export class EnhancedBackupService {
           size: f.size,
           mimeType: f.mimeType,
           localPath: f.localPath,
+          // Bug fix (post-Phase-4 audit, found while re-verifying the plan's
+          // §1a real-thumbnail work against backup/restore): iconPath used
+          // to be worth skipping here since it was .apk-launcher-icon-only —
+          // now that §1a populates it for every imported image/video, an
+          // unbacked-up iconPath means a restored vault falls back to
+          // useFileThumbnailUri's pre-§1a behavior (file.localPath) for
+          // every photo/video, which is flat-out broken (not just slower)
+          // for an *encrypted* one — its localPath is ciphertext, the exact
+          // bug §1a exists to fix. See buildAndWriteZip below for the
+          // matching zip-inclusion fix and restoreFromBackup for the
+          // matching localPath-style remap.
+          iconPath: f.iconPath,
+          iconEncrypted: f.iconEncrypted,
           isEncrypted: f.isEncrypted,
           encryptionKeyId: f.encryptionKeyId,
           hasAccessKey: f.hasAccessKey,
@@ -274,6 +288,25 @@ export class EnhancedBackupService {
           }
         } catch (e) {
           console.warn(`Failed to add file ${file.id} to backup archive:`, e);
+        }
+      }
+      // Matching fix for the iconPath manifest field added above: without
+      // this, the manifest would claim iconPath is still valid but the
+      // restore side would have no bytes to write there — same "info.exists
+      // check, best-effort, never blocks the rest of the backup" shape as
+      // localPath just above. Written into the same 'files/' zip folder
+      // (not a separate one) so the existing generic restore loop below
+      // (which just replays every 'files/*' entry) picks it up for free.
+      if (file.iconPath) {
+        try {
+          const iconInfo = await FileSystem.getInfoAsync(file.iconPath);
+          if (iconInfo.exists) {
+            const iconBase64 = await FileSystem.readAsStringAsync(file.iconPath, { encoding: FileSystem.EncodingType.Base64 });
+            const iconBasename = file.iconPath.split('/').pop()!;
+            filesFolder.file(iconBasename, iconBase64, { base64: true });
+          }
+        } catch (e) {
+          console.warn(`Failed to add file ${file.id}'s thumbnail to backup archive:`, e);
         }
       }
       onProgress?.(`Compressing files: ${i + 1}/${files.length}`, 20 + ((i + 1) / Math.max(files.length, 1)) * 50);
@@ -418,9 +451,14 @@ export class EnhancedBackupService {
       // the manifest's stored localPath is the originating device/install's
       // absolute path, which will not exist here.
       const remappedFiles = manifest.vaultStructure.files.map(f => {
-        if (!f.localPath) return f;
-        const basename = f.localPath.split('/').pop()!;
-        return { ...f, localPath: `${vaultDir}${basename}` };
+        const localPath = f.localPath ? `${vaultDir}${f.localPath.split('/').pop()!}` : f.localPath;
+        // Same remap, same reason, for iconPath (see the manifest-builder
+        // and buildAndWriteZip comments above) — the manifest's iconPath is
+        // also the originating device's absolute path, and the icon's bytes
+        // were restored into vaultDir by the generic files/* loop above
+        // right alongside localPath's.
+        const iconPath = f.iconPath ? `${vaultDir}${f.iconPath.split('/').pop()!}` : f.iconPath;
+        return { ...f, localPath, iconPath };
       });
 
       onProgress?.('Restoring vault structure...', 68);

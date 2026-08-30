@@ -20,6 +20,7 @@ import {
   CheckSquare,
   Copy,
   FolderPlus,
+  GalleryHorizontalEnd,
   Key,
   Lock,
   Scissors,
@@ -54,7 +55,7 @@ import { Chip } from '../../components/primitives/Chip';
 import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
 import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
-import { FileGridTile, FileListRow } from '../../components/primitives/FileTile';
+import { FileGridTile, FileListRow, AlbumGridTile, AlbumListRow } from '../../components/primitives/FileTile';
 import { GridTile } from '../../components/primitives/GridTile';
 import { ListRow } from '../../components/primitives/ListRow';
 import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
@@ -80,6 +81,7 @@ import { useVaultStore } from '../../store/vaultStore';
 // the favorites-flavored ones (everything shown here is a favorite already).
 const SECTION_TITLES: Record<Exclude<VaultSectionKey, 'favorites'>, string> = {
   folders: 'Favorite Folders',
+  albums: 'Favorite Albums',
   files: 'Favorite Files',
   rootFolders: 'Root Folders',
   subFolders: 'Subfolders',
@@ -101,10 +103,16 @@ export default function FavoritesScreen() {
     assignFileAccessKey, removeFileAccessKey,
     assignFolderAccessKey, removeFolderAccessKey,
     copyToClipboard, cutToClipboard, pasteFromClipboard, undoLastCut,
-    duplicateFile, duplicateFolder,
+    duplicateFile, duplicateFolder, addFileToAlbum,
     renameFile, renameFolder, moveFileToFolder, moveFolder,
     exportFileToDevice, exportFolderFiles,
   } = useVaultStore();
+  // "Add to Album…" (plan §7, Phase 6) destinations — this screen's own
+  // independent copy of the same fileMenuItems entry VaultContentsScreen
+  // has, matching how every other file action here (move/copy/duplicate/
+  // access-key/…) is already independently wired per screen rather than
+  // shared.
+  const albums = useMemo(() => folders.filter(f => f.type === 'album'), [folders]);
   const { accessKeys } = useSettingsStore();
   const { openRenameModal, setOnRename } = useRename();
   const { openMoveModal, setOnMove } = useMove();
@@ -156,9 +164,14 @@ export default function FavoritesScreen() {
   }), [activeFilter, searchedFolders, searchedFiles, contentFiles]);
 
   const sectionByKey = (key: VaultSectionKey) => sections.find(s => s.key === key);
-  // "Matched" total mirrors the filter's own files/folders sections, not the
-  // type-breakdown re-slices under "All" (those overlap with it).
-  const totalCount = (sectionByKey('folders')?.folders?.length ?? 0) + (sectionByKey('files')?.files?.length ?? 0);
+  // "Matched" total mirrors the filter's own files/folders/albums sections,
+  // not the type-breakdown re-slices under "All" (those overlap with it).
+  // Must include 'albums' — a favorited album otherwise silently uncounts
+  // here, making a real "Favorite Albums" section coexist on-screen with a
+  // wrongly-triggered "No Favorites Yet" empty state (plan §4).
+  const totalCount = (sectionByKey('folders')?.folders?.length ?? 0)
+    + (sectionByKey('files')?.files?.length ?? 0)
+    + (sectionByKey('albums')?.folders?.length ?? 0);
 
   const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
@@ -257,10 +270,12 @@ export default function FavoritesScreen() {
   };
 
   const handleDeleteAll = () => {
-    // Matches the current filter's own files/folders sections, not the
-    // type-breakdown re-slices under "All" (those overlap with it).
+    // Matches the current filter's own files/folders/albums sections, not the
+    // type-breakdown re-slices under "All" (those overlap with it). Must
+    // include 'albums' or "Delete All" silently leaves favorited albums
+    // behind (plan §4).
     const matchedFiles = sectionByKey('files')?.files ?? [];
-    const matchedFolders = sectionByKey('folders')?.folders ?? [];
+    const matchedFolders = [...(sectionByKey('folders')?.folders ?? []), ...(sectionByKey('albums')?.folders ?? [])];
     const totalItems = matchedFiles.length + matchedFolders.length;
     if (totalItems === 0) return;
     confirmDestructive(
@@ -328,9 +343,20 @@ export default function FavoritesScreen() {
         });
         openMoveModal(
           { id: file.id, name: file.name, type: 'file' },
-          toMoveDestinations(folders.filter(f => f.id !== file.folderId), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== file.folderId && f.type !== 'album'), folderStatsMap)
         );
         break;
+      case 'add-to-album': {
+        const destinationAlbums = albums.filter(a => a.id !== file.folderId);
+        setOnMove((albumId: string | null) => {
+          if (albumId) return addFileToAlbum(file.id, albumId);
+        });
+        openMoveModal(
+          { id: file.id, name: file.name, type: 'file', folderId: file.folderId, mode: 'add-to-album' },
+          toMoveDestinations(destinationAlbums, folderStatsMap)
+        );
+        break;
+      }
       case 'export':
         exportFileToDevice(file.id).then((path: string | null) => {
           if (path) Sharing.shareAsync(path);
@@ -381,7 +407,11 @@ export default function FavoritesScreen() {
   };
 
   const handleFolderNavigate = (folder: any) => {
-    const go = () => router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+    const go = () => router.push(
+      folder.type === 'album'
+        ? { pathname: '/(main)/album/[id]', params: { id: folder.id } }
+        : { pathname: '/(main)/folder/[id]', params: { id: folder.id } }
+    );
     if (folder.hasAccessKey && folder.accessKeyId) {
       setUnlockTarget({
         type: 'folder',
@@ -409,7 +439,7 @@ export default function FavoritesScreen() {
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== folder.id), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album'), folderStatsMap)
         );
         break;
       case 'export':
@@ -495,9 +525,14 @@ export default function FavoritesScreen() {
   const fileMenuItems = useMemo(() => {
     if (!targetItem) return [];
     const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
+    // "Add to Album…" (plan §7) — same media-only + "at least one other
+    // album exists" gating as VaultContentsScreen's own copy of this entry.
+    const isMediaFile = !!targetItem.mimeType && (targetItem.mimeType.startsWith('image/') || targetItem.mimeType.startsWith('video/'));
+    const hasAlbumDestination = albums.some(a => a.id !== targetItem.folderId);
     const baseItems = [
       { action: 'rename', label: 'Rename', color: colors.text },
       { action: 'move', label: 'Move to…', color: colors.text },
+      isMediaFile && hasAlbumDestination ? { action: 'add-to-album', label: 'Add to Album…', color: colors.secondary } : null,
       { action: 'export', label: 'Export / Save to Device', color: colors.text },
       { action: 'copy', label: 'Copy', color: colors.secondary },
       { action: 'cut', label: 'Cut', color: colors.secondary },
@@ -512,15 +547,20 @@ export default function FavoritesScreen() {
       { action: 'shred', label: 'Delete Permanently', color: colors.error },
     ].filter(Boolean) as { action: string; label: string; color: string }[];
     return baseItems;
-  }, [targetItem, colors]);
+  }, [targetItem, colors, albums]);
 
   const folderMenuItems = useMemo(() => {
     if (!targetItem) return [];
     const hasPassword = targetItem.hasAccessKey && targetItem.accessKeyId;
     const hasClipboard = !!clipboard;
+    // An album can never gain a parentId, so there's no valid move
+    // destination for it — omit 'move' from its own menu (plan §4). This is
+    // this screen's own independent copy of the same fix VaultContentsScreen/
+    // dashboard.tsx already apply to their own folderMenuItems.
+    const isAlbum = targetItem.type === 'album';
     const baseItems = [
       { action: 'rename', label: 'Rename', color: colors.text },
-      { action: 'move', label: 'Move', color: colors.text },
+      !isAlbum ? { action: 'move', label: 'Move', color: colors.text } : null,
       { action: 'export', label: 'Export', color: colors.text },
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
       hasClipboard ? { action: 'paste', label: 'Paste Here', color: colors.secondary } : null,
@@ -589,6 +629,34 @@ export default function FavoritesScreen() {
           {list.map((item) => {
             const isSelected = selectedIds.includes(item.id);
             const isLocked = !!(item.hasAccessKey && item.accessKeyId);
+            // Album check must come before the root-folder check below — an
+            // album's parentId is always undefined too, so without this it
+            // would silently render as a plain "Root Folder" (plan §4).
+            if (item.type === 'album') {
+              return (
+                <AlbumGridTile
+                  key={item.id}
+                  albumId={item.id}
+                  size={gridItemWidth}
+                  name={item.name}
+                  subtitle={`Album · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
+                  Icon={GalleryHorizontalEnd}
+                  iconColor={colors.primary}
+                  // No bulk-select on albums (plan §3/§4) — onLongPress/
+                  // selectable/selected omitted entirely, not just falsy.
+                  onPress={() => handleFolderNavigate(item)}
+                  onMenuPress={() => { setTargetItem(item); setShowFolderMenu(true); }}
+                  badges={
+                    (isLocked || item.isFavorite) && (
+                      <>
+                        {isLocked && <Badge icon={Lock} color={colors.primary} size={18} />}
+                        {item.isFavorite && <Badge icon={Star} color={colors.warning} size={18} />}
+                      </>
+                    )
+                  }
+                />
+              );
+            }
             const isRoot = !item.parentId;
             return (
               <GridTile
@@ -623,6 +691,29 @@ export default function FavoritesScreen() {
         {list.map((item) => {
           const isSelected = selectedIds.includes(item.id);
           const isLocked = !!(item.hasAccessKey && item.accessKeyId);
+          // Same album-first ordering as the grid branch above.
+          if (item.type === 'album') {
+            return (
+              <AlbumListRow
+                key={item.id}
+                albumId={item.id}
+                title={item.name}
+                subtitle={`Album · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
+                leading={<GalleryHorizontalEnd size={iconSize(22)} color={colors.primary} />}
+                trailingBadges={
+                  <>
+                    {isLocked && <Badge icon={Lock} color={colors.primary} size={18} />}
+                    {item.isFavorite && <Badge icon={Star} color={colors.warning} size={18} />}
+                  </>
+                }
+                // No bulk-select on albums (plan §3/§4) — onLongPress/
+                // selectable/selected/onToggleSelect omitted entirely.
+                onPress={() => handleFolderNavigate(item)}
+                onOverflowPress={() => { setTargetItem(item); setShowFolderMenu(true); }}
+                allowMultilineTitle
+              />
+            );
+          }
           const isRoot = !item.parentId;
           return (
             <ListRow
@@ -733,10 +824,19 @@ export default function FavoritesScreen() {
     const sectionFolders = section.folders ?? [];
     const sectionFiles = section.files ?? [];
     if (sectionFolders.length === 0 && sectionFiles.length === 0) return null;
-    const allIds = [...sectionFolders.map(f => f.id), ...sectionFiles.map(f => f.id)];
-    const countLabel = section.files && !section.folders
-      ? `${sectionFiles.length} file${sectionFiles.length === 1 ? '' : 's'}`
-      : undefined;
+    // No bulk-select on albums (plan §3/§4): exclude album ids from what
+    // this section's own "select all" can reach — matters not just for the
+    // dedicated 'albums' section (suppressed outright below) but also the
+    // mixed folders+files sections (e.g. a plain "Favorite Folders" section
+    // never contains an album, but this stays correct defensively even if
+    // that ever changes) without relying on every section being pre-split.
+    const allIds = [...sectionFolders.filter(f => f.type !== 'album').map(f => f.id), ...sectionFiles.map(f => f.id)];
+    const isAlbumsSection = section.key === 'albums';
+    const countLabel = isAlbumsSection
+      ? `${sectionFolders.length} album${sectionFolders.length === 1 ? '' : 's'}`
+      : (section.files && !section.folders
+        ? `${sectionFiles.length} file${sectionFiles.length === 1 ? '' : 's'}`
+        : undefined);
     const expanded = !collapsedSections.has(section.key);
     return (
       <View key={section.key} style={{ marginBottom: space(6) }}>
@@ -746,7 +846,9 @@ export default function FavoritesScreen() {
             expanded={expanded}
             onToggle={() => toggleSectionCollapse(section.key)}
           />
-          {selectionMode ? renderSelectionToolbar(allIds) : countLabel && (
+          {/* Albums section never shows a "select all" control, even while
+              selectionMode is on from some other section (plan §4). */}
+          {selectionMode && !isAlbumsSection ? renderSelectionToolbar(allIds) : countLabel && (
             <Text style={[styles.seeAll, { color: colors.textMuted, fontSize: font(Type.label.size) }]}>{countLabel}</Text>
           )}
         </View>

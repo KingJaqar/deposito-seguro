@@ -13,6 +13,7 @@ import React from 'react';
 import { GridTile, GridTileProps } from './GridTile';
 import { ListRow, ListRowProps } from './ListRow';
 import { useFileThumbnailUri, ThumbnailFile } from '../../hooks/useFileThumbnailUri';
+import { useAlbumCoverUri } from '../../hooks/useAlbumCoverUri';
 
 export function FileGridTile({ file, ...tileProps }: { file: ThumbnailFile } & Omit<GridTileProps, 'thumbnailUri'>) {
   const thumbnailUri = useFileThumbnailUri(file);
@@ -21,5 +22,20 @@ export function FileGridTile({ file, ...tileProps }: { file: ThumbnailFile } & O
 
 export function FileListRow({ file, ...rowProps }: { file: ThumbnailFile } & Omit<ListRowProps, 'thumbnailUri'>) {
   const thumbnailUri = useFileThumbnailUri(file);
+  return <ListRow thumbnailUri={thumbnailUri} {...rowProps} />;
+}
+
+// plans/album implementation plan.md §3 (Phase 4) — parallel wrappers for
+// album tiles: resolve a real cover photo/video thumbnail via
+// useAlbumCoverUri (falls back to `undefined`, which GridTile/ListRow
+// already render as the generic Icon glyph, for an empty album) rather than
+// always showing the generic album icon.
+export function AlbumGridTile({ albumId, ...tileProps }: { albumId: string } & Omit<GridTileProps, 'thumbnailUri'>) {
+  const thumbnailUri = useAlbumCoverUri(albumId);
+  return <GridTile thumbnailUri={thumbnailUri} {...tileProps} />;
+}
+
+export function AlbumListRow({ albumId, ...rowProps }: { albumId: string } & Omit<ListRowProps, 'thumbnailUri'>) {
+  const thumbnailUri = useAlbumCoverUri(albumId);
   return <ListRow thumbnailUri={thumbnailUri} {...rowProps} />;
 }

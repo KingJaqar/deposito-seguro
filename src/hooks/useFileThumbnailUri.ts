@@ -14,6 +14,18 @@
 // use, since grid/list tiles mount and unmount far more often while
 // scrolling, making the crash-before-cleanup window (see item 9's boot-time
 // sweep) more likely to matter here, not less.
+//
+// Real-thumbnail follow-up (plans/album implementation plan.md §1a):
+// vaultStore.importFile now also populates iconPath for images/videos (a
+// small downscaled preview / extracted video frame — see
+// src/services/mediaThumbnailExtractor.ts), the same field that used to be
+// .apk-only. This closed two previously-accepted gaps: video tiles used to
+// render as broken images (an <Image> can't decode video bytes) and an
+// encrypted image's tile also rendered broken (its localPath pointed at
+// ciphertext). Both are fixed for real by preferring iconPath — decrypted
+// via the same S-12 machinery above when needed — over localPath whenever
+// it's set, falling back to today's old behavior only for files imported
+// before this change shipped (no migration needed).
 import { useEffect, useState } from 'react';
 import { StorageService } from '../services/storage';
 import { useSettingsStore } from '../store/settingsStore';
@@ -28,12 +40,14 @@ export interface ThumbnailFile {
 
 /**
  * Resolves the URI a file tile should render as its thumbnail.
- * - Images/videos preview their own `localPath` directly (unchanged; a file
- *   encrypted itself just renders as a broken image, same as before this
- *   change — that gap is out of scope for this hook, see plan item 1's
- *   file list).
- * - A `.apk`'s extracted icon renders `iconPath` directly when it isn't
- *   encrypted, or a decrypted temp copy when it is.
+ * - `iconPath` is preferred whenever it's set, regardless of file type —
+ *   for images/videos imported after §1a this is a small downscaled
+ *   preview / extracted video frame; for a `.apk` it's still the extracted
+ *   launcher icon. Decrypted via the existing S-12 machinery when
+ *   `iconEncrypted`, read directly otherwise.
+ * - Falls back to `file.localPath` for images/videos only when `iconPath`
+ *   is unset — i.e. a file imported before §1a shipped. No migration: it
+ *   just keeps rendering exactly as it did before, until re-imported.
  * - Everything else resolves to `undefined`, which callers render as the
  *   generic type icon.
  */
@@ -42,7 +56,7 @@ export function useFileThumbnailUri(file: ThumbnailFile): string | undefined {
   const [decryptedIconUri, setDecryptedIconUri] = useState<string | undefined>(undefined);
 
   const isMedia = (file.mimeType?.startsWith('image/') || file.mimeType?.startsWith('video/')) && !!file.localPath;
-  const needsIconDecrypt = !isMedia && !!file.iconPath && !!file.iconEncrypted;
+  const needsIconDecrypt = !!file.iconPath && !!file.iconEncrypted;
   const encryptionKey = needsIconDecrypt
     ? encryptionKeys.find((k) => k.id === file.encryptionKeyId)?.key
     : undefined;
@@ -77,8 +91,9 @@ export function useFileThumbnailUri(file: ThumbnailFile): string | undefined {
     };
   }, [needsIconDecrypt, file.iconPath, encryptionKey]);
 
+  if (file.iconPath) {
+    return needsIconDecrypt ? decryptedIconUri : file.iconPath;
+  }
   if (isMedia) return file.localPath;
-  if (needsIconDecrypt) return decryptedIconUri;
-  if (file.iconPath) return file.iconPath;
   return undefined;
 }

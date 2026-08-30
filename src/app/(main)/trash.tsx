@@ -101,6 +101,21 @@ function formatDeletedAt(value: number | string): string {
   });
 }
 
+// Compact one-line "deleted on" date+time for grid tiles — still date and
+// time like formatDeletedAt, just without the year when it's the current
+// year, so it fits under the name/type labels at small tile widths.
+function formatDeletedAtShort(value: number | string): string {
+  const d = new Date(value);
+  const now = new Date();
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function groupByDate(files: TrashedFile[]): { label: string; data: TrashedFile[] }[] {
   const groups: Record<string, TrashedFile[]> = {};
   const now = new Date();
@@ -635,6 +650,7 @@ export default function TrashScreen() {
                       name={item.name}
                       subtitle={visual.label}
                       subtitleColor={visual.color}
+                      caption={formatDeletedAtShort(item.deletedAt!)}
                       Icon={visual.Icon}
                       iconColor={visual.color}
                       selectable={selectionMode}

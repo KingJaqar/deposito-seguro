@@ -3,7 +3,7 @@
  * Mocks @react-native-async-storage/async-storage (jest.setup.js) so this runs without a device.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useVaultStore, StorageLimitExceededError } from '../vaultStore';
+import { useVaultStore, StorageLimitExceededError, AlbumMediaOnlyError } from '../vaultStore';
 import { useSettingsStore } from '../settingsStore';
 import { StorageService } from '../../services/storage';
 
@@ -36,6 +36,17 @@ jest.mock('../../services/storage', () => ({
 // iconPath) is exercised the same way it would be for a real .apk import.
 jest.mock('../../services/apkIconExtractor', () => ({
   extractApkIcon: async (_apkPath: string, outputPngPath: string) => outputPngPath,
+}));
+
+// Album plan §1a: same deterministic "success" every call, same reasoning
+// as the apkIconExtractor mock above — expo-image-manipulator/
+// expo-video-thumbnails do real native/filesystem work unavailable in this
+// Node test environment, but importFile's iconPath-setting logic (which
+// only runs when extraction actually produced a path) should still be
+// exercised for every image/video import, not skipped.
+jest.mock('../../services/mediaThumbnailExtractor', () => ({
+  extractImageThumbnail: async (_imagePath: string, outputPath: string) => outputPath,
+  extractVideoThumbnail: async (_videoPath: string, outputPath: string) => outputPath,
 }));
 
 describe('vaultStore', () => {
@@ -484,6 +495,19 @@ describe('vaultStore', () => {
       await useVaultStore.getState().duplicateFile(fileToDuplicate.id);
       expect(useVaultStore.getState().files).toHaveLength(2);
     });
+
+    it('duplicateFile names the copy "a (2).jpg", not a second "a.jpg" (regression: copyFileToFolder already strips the extension before calling uniqueName, so re-parsing baseName for an extension inside the closure always found none and missed the collision)', async () => {
+      useSettingsStore.setState({ storageLimitBytes: 10000 });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 200, false);
+      const [fileToDuplicate] = useVaultStore.getState().files;
+
+      await useVaultStore.getState().duplicateFile(fileToDuplicate.id);
+
+      const names = useVaultStore.getState().files.map(f => f.name).sort();
+      expect(names).toEqual(['a (2).jpg', 'a.jpg']);
+    });
   });
 
   describe('I-22 follow-up: batch storage-limit checks catch what a per-file check misses', () => {
@@ -510,6 +534,19 @@ describe('vaultStore', () => {
       // and 3 original files, no partial duplicate sitting in state.
       expect(useVaultStore.getState().folders).toHaveLength(1);
       expect(useVaultStore.getState().files).toHaveLength(3);
+    });
+
+    it('duplicateFolder preserves the copied file\'s extension-qualified name (regression guard for the same uniqueName/copyFileToFolder extension-parsing bug fixed in duplicateFile)', async () => {
+      useSettingsStore.setState({ storageLimitBytes: 10000 });
+      await useVaultStore.getState().createFolder('F');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 200, false);
+
+      await useVaultStore.getState().duplicateFolder(folderId);
+
+      const copiedFolderId = useVaultStore.getState().folders.find(f => f.id !== folderId)!.id;
+      const copiedFile = useVaultStore.getState().files.find(f => f.folderId === copiedFolderId)!;
+      expect(copiedFile.name).toBe('a.jpg');
     });
 
     it('pasteFromClipboard (copy mode) blocks a multi-file paste whose combined bytes exceed the limit even though each file fits individually', async () => {
@@ -620,6 +657,315 @@ describe('vaultStore', () => {
 
       await expect(useVaultStore.getState().duplicateFile(fileToDuplicate.id)).resolves.toBeUndefined();
       expect(useVaultStore.getState().files).toHaveLength(1);
+    });
+  });
+
+  describe('pasteFromClipboard: root-paste bug fixes (pre-existing, found while adding the album guards)', () => {
+    it('copy-mode: pasting a folder to root lands it with parentId undefined, not the empty-string target id', async () => {
+      await useVaultStore.getState().createFolder('Sub');
+      const subId = useVaultStore.getState().folders[0].id;
+
+      await useVaultStore.getState().copyToClipboard([subId], [], null);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result.pastedFolders).toBe(1);
+      const copy = useVaultStore.getState().folders.find(f => f.id !== subId)!;
+      expect(copy.parentId).toBeUndefined();
+    });
+
+    it('cut-mode: moving (cut + paste) a folder to root lands it with parentId undefined', async () => {
+      await useVaultStore.getState().createFolder('Parent');
+      const parentId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Child', undefined, undefined, undefined, parentId);
+      const childId = useVaultStore.getState().folders.find(f => f.name === 'Child')!.id;
+
+      await useVaultStore.getState().cutToClipboard([childId], [], parentId);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result.pastedFolders).toBe(1);
+      expect(useVaultStore.getState().folders.find(f => f.id === childId)!.parentId).toBeUndefined();
+    });
+
+    it('rejects pasting files to root in copy mode — no file ends up with a dangling empty folderId', async () => {
+      await useVaultStore.getState().createFolder('Docs');
+      const docsId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+
+      await useVaultStore.getState().copyToClipboard([], [fileId], docsId);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+      expect(useVaultStore.getState().files).toHaveLength(1);
+      expect(useVaultStore.getState().files.some(f => f.folderId === '')).toBe(false);
+    });
+
+    it('rejects moving (cut + paste) files to root — the original file stays exactly where it was', async () => {
+      await useVaultStore.getState().createFolder('Docs');
+      const docsId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+
+      await useVaultStore.getState().cutToClipboard([], [fileId], docsId);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+      expect(useVaultStore.getState().files.find(f => f.id === fileId)!.folderId).toBe(docsId);
+    });
+
+    it('rejects the whole batch when a root paste mixes a folder with files — the folder is not pasted on its own either', async () => {
+      await useVaultStore.getState().createFolder('Docs');
+      const docsId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, docsId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+
+      await useVaultStore.getState().copyToClipboard([subId], [fileId], docsId);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+      // Still exactly the 2 original folders (Docs, Sub) — no copy of Sub landed at root.
+      expect(useVaultStore.getState().folders).toHaveLength(2);
+    });
+
+    it('a folders-only paste to root is unaffected by the files-to-root guard', async () => {
+      await useVaultStore.getState().createFolder('Sub');
+      const subId = useVaultStore.getState().folders[0].id;
+
+      await useVaultStore.getState().copyToClipboard([subId], [], null);
+      const result = await useVaultStore.getState().pasteFromClipboard('');
+
+      expect(result.pastedFolders).toBe(1);
+    });
+  });
+
+  describe('Album feature (plans/album implementation plan.md, Phase 1)', () => {
+    const createAlbum = async (name = 'Photos') => {
+      await useVaultStore.getState().createFolder(name, undefined, undefined, undefined, undefined, 'album');
+      return useVaultStore.getState().folders.find(f => f.name === name)!.id;
+    };
+
+    it('createFolder(..., "album") yields a root-only record with type "album", even when a parentId is passed', async () => {
+      await useVaultStore.getState().createFolder('Parent');
+      const parentId = useVaultStore.getState().folders[0].id;
+
+      await useVaultStore.getState().createFolder('Nested Album', undefined, undefined, undefined, parentId, 'album');
+      const album = useVaultStore.getState().folders.find(f => f.name === 'Nested Album')!;
+      expect(album.type).toBe('album');
+      expect(album.parentId).toBeUndefined();
+    });
+
+    it('createFolder without a type still defaults to "folder" (existing callers unaffected)', async () => {
+      await useVaultStore.getState().createFolder('Plain');
+      expect(useVaultStore.getState().folders[0].type).toBe('folder');
+    });
+
+    describe('importFile enforces media-only content in an album', () => {
+      it('throws AlbumMediaOnlyError for a non-media file targeting an album', async () => {
+        const albumId = await createAlbum();
+
+        await expect(
+          useVaultStore.getState().importFile('/src/doc.pdf', albumId, 'doc.pdf', 'application/pdf', 10, false)
+        ).rejects.toBeInstanceOf(AlbumMediaOnlyError);
+        expect(useVaultStore.getState().files).toHaveLength(0);
+      });
+
+      it('succeeds for a media file targeting an album', async () => {
+        const albumId = await createAlbum();
+
+        await expect(
+          useVaultStore.getState().importFile('/src/a.jpg', albumId, 'a.jpg', 'image/jpeg', 10, false)
+        ).resolves.toBeUndefined();
+        expect(useVaultStore.getState().files).toHaveLength(1);
+      });
+
+      it('still allows any file type into a plain folder (unaffected)', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const folderId = useVaultStore.getState().folders[0].id;
+
+        await expect(
+          useVaultStore.getState().importFile('/src/doc.pdf', folderId, 'doc.pdf', 'application/pdf', 10, false)
+        ).resolves.toBeUndefined();
+      });
+    });
+
+    describe('copyFileToFolder enforces media-only content in an album (paste-copy/duplicate chokepoint)', () => {
+      it('throws AlbumMediaOnlyError copying a non-media file into an album', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/doc.pdf', docsId, 'doc.pdf', 'application/pdf', 10, false);
+        const [sourceFile] = useVaultStore.getState().files;
+        const albumId = await createAlbum();
+
+        await expect(
+          useVaultStore.getState().copyFileToFolder(sourceFile, albumId)
+        ).rejects.toBeInstanceOf(AlbumMediaOnlyError);
+        expect(useVaultStore.getState().files).toHaveLength(1);
+      });
+
+      it('succeeds copying a media file into an album', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+        const [sourceFile] = useVaultStore.getState().files;
+        const albumId = await createAlbum();
+
+        await expect(
+          useVaultStore.getState().copyFileToFolder(sourceFile, albumId)
+        ).resolves.toEqual(expect.objectContaining({ folderId: albumId }));
+      });
+    });
+
+    describe('pasteFromClipboard guard 1: album-as-paste-target (whole-batch UX layer on top of copyFileToFolder\'s guard)', () => {
+      it('rejects pasting a non-media file into an album, leaving it empty', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/doc.pdf', docsId, 'doc.pdf', 'application/pdf', 10, false);
+        const fileId = useVaultStore.getState().files[0].id;
+        const albumId = await createAlbum();
+
+        await useVaultStore.getState().copyToClipboard([], [fileId], docsId);
+        const result = await useVaultStore.getState().pasteFromClipboard(albumId);
+
+        expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+        expect(useVaultStore.getState().files.filter(f => f.folderId === albumId)).toHaveLength(0);
+      });
+
+      it('rejects pasting a folder into an album, even one that only contains media', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, docsId);
+        const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+        const albumId = await createAlbum();
+
+        await useVaultStore.getState().copyToClipboard([subId], [], docsId);
+        const result = await useVaultStore.getState().pasteFromClipboard(albumId);
+
+        expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+        expect(useVaultStore.getState().folders.filter(f => f.parentId === albumId)).toHaveLength(0);
+      });
+
+      it('allows pasting a media file into an album', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+        const fileId = useVaultStore.getState().files[0].id;
+        const albumId = await createAlbum();
+
+        await useVaultStore.getState().copyToClipboard([], [fileId], docsId);
+        const result = await useVaultStore.getState().pasteFromClipboard(albumId);
+
+        expect(result.pastedFiles).toBe(1);
+        expect(useVaultStore.getState().files.filter(f => f.folderId === albumId)).toHaveLength(1);
+      });
+    });
+
+    describe('pasteFromClipboard guard 2: pasted-item-is-an-album (reverse case, defense-in-depth)', () => {
+      it('rejects pasting a copied album into a plain folder, which would give it a parentId', async () => {
+        const albumId = await createAlbum();
+        await useVaultStore.getState().createFolder('Target');
+        const targetId = useVaultStore.getState().folders.find(f => f.name === 'Target')!.id;
+
+        await useVaultStore.getState().copyToClipboard([albumId], [], null);
+        const result = await useVaultStore.getState().pasteFromClipboard(targetId);
+
+        expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+        // No copy was created — still exactly the one original album.
+        expect(useVaultStore.getState().folders.filter(f => f.type === 'album')).toHaveLength(1);
+      });
+
+      it('rejects pasting a copied album into another album', async () => {
+        const albumId = await createAlbum('Photos');
+        const otherAlbumId = await createAlbum('Trips');
+
+        await useVaultStore.getState().copyToClipboard([albumId], [], null);
+        const result = await useVaultStore.getState().pasteFromClipboard(otherAlbumId);
+
+        expect(result).toEqual({ pastedFiles: 0, pastedFolders: 0 });
+        expect(useVaultStore.getState().folders.filter(f => f.type === 'album')).toHaveLength(2);
+      });
+
+      it('allows pasting a copied album into the vault root', async () => {
+        const albumId = await createAlbum();
+
+        await useVaultStore.getState().copyToClipboard([albumId], [], null);
+        const result = await useVaultStore.getState().pasteFromClipboard('');
+
+        expect(result.pastedFolders).toBe(1);
+        const albums = useVaultStore.getState().folders.filter(f => f.type === 'album');
+        expect(albums).toHaveLength(2);
+        expect(albums.every(a => !a.parentId)).toBe(true);
+      });
+    });
+
+    it('duplicateFolder on an album preserves type "album" on the copy (regression guard — already true via the existing spread)', async () => {
+      const albumId = await createAlbum();
+
+      await useVaultStore.getState().duplicateFolder(albumId);
+
+      const albums = useVaultStore.getState().folders.filter(f => f.type === 'album');
+      expect(albums).toHaveLength(2);
+      expect(albums.every(a => !a.parentId)).toBe(true);
+    });
+
+    describe('addFileToAlbum ("Add to Album…" quick action, plan §7, Phase 6)', () => {
+      it('copies a media file into the album, leaving the original in place', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+        const sourceFile = useVaultStore.getState().files[0];
+        const albumId = await createAlbum();
+
+        await useVaultStore.getState().addFileToAlbum(sourceFile.id, albumId);
+
+        const { files } = useVaultStore.getState();
+        expect(files).toHaveLength(2);
+        expect(files.find(f => f.id === sourceFile.id)?.folderId).toBe(docsId);
+        expect(files.some(f => f.folderId === albumId && f.id !== sourceFile.id)).toBe(true);
+      });
+
+      it('throws AlbumMediaOnlyError for a non-media file, adding nothing (copyFileToFolder\'s own guard)', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/doc.pdf', docsId, 'doc.pdf', 'application/pdf', 10, false);
+        const sourceFile = useVaultStore.getState().files[0];
+        const albumId = await createAlbum();
+
+        await expect(
+          useVaultStore.getState().addFileToAlbum(sourceFile.id, albumId)
+        ).rejects.toBeInstanceOf(AlbumMediaOnlyError);
+        expect(useVaultStore.getState().files).toHaveLength(1);
+      });
+
+      it('dedupes the name against the destination album\'s existing files, not the source folder\'s', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 10, false);
+        const sourceFile = useVaultStore.getState().files[0];
+        const albumId = await createAlbum();
+        await useVaultStore.getState().importFile('/src/a.jpg', albumId, 'a.jpg', 'image/jpeg', 10, false);
+
+        await useVaultStore.getState().addFileToAlbum(sourceFile.id, albumId);
+
+        const albumFiles = useVaultStore.getState().files.filter(f => f.folderId === albumId);
+        expect(albumFiles).toHaveLength(2);
+        expect(albumFiles.map(f => f.name).sort()).toEqual(['a (2).jpg', 'a.jpg']);
+      });
+
+      it('rejects when the copy would exceed the configured storage limit (copyFileToFolder\'s own check)', async () => {
+        await useVaultStore.getState().createFolder('Docs');
+        const docsId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().importFile('/src/a.jpg', docsId, 'a.jpg', 'image/jpeg', 1000, false);
+        const sourceFile = useVaultStore.getState().files[0];
+        const albumId = await createAlbum();
+        useSettingsStore.setState({ storageLimitBytes: 500 });
+
+        await expect(
+          useVaultStore.getState().addFileToAlbum(sourceFile.id, albumId)
+        ).rejects.toBeInstanceOf(StorageLimitExceededError);
+        expect(useVaultStore.getState().files.filter(f => f.folderId === albumId)).toHaveLength(0);
+      });
     });
   });
 });

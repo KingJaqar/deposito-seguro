@@ -105,12 +105,18 @@ export default function AnimatedTabBar() {
   const { colors, space, isTablet, responsiveSize, iconSize: scaleIcon } = useTheme();
   const pathname = usePathname();
 
+  // -1 (not 0) when pathname doesn't match any tab root — e.g. folder/[id]
+  // or album/* screens, which also render this bar via VaultContentsScreen.
+  // Defaulting to 0 here used to make Home appear active AND made tapping
+  // Home a no-op (the press handler below skips navigation when the tapped
+  // tab already equals activeIndex), so the Home tab silently did nothing
+  // from inside a folder/album. -1 never equals a real tab index, so no tab
+  // is falsely highlighted and every tap actually navigates.
   const activeIndex = useMemo(() => {
-    const idx = TABS.findIndex((t) => {
+    return TABS.findIndex((t) => {
       const seg = t.route.replace('/(main)', '');
       return pathname === seg || pathname?.startsWith(seg + '/');
     });
-    return idx === -1 ? 0 : idx;
   }, [pathname]);
 
   // ROOT CAUSE of the multi-second tab-switch delay: every tab tap called

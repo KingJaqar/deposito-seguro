@@ -17,6 +17,7 @@ import {
   Copy,
   FileText,
   Folder,
+  GalleryHorizontalEnd,
   HardDrive,
   Image as ImageIcon,
   Key,
@@ -57,6 +58,7 @@ import { Card } from '../../components/primitives/Card';
 import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
 import { Fab } from '../../components/primitives/Fab';
+import { AlbumGridTile, AlbumListRow } from '../../components/primitives/FileTile';
 import { GridTile } from '../../components/primitives/GridTile';
 import { ListRow } from '../../components/primitives/ListRow';
 import { ProgressBar } from '../../components/primitives/ProgressBar';
@@ -107,7 +109,7 @@ export default function DashboardScreen() {
   const { snackbarState, showSnackbar } = useSnackbar();
   const { topToastState, showTopToast } = useTopToast();
 
-  type DashboardSectionKey = 'categories' | 'vaults';
+  type DashboardSectionKey = 'categories' | 'vaults' | 'albums';
   const [collapsedSections, setCollapsedSections] = useState<Set<DashboardSectionKey>>(new Set());
   const toggleSectionCollapse = (key: DashboardSectionKey) => {
     setCollapsedSections(prev => {
@@ -119,6 +121,14 @@ export default function DashboardScreen() {
 
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
+  // New Vault → two-step flow (plans/album implementation plan.md §3, Phase
+  // 4): the Fab opens the type-choice Sheet first; each of its two rows sets
+  // pendingVaultType and swaps straight to the existing name-entry Dialog.
+  // The type-specific EmptyState buttons below skip the choice Sheet
+  // entirely and call openCreateDialogFor directly with a preset type, since
+  // the user already declared intent by tapping a type-specific button.
+  const [pendingVaultType, setPendingVaultType] = useState<'folder' | 'album'>('folder');
+  const [showVaultTypeSheet, setShowVaultTypeSheet] = useState(false);
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [targetFolder, setTargetFolder] = useState<any>(null);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -202,10 +212,29 @@ export default function DashboardScreen() {
   }, []);
 
   const handleVaultPress = useCallback((folder: any) => {
-    if (selectionMode) {
+    // Bug fix (post-Phase-4 audit): this handler is shared by root/sub vault
+    // tiles AND album tiles (AlbumGridTile/AlbumListRow's onPress below both
+    // call it unconditionally). Albums never enter multi-select (§3 v1 scope
+    // decision — no onLongPress is ever wired on an album tile), but without
+    // this guard, tapping an album while selectionMode is already true
+    // (entered by long-pressing a *regular* vault elsewhere on the screen)
+    // fell into the branch below and silently added the album's id to
+    // selectedFolderIds — with no visual feedback, since album tiles never
+    // receive selectable/selected props. That id then flowed straight into
+    // every bulk action anchored under "My Vaults" (handleBulkCopy/
+    // handleBulkCut reaching clipboard.folderIds — exactly the invariant §1's
+    // guards exist to protect — and handleBulkShredFolders, which is not
+    // scoped to non-album folders the way handleDeleteAllFolders is, so it
+    // would have permanently deleted the album). Albums must always just
+    // navigate, regardless of selectionMode.
+    if (selectionMode && folder.type !== 'album') {
       toggleFolderSelection(folder.id);
       return;
     }
+    // Route by type (§3): an album has its own screen, never the folder one.
+    const destination = folder.type === 'album'
+      ? { pathname: '/(main)/album/[id]' as const, params: { id: folder.id } }
+      : { pathname: '/(main)/folder/[id]' as const, params: { id: folder.id } };
     if (folder.hasAccessKey && folder.accessKeyId) {
       setUnlockTarget({
         type: 'folder',
@@ -215,24 +244,27 @@ export default function DashboardScreen() {
         onUnlock: () => {
           setShowUnlockModal(false);
           setUnlockTarget(null);
-          router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+          router.push(destination);
         }
       });
       setShowUnlockModal(true);
     } else {
-      router.push({ pathname: '/(main)/folder/[id]', params: { id: folder.id } });
+      router.push(destination);
     }
   }, [selectionMode, toggleFolderSelection, setUnlockTarget, setShowUnlockModal]);
 
-  const rootFolders = useMemo(() => folders.filter(f => !f.parentId), [folders]);
+  // rootFolders/subFolders exclude albums (own "My Albums" section below) —
+  // otherwise an album would render under both sections at once.
+  const rootFolders = useMemo(() => folders.filter(f => !f.parentId && f.type !== 'album'), [folders]);
   const subFolders = useMemo(() => folders.filter(f => !!f.parentId), [folders]);
+  const albums = useMemo(() => folders.filter(f => f.type === 'album'), [folders]);
 
   const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
 
   const handleCreateFolder = async (name: string) => {
-    const finalName = name.trim() || 'New Folder';
+    const finalName = name.trim() || (pendingVaultType === 'album' ? 'New Album' : 'New Folder');
     try {
-      await createFolder(finalName, colors.primary, 'folder', false);
+      await createFolder(finalName, colors.primary, 'folder', false, undefined, pendingVaultType);
       showTopToast(`${finalName} created`);
     } catch {
       showTopToast(`Failed to create ${finalName}`, 'error');
@@ -240,6 +272,15 @@ export default function DashboardScreen() {
   };
 
   const handleDirectoryProvisioning = () => {
+    setShowVaultTypeSheet(true);
+  };
+
+  // Sets the pending type and jumps straight to the name-entry Dialog,
+  // skipping the type-choice Sheet — used both by the Sheet's own two rows
+  // and by the type-specific EmptyState buttons below.
+  const openCreateDialogFor = (type: 'folder' | 'album') => {
+    setPendingVaultType(type);
+    setShowVaultTypeSheet(false);
     setShowFolderModal(true);
   };
 
@@ -275,7 +316,7 @@ export default function DashboardScreen() {
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== folder.id), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album'), folderStatsMap)
         );
         break;
       case 'export':
@@ -358,7 +399,10 @@ export default function DashboardScreen() {
   };
 
   const handleSelectAllFolders = () => {
-    const allIds = folders.map(f => f.id);
+    // Scoped to non-album folders (§3 fix) — "Select All" under "My Vaults"
+    // must not silently reach albums, which have their own, non-selectable
+    // section below.
+    const allIds = [...rootFolders, ...subFolders].map(f => f.id);
     setSelectedFolderIds(selectedFolderIds.length === allIds.length ? [] : allIds);
   };
 
@@ -381,14 +425,17 @@ export default function DashboardScreen() {
   };
 
   const handleDeleteAllFolders = () => {
-    if (folders.length === 0) return;
-    const count = folders.length;
+    // Scoped to non-album folders (§3 fix), same reasoning as above — "Delete
+    // All Vaults" must not silently reach albums too.
+    const nonAlbumFolders = [...rootFolders, ...subFolders];
+    if (nonAlbumFolders.length === 0) return;
+    const count = nonAlbumFolders.length;
     confirmDestructive(
       'Permanently Delete All Vaults',
       `Permanently delete all ${count} vaults and their contents? This cannot be undone.`,
       async () => {
         try {
-          await shredMultipleFolders(folders.map(f => f.id));
+          await shredMultipleFolders(nonAlbumFolders.map(f => f.id));
           showTopToast(`${count} vault${count !== 1 ? 's' : ''} deleted permanently`);
         } catch {
           showTopToast(`Failed to delete ${count} vault${count !== 1 ? 's' : ''} permanently`, 'error');
@@ -479,10 +526,17 @@ export default function DashboardScreen() {
     return Math.max(60, (width - screenPadding * 2 - vaultGap * (cols - 1)) / cols);
   }, [width, screenPadding, vaultGap, getVaultColumns]);
 
-  const renderVaultGrid = (list: any[], isRoot: boolean) => {
+  // §3 (Phase 4, self-review pass 3 correction): a bare icon-swap isn't
+  // enough for the 'album' variant — it also needs the cover-thumbnail tile
+  // component and, per the "no bulk-select on albums" scope decision, must
+  // omit onLongPress/selectable/selected/onToggleSelect entirely rather than
+  // wiring them as no-ops. The 'album' branch is therefore written out in
+  // full below instead of trying to share one parameterized JSX block with
+  // 'root'/'sub'.
+  const renderVaultGrid = (list: any[], variant: 'root' | 'sub' | 'album') => {
     const itemWidth = getVaultItemWidth(viewMode);
     const isListMode = viewMode === 'list';
-    const FolderIcon = isRoot ? RootFolderIcon : SubfolderIcon;
+    const FolderIcon = variant === 'root' ? RootFolderIcon : variant === 'sub' ? SubfolderIcon : GalleryHorizontalEnd;
 
     return (
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: vaultGap }}>
@@ -490,6 +544,45 @@ export default function DashboardScreen() {
           const statsLabel = formatFolderStatsLabel(folderStatsMap[item.id]);
           const isSelected = selectedFolderIds.includes(item.id);
           const isLocked = !!(item.hasAccessKey || item.accessKeyId);
+          const badgesNode = (isLocked || item.isFavorite) && (
+            <>
+              {isLocked && <Badge icon={Lock} color={colors.primary} size={isListMode ? 20 : 18} />}
+              {item.isFavorite && <Badge icon={ShieldCheck} color={colors.warning} size={isListMode ? 20 : 18} />}
+            </>
+          );
+
+          if (variant === 'album') {
+            if (isListMode) {
+              return (
+                <View key={item.id} style={{ width: itemWidth }}>
+                  <AlbumListRow
+                    albumId={item.id}
+                    title={item.name}
+                    subtitle={statsLabel}
+                    allowMultilineTitle
+                    leading={<FolderIcon size={iconSize(22)} color={colors.primary} strokeWidth={2.2} />}
+                    trailingBadges={badgesNode}
+                    onPress={() => handleVaultPress(item)}
+                    onOverflowPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+                  />
+                </View>
+              );
+            }
+            return (
+              <AlbumGridTile
+                key={item.id}
+                albumId={item.id}
+                size={itemWidth}
+                name={item.name}
+                subtitle={statsLabel}
+                Icon={FolderIcon}
+                iconColor={colors.primary}
+                onPress={() => handleVaultPress(item)}
+                onMenuPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
+                badges={badgesNode}
+              />
+            );
+          }
 
           if (isListMode) {
             return (
@@ -499,12 +592,7 @@ export default function DashboardScreen() {
                   subtitle={statsLabel}
                   allowMultilineTitle
                   leading={<FolderIcon size={iconSize(22)} color={colors.primary} strokeWidth={2.2} />}
-                  trailingBadges={
-                    <>
-                      {isLocked && <Badge icon={Lock} color={colors.primary} size={20} />}
-                      {item.isFavorite && <Badge icon={ShieldCheck} color={colors.warning} size={20} />}
-                    </>
-                  }
+                  trailingBadges={badgesNode}
                   onPress={() => handleVaultPress(item)}
                   onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
                   selectable={selectionMode}
@@ -529,14 +617,7 @@ export default function DashboardScreen() {
               onPress={() => handleVaultPress(item)}
               onLongPress={() => { setSelectionMode(true); setSelectedFolderIds([item.id]); }}
               onMenuPress={() => { setTargetFolder(item); setShowFolderMenu(true); }}
-              badges={
-                (isLocked || item.isFavorite) && (
-                  <>
-                    {isLocked && <Badge icon={Lock} color={colors.primary} size={18} />}
-                    {item.isFavorite && <Badge icon={ShieldCheck} color={colors.warning} size={18} />}
-                  </>
-                )
-              }
+              badges={badgesNode}
             />
           );
         })}
@@ -568,7 +649,11 @@ export default function DashboardScreen() {
         { action: 'assign-key', label: 'Assign Existing Access Key', color: colors.secondary }
       );
     }
-    return baseItems;
+    // An album can never gain a parentId — there's no valid move
+    // destination for it — so omit 'move' from its own menu (§3). The other
+    // half of this fix (albums excluded as a move *destination* for
+    // anything else) is the toMoveDestinations exclusion above.
+    return targetFolder.type === 'album' ? baseItems.filter(item => item.action !== 'move') : baseItems;
   }, [targetFolder, clipboard, colors]);
 
   return (
@@ -735,31 +820,57 @@ export default function DashboardScreen() {
 
           <CollapsibleSection expanded={!collapsedSections.has('vaults')}>
           {(
-            folders.length === 0 ? (
+            // Excludes albums (§3 fix) — otherwise, once an album exists but
+            // zero regular folders do, this would falsely read `false` and
+            // render a blank grid area with no explanatory EmptyState.
+            rootFolders.length === 0 && subFolders.length === 0 ? (
               <EmptyState
                 icon={Vault}
                 title="No Vaults Yet"
                 message="Create your first secure vault to get started"
                 actionLabel="Create First Vault"
-                onAction={handleDirectoryProvisioning}
+                onAction={() => openCreateDialogFor('folder')}
               />
             ) : (
               <View>
                 {rootFolders.length > 0 && (
                   <View style={{ marginBottom: space(5) }}>
                     <Text style={[styles.vaultSectionLabel, { color: colors.textMuted, marginBottom: space(2) }]}>ROOT VAULTS</Text>
-                    {renderVaultGrid(rootFolders, true)}
+                    {renderVaultGrid(rootFolders, 'root')}
                   </View>
                 )}
                 {subFolders.length > 0 && (
                   <View style={{ marginBottom: space(5) }}>
                     <Text style={[styles.vaultSectionLabel, { color: colors.textMuted, marginBottom: space(2) }]}>SUBFOLDERS</Text>
-                    {renderVaultGrid(subFolders, false)}
+                    {renderVaultGrid(subFolders, 'sub')}
                   </View>
                 )}
               </View>
             )
           )}
+          </CollapsibleSection>
+        </View>
+
+        {/* "My Albums" (§3, Phase 4) — placed directly after "My Vaults".
+            No root/subfolder sub-split (albums are always flat) and no
+            long-press bulk-select toolbar in the header (v1 scope decision:
+            per-item •••-menu parity only, see the plan's §3 reasoning). */}
+        <View style={{ marginBottom: space(6) }}>
+          <View style={[styles.sectionHeader, { marginBottom: space(3) }]}>
+            <SectionHeaderToggle title="My Albums" expanded={!collapsedSections.has('albums')} onToggle={() => toggleSectionCollapse('albums')} />
+          </View>
+          <CollapsibleSection expanded={!collapsedSections.has('albums')}>
+            {albums.length === 0 ? (
+              <EmptyState
+                icon={GalleryHorizontalEnd}
+                title="No Albums Yet"
+                message="Create an album to organize your photos and videos"
+                actionLabel="Create First Album"
+                onAction={() => openCreateDialogFor('album')}
+              />
+            ) : (
+              renderVaultGrid(albums, 'album')
+            )}
           </CollapsibleSection>
         </View>
 
@@ -781,11 +892,32 @@ export default function DashboardScreen() {
       <Snackbar state={snackbarState} bottomOffset={bottomTabSpacing} />
       <TopToast state={topToastState} />
 
+      <Sheet visible={showVaultTypeSheet} onClose={() => setShowVaultTypeSheet(false)} title="New Vault">
+        <TouchableOpacity
+          style={[styles.actionSheetItem, styles.vaultTypeRow, { borderBottomColor: colors.borderLight, paddingHorizontal: space(5), paddingVertical: space(4), gap: space(3) }]}
+          onPress={() => openCreateDialogFor('folder')}
+          accessibilityRole="button"
+          accessibilityLabel="New Folder"
+        >
+          <Folder size={iconSize(20)} color={colors.text} strokeWidth={2} />
+          <Text style={[styles.actionSheetLabel, { color: colors.text, fontSize: font(Type.body.size) }]}>New Folder</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.vaultTypeRow, { paddingHorizontal: space(5), paddingVertical: space(4), gap: space(3) }]}
+          onPress={() => openCreateDialogFor('album')}
+          accessibilityRole="button"
+          accessibilityLabel="New Album"
+        >
+          <GalleryHorizontalEnd size={iconSize(20)} color={colors.text} strokeWidth={2} />
+          <Text style={[styles.actionSheetLabel, { color: colors.text, fontSize: font(Type.body.size) }]}>New Album</Text>
+        </TouchableOpacity>
+      </Sheet>
+
       <Dialog
         visible={showFolderModal}
         onRequestClose={() => setShowFolderModal(false)}
-        icon={Folder}
-        title="New Vault"
+        icon={pendingVaultType === 'album' ? GalleryHorizontalEnd : Folder}
+        title={pendingVaultType === 'album' ? 'New Album' : 'New Folder'}
         actions={[
           { label: 'Cancel', onPress: () => setShowFolderModal(false), variant: 'tertiary' },
           { label: 'Create', onPress: confirmFolderCreation, variant: 'primary' },
@@ -793,12 +925,12 @@ export default function DashboardScreen() {
       >
         <View style={{ width: '100%', marginTop: 8 }}>
           <TextField
-            placeholder="Vault name"
+            placeholder={pendingVaultType === 'album' ? 'Album name' : 'Vault name'}
             value={folderName}
             onChangeText={setFolderName}
             autoFocus
             maxLength={MAX_NAME_LENGTH}
-            accessibilityLabel="Vault name"
+            accessibilityLabel={pendingVaultType === 'album' ? 'Album name' : 'Vault name'}
             helper={`${folderName.length}/${MAX_NAME_LENGTH}`}
           />
         </View>
@@ -972,4 +1104,5 @@ const styles = StyleSheet.create({
 
   actionSheetItem: { borderBottomWidth: StyleSheet.hairlineWidth },
   actionSheetLabel: { fontWeight: '500' },
+  vaultTypeRow: { flexDirection: 'row', alignItems: 'center' },
 });

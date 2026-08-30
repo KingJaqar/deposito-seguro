@@ -7,7 +7,7 @@
 // grid so every "small/medium/large icons" view mode renders the same way.
 import React, { useState } from 'react';
 import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CheckCircle2, Circle, RotateCcw, Trash2 } from 'lucide-react-native';
+import { CheckCircle2, Circle, Play, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 
@@ -20,12 +20,25 @@ export interface GridTileProps {
   Icon: IconComponent;
   iconColor: string;
   thumbnailUri?: string;
+  /** True for a video file — renders a centered play badge over the thumbnail
+   * so a video reads as playable before it's tapped open, matching Google
+   * Photos/gallery conventions. Only drawn when a real thumbnailUri is also
+   * present — the fallback generic Icon glyph (no thumbnail yet) already
+   * reads as a video via its own icon, so no badge is needed there. */
+  isVideo?: boolean;
   /** Optional second line under the name (e.g. a file-type label), single line. */
   subtitle?: string;
   subtitleColor?: string;
+  /** Optional third line under the subtitle (e.g. trash's "deleted on" date), single line. */
+  caption?: string;
   selectable?: boolean;
   selected?: boolean;
   dimmed?: boolean;
+  /** Suppresses the name/subtitle/caption labels beneath the thumbnail — e.g. an
+   * album's photo/video grid, which reads as a flush wall of thumbnails without
+   * per-item captions (Google Photos' own album grid does the same). `name` is
+   * still used for the accessibility label. */
+  hideName?: boolean;
   badges?: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
@@ -44,11 +57,14 @@ export function GridTile({
   Icon,
   iconColor,
   thumbnailUri,
+  isVideo = false,
   subtitle,
   subtitleColor,
+  caption,
   selectable = false,
   selected = false,
   dimmed = false,
+  hideName = false,
   badges,
   onPress,
   onLongPress,
@@ -100,6 +116,14 @@ export function GridTile({
             <Icon size={Math.round(size * 0.4)} color={iconColor} strokeWidth={1.75} />
           )}
 
+          {!!thumbnailUri && isVideo && (
+            <View pointerEvents="none" style={styles.playBadge}>
+              <View style={[styles.playCircle, { width: Math.round(size * 0.32), height: Math.round(size * 0.32), borderRadius: Math.round(size * 0.16) }]}>
+                <Play size={Math.round(size * 0.16)} color="#fff" fill="#fff" strokeWidth={0} />
+              </View>
+            </View>
+          )}
+
           {selected && (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: `${colors.primary}40`, borderRadius: radius(2) }]} />
           )}
@@ -117,12 +141,19 @@ export function GridTile({
           )}
         </View>
 
-        <Text numberOfLines={1} style={[styles.label, { color: colors.text, fontSize: font(Type.caption.size), width: size }]}>
-          {name}
-        </Text>
-        {!!subtitle && (
+        {!hideName && (
+          <Text numberOfLines={1} style={[styles.label, { color: colors.text, fontSize: font(Type.caption.size), width: size }]}>
+            {name}
+          </Text>
+        )}
+        {!hideName && !!subtitle && (
           <Text numberOfLines={1} style={[styles.subtitle, { color: subtitleColor ?? colors.textMuted, fontSize: font(Type.caption.size), width: size }]}>
             {subtitle}
+          </Text>
+        )}
+        {!hideName && !!caption && (
+          <Text numberOfLines={1} style={[styles.caption, { color: colors.textMuted, fontSize: font(Type.caption.size), width: size }]}>
+            {caption}
           </Text>
         )}
       </Pressable>
@@ -179,12 +210,27 @@ const styles = StyleSheet.create({
   tile: { alignItems: 'flex-start' },
   thumb: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   thumbImage: { width: '100%', height: '100%' },
+  playBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playCircle: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   badgeCorner: { position: 'absolute', bottom: 4, right: 4, flexDirection: 'row', gap: 4 },
   menuBtn: { position: 'absolute', top: 4, right: 4, alignItems: 'center', justifyContent: 'center' },
   menuDots: { color: '#fff', fontSize: 10, fontWeight: '700', lineHeight: 10 },
   checkBadge: { position: 'absolute', top: 4, right: 4, alignItems: 'center', justifyContent: 'center' },
   label: { marginTop: 4, fontWeight: '600' },
   subtitle: { fontWeight: '500', marginTop: 1 },
+  caption: { fontWeight: '500', marginTop: 1, opacity: 0.8 },
   actionRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
   actionBtn: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
 });

@@ -156,7 +156,13 @@ export const getGridItemWidth = (
 export const getGridColumns = (
   viewMode: 'list' | 'small-icons' | 'medium-icons' | 'large-icons',
   containerWidth?: number,
-  minItemWidth: number = 80
+  // 60 matches the Math.max(60, …) floor every other screen's own grid math
+  // (dashboard/favorites/search/trash) already enforces on tile width — at
+  // 80 this cap kicked in before "small icons" could ever reach its 5-column
+  // target on a typical phone width, collapsing it down to the same column
+  // count as "medium icons" (3) and making the two view modes look
+  // identical there, even though every other screen renders them distinctly.
+  minItemWidth: number = 60
 ): number => {
   const w = containerWidth ?? Dimensions.get('window').width;
   const usableWidth = w - spacing[12] * 2; // default padding

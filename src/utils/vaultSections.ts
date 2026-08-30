@@ -12,7 +12,7 @@ import { classifyFileType, FileTypeTag } from './fileTypeClassifier';
 export type CategoryFilter = 'All' | 'Images' | 'Videos' | 'Documents' | 'Audio' | 'Apps' | 'Other' | 'Favorites';
 
 export type VaultSectionKey =
-  | 'folders' | 'files' | 'rootFolders' | 'subFolders'
+  | 'folders' | 'files' | 'rootFolders' | 'subFolders' | 'albums'
   | 'images' | 'videos' | 'documents' | 'audio' | 'apps' | 'other'
   | 'favorites';
 
@@ -53,6 +53,22 @@ function foldersContainingTag(folders: FolderMetadata[], contentFiles: FileMetad
 }
 
 /**
+ * Splits `folders` into album-type and everything else, so each of the three
+ * branches below can keep its existing `folders`/`rootFolders`/`subFolders`
+ * entries album-free and surface a dedicated `albums` entry instead (plan
+ * §4) — an album is always root-only, so it would otherwise silently show up
+ * in both `folders` and `rootFolders` indistinguishably from a real vault.
+ */
+function splitAlbums(folders: FolderMetadata[]): { albums: FolderMetadata[]; plain: FolderMetadata[] } {
+  const albums: FolderMetadata[] = [];
+  const plain: FolderMetadata[] = [];
+  for (const f of folders) {
+    (f.type === 'album' ? albums : plain).push(f);
+  }
+  return { albums, plain };
+}
+
+/**
  * Builds the ordered list of result sections for a category-filter chip.
  *
  * @param folders  search-query-matched, screen-scoped folders (e.g. favorites.tsx
@@ -79,20 +95,26 @@ export function buildVaultSections(opts: {
   const tag = TAG_BY_FILTER[activeFilter];
   if (tag) {
     const typeFiles = byTag(files, tag);
-    const typeFolders = foldersContainingTag(folders, contentFiles, tag);
+    const typeFoldersAll = foldersContainingTag(folders, contentFiles, tag);
+    // Only the Images/Videos tags can ever contain an album (albums are
+    // media-only) — split it out into its own section either way, both for
+    // consistency and so it doesn't silently show up in Folders/Root Folders.
+    const { albums, plain: typeFolders } = splitAlbums(typeFoldersAll);
     return [
       { key: 'files', files: typeFiles },
       { key: 'folders', folders: typeFolders },
+      { key: 'albums', folders: albums },
       { key: 'rootFolders', folders: typeFolders.filter(f => !f.parentId) },
       { key: 'subFolders', folders: typeFolders.filter(f => !!f.parentId) },
     ];
   }
 
   if (activeFilter === 'Favorites' && includeFavoritesExtras) {
-    const favFolders = folders.filter(f => f.isFavorite);
+    const { albums, plain: favFolders } = splitAlbums(folders.filter(f => f.isFavorite));
     const favFiles = files.filter(f => f.isFavorite);
     return [
       { key: 'folders', folders: favFolders },
+      { key: 'albums', folders: albums },
       { key: 'files', files: favFiles },
       { key: 'rootFolders', folders: favFolders.filter(f => !f.parentId) },
       { key: 'subFolders', folders: favFolders.filter(f => !!f.parentId) },
@@ -101,14 +123,24 @@ export function buildVaultSections(opts: {
   }
 
   // 'All' (and 'Favorites' when includeFavoritesExtras is false, defensively)
+  const { albums, plain: plainFolders } = splitAlbums(folders);
   const sections: VaultSectionData[] = [
-    { key: 'folders', folders },
+    { key: 'folders', folders: plainFolders },
+    { key: 'albums', folders: albums },
     { key: 'files', files },
-    { key: 'rootFolders', folders: folders.filter(f => !f.parentId) },
-    { key: 'subFolders', folders: folders.filter(f => !!f.parentId) },
+    { key: 'rootFolders', folders: plainFolders.filter(f => !f.parentId) },
+    { key: 'subFolders', folders: plainFolders.filter(f => !!f.parentId) },
     ...TYPE_SECTIONS.map(s => ({ key: s.key, files: byTag(files, s.tag) })),
   ];
   if (includeFavoritesExtras) {
+    // Deliberately NOT split by splitAlbums: this is a mixed folders+files
+    // recap, and renderFolderList (favorites.tsx/search.tsx) already
+    // branches per-item on `type === 'album'` regardless of which section
+    // it's rendered under — so a favorited album correctly still appears
+    // here too, with its own cover thumbnail/no-long-press treatment. Bulk
+    // "select all" on this section is guarded separately (renderSection
+    // excludes album ids from what it selects), not by keeping albums out
+    // of this list.
     sections.push({
       key: 'favorites',
       folders: folders.filter(f => f.isFavorite),

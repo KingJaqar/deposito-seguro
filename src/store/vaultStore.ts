@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { SecureCrypto } from '../security/crypto';
 import { StorageService } from '../services/storage';
 import { extractApkIcon } from '../services/apkIconExtractor';
+import { extractImageThumbnail, extractVideoThumbnail } from '../services/mediaThumbnailExtractor';
 import { ClipboardItem, EncryptionKeyMetadata, FileMetadata, FolderMetadata, PasteResult, UndoInfo, VaultState } from '../types';
 import { useSettingsStore } from './settingsStore';
 import { Alert, Platform } from 'react-native';
@@ -30,6 +31,22 @@ export class StorageLimitExceededError extends Error {
   }
 }
 
+/**
+ * Thrown by importFile/copyFileToFolder when the target folder is an album
+ * (FolderMetadata.type === 'album') and the incoming file isn't a photo or
+ * video — albums are media-only. Callers catch this the same way they
+ * already catch StorageLimitExceededError above.
+ */
+export class AlbumMediaOnlyError extends Error {
+  constructor(
+    public readonly fileName: string,
+    public readonly mimeType: string
+  ) {
+    super(`"${fileName}" can't be added to an album — only photos and videos are allowed.`);
+    this.name = 'AlbumMediaOnlyError';
+  }
+}
+
 interface VaultStoreActions extends VaultState {
   hydrateVault: () => Promise<void>;
   isVaultHydrated: () => boolean;
@@ -43,7 +60,7 @@ interface VaultStoreActions extends VaultState {
   reconcileMissingPayloads: () => Promise<void>;
   /** Sum of every file's recorded size, trashed items included (their bytes still occupy the sandbox until permanently deleted/shredded). Used for both the Storage settings display and limit enforcement below. */
   getVaultUsageBytes: () => number;
-  createFolder: (name: string, color?: string, icon?: string, isEncrypted?: boolean, parentId?: string) => Promise<void>;
+  createFolder: (name: string, color?: string, icon?: string, isEncrypted?: boolean, parentId?: string, type?: 'folder' | 'album') => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   importFile: (sourceUri: string, targetFolderId: string, fileName: string, mimeType: string, size: number, encrypt: boolean, encryptionKeyId?: string) => Promise<void>;
   toggleFavorite: (fileId: string) => Promise<void>;
@@ -71,6 +88,20 @@ interface VaultStoreActions extends VaultState {
   persistClipboard: () => Promise<void>;
   duplicateFile: (fileId: string) => Promise<void>;
   duplicateFolder: (folderId: string) => Promise<void>;
+  /**
+   * "Add to Album…" quick action (plan §7, Phase 6) — copies a single file
+   * into an album via copyFileToFolder (the same chokepoint paste-copy and
+   * duplicateFile already share, so the album-media-only guard and storage
+   * limit check both apply here for free), then commits the copy the same
+   * way duplicateFile does (copyFileToFolder itself never persists — every
+   * caller owns its own commitVaultState). Unlike duplicateFile, this
+   * rethrows StorageLimitExceededError/AlbumMediaOnlyError instead of
+   * alerting internally: the caller is MoveVaultModalWrapper, which already
+   * owns a single "how do I report this failure" spot for the whole
+   * move/add-to-album flow (see its own onMove catch) — alerting here too
+   * would double up.
+   */
+  addFileToAlbum: (fileId: string, albumId: string) => Promise<void>;
   // Access Key methods
   assignFolderAccessKey: (folderId: string, passwordId: string) => Promise<void>;
   assignFileAccessKey: (fileId: string, passwordId: string) => Promise<void>;
@@ -221,6 +252,12 @@ const assertBatchWithinStorageLimit = (currentFiles: FileMetadata[], incoming: {
     throw new StorageLimitExceededError(limit, usedBytes, projectedBytes);
   }
 };
+
+/** True for a root-only, media-only album folder — see FolderMetadata.type. */
+const isAlbumFolder = (folder?: FolderMetadata) => folder?.type === 'album';
+
+/** True for a photo/video mimeType — the only content an album may hold. */
+const isMediaMimeType = (mimeType?: string) => !!mimeType && (mimeType.startsWith('image/') || mimeType.startsWith('video/'));
 
 const encryptFileWithKey = async (file: FileMetadata, keyId: string) => {
   const encryptionKey = getEncryptionKey(keyId);
@@ -373,11 +410,12 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }),
     }));
   },
-  createFolder: async (name, color, icon, isEncrypted, parentId) => {
+  createFolder: async (name, color, icon, isEncrypted, parentId, type) => {
     const folderName = clampNameLength(name?.trim() || 'New Folder');
     const { folders } = get();
     const existingNames = new Set(folders.map(f => f.name));
     const uniqueName = uniqueClampedName(folderName, existingNames);
+    const resolvedType = type ?? 'folder';
     const newFolder: FolderMetadata = {
       id: SecureCrypto.generateUUID(),
       name: uniqueName,
@@ -387,7 +425,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       isFavorite: false,
       isPersonalFavoritesFolder: false,
       createdAt: Date.now(),
-      parentId
+      type: resolvedType,
+      // Hard-enforced here, not just left to callers: an album can never
+      // have a parent, regardless of what parentId was passed in.
+      parentId: resolvedType === 'album' ? undefined : parentId
     };
     await commitVaultState(set, (state) => ({ folders: [...state.folders, newFolder] }));
   },
@@ -450,6 +491,14 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     });
   },
   importFile: async (sourceUri, targetFolderId, fileName, mimeType, size, encrypt, encryptionKeyId) => {
+    // Album guard: checked before any file I/O, same reasoning as the
+    // storage-limit check just below — no point copying bytes into the
+    // sandbox just to reject the import a moment later.
+    const targetFolder = get().folders.find(f => f.id === targetFolderId);
+    if (isAlbumFolder(targetFolder) && !isMediaMimeType(mimeType)) {
+      throw new AlbumMediaOnlyError(fileName, mimeType);
+    }
+
     // Checked before any file I/O — no point copying bytes into the sandbox
     // just to have to delete them again on rejection.
     assertWithinStorageLimit(get().files, size, encrypt && !!encryptionKeyId);
@@ -478,6 +527,23 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const isApk = mimeType === 'application/vnd.android.package-archive' || fileName.toLowerCase().endsWith('.apk');
     if (isApk && Platform.OS !== 'web') {
       iconPath = (await extractApkIcon(remuxedPath, `${remuxedPath}.icon.png`)) ?? undefined;
+    }
+    // Real thumbnail generation for images/videos (plan §1a) — same slot,
+    // same before-encryption timing, and same never-blocks-import contract
+    // as the .apk icon extraction just above, just gated on the file being
+    // media instead of being an .apk. Fixes video tiles rendering as broken
+    // images (no <Image> can decode video bytes) and avoids decoding a
+    // full-resolution photo just to render a small grid tile. Because this
+    // sets iconPath in the same slot the .apk path already does, the
+    // encryption block right below needs no changes: it already encrypts
+    // whatever iconPath holds at this point with no awareness of why it was
+    // set.
+    const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
+    if (isMedia && Platform.OS !== 'web') {
+      const thumbOutputPath = `${remuxedPath}.thumb.jpg`;
+      iconPath = (mimeType.startsWith('video/')
+        ? await extractVideoThumbnail(remuxedPath, thumbOutputPath)
+        : await extractImageThumbnail(remuxedPath, thumbOutputPath)) ?? undefined;
     }
     // I-2: only mark a file as encrypted when encryption actually ran, not
     // merely because it was requested — previously `isEncrypted: encrypt`
@@ -1117,13 +1183,86 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     const newFiles: FileMetadata[] = [];
 
     try {
-      const targetFolder = get().folders.find(f => f.id === targetFolderId);
-      if (!targetFolder) {
+      // Pre-existing bug fix, found while adding the album guards below:
+      // targetFolderId is '' for a paste to the vault root (see
+      // dashboard.tsx/favorites.tsx/search.tsx's handlePasteToRoot), which
+      // never matches any real folder id — so this lookup unconditionally
+      // failed and silently no-op'd every "Paste Here" at the root, on
+      // every screen that offers one. Only treat a *non-root* target that
+      // fails to resolve as an error; a root paste has no targetFolder by
+      // definition, not a missing one.
+      const targetFolder = targetFolderId ? get().folders.find(f => f.id === targetFolderId) : undefined;
+      if (targetFolderId && !targetFolder) {
         Alert.alert('Error', 'Target folder not found.');
         return { pastedFiles: 0, pastedFolders: 0 };
       }
 
       const { folders: srcFolders, files: srcFiles } = get();
+
+      // Files-to-root guard (follow-up to the targetFolder fix above):
+      // FileMetadata.folderId is a required field — there is no modeled
+      // concept of a "root file" the way FolderMetadata.parentId models a
+      // root folder via `undefined`. This already matches the Move picker's
+      // own rule (MoveVaultModal only ever offers "Root (Move to top
+      // level)" for a folder move, never a file move — see its own comment
+      // on that Pressable). Before the targetFolder fix above, a root paste
+      // always died at "Target folder not found" first, so this case was
+      // unreachable; now that root pastes actually run, both copy-mode's
+      // topLevelFiles/orphanFiles loops and cut-mode's moveFileToFolder loop
+      // below would otherwise silently write `folderId: ''` — a dangling
+      // reference to a folder that doesn't exist. Reject the whole paste
+      // instead — same whole-batch-rejection shape as the album guards
+      // below, rather than silently dropping just the files and pasting
+      // any folders in the same clipboard on their own. Only trips when
+      // the target is root *and* the clipboard actually holds files; a
+      // folders-only paste to root is unaffected.
+      if (!targetFolderId && clipboard.fileIds.length > 0) {
+        Alert.alert("Can't Paste Here", "Files can't be pasted to the vault root — pick a folder first.");
+        set({ pasteInProgress: false });
+        return { pastedFiles: 0, pastedFolders: 0 };
+      }
+
+      // Album guard 1 (target-is-an-album): a nicer whole-batch UX layer on
+      // top of copyFileToFolder's own per-call guard above, mirroring this
+      // codebase's existing dual-layer pattern for storage limits
+      // (assertBatchWithinStorageLimit pre-flight + assertWithinStorageLimit
+      // inside each individual op).
+      if (isAlbumFolder(targetFolder)) {
+        if (clipboard.folderIds.length > 0) {
+          Alert.alert("Can't Paste Here", "Albums can only contain photos and videos — folders can't be pasted here.");
+          set({ pasteInProgress: false });
+          return { pastedFiles: 0, pastedFolders: 0 };
+        }
+        const nonMediaFile = clipboard.fileIds
+          .map(id => srcFiles.find(f => f.id === id))
+          .find((f): f is FileMetadata => !!f && !isMediaMimeType(f.mimeType));
+        if (nonMediaFile) {
+          Alert.alert("Can't Paste Here", `"${nonMediaFile.name}" can't be added to an album — only photos and videos are allowed.`);
+          set({ pasteInProgress: false });
+          return { pastedFiles: 0, pastedFolders: 0 };
+        }
+      }
+
+      // Album guard 2 (pasted-item-is-an-album, the reverse case): pasting a
+      // copied album anywhere but the vault root would give it a parentId,
+      // silently breaking the "albums are always root" invariant that
+      // dashboard.tsx's rootFolders/subFolders split, useFileSystemQuery,
+      // and vaultSections.ts's splitAlbums all assume holds unconditionally.
+      // Pasting to the root (targetFolderId falsy) stays allowed. No UI path
+      // can put an album into clipboard.folderIds today (no long-press
+      // bulk-select on album tiles, no per-item copy/cut entry on an
+      // album's own menu) — this is defense-in-depth for a future UI
+      // addition, not a v1-reachable flow.
+      if (targetFolderId) {
+        const pastedAlbum = clipboard.folderIds
+          .map(id => srcFolders.find(f => f.id === id))
+          .find((f): f is FolderMetadata => isAlbumFolder(f));
+        if (pastedAlbum) {
+          Alert.alert("Can't Paste Here", `"${pastedAlbum.name}" is an album and can't be nested inside another folder.`);
+          set({ pasteInProgress: false });
+          return { pastedFiles: 0, pastedFolders: 0 };
+        }
+      }
 
       // Check for circular references in cut mode
       if (clipboard.mode === 'cut') {
@@ -1137,9 +1276,14 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         }
       }
 
+      // Same root-vs-non-root normalization as the targetFolder lookup fix
+      // above: a root folder's real parentId is `undefined`, not `''`, so
+      // comparing directly against targetFolderId here previously computed
+      // an empty set for every root paste — dead code until that lookup
+      // bug was fixed, since a root paste never reached this line before.
       const existingNames = new Set(
         get().folders
-          .filter(f => f.parentId === targetFolderId)
+          .filter(f => targetFolderId ? f.parentId === targetFolderId : !f.parentId)
           .map(f => f.name)
       );
 
@@ -1225,7 +1369,13 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         }
 
         for (const folder of topLevelFolders) {
-          await createFolderCopy(folder, targetFolderId);
+          // Root paste normalization: targetFolderId is '' for the vault
+          // root (see dashboard.tsx's handlePasteToRoot), but a root
+          // folder's real parentId is `undefined`, never ''. Matters most
+          // for a pasted album, which must land with no parentId at all —
+          // not just a falsy one — to hold the "albums are always root"
+          // invariant the rest of the app assumes.
+          await createFolderCopy(folder, targetFolderId || undefined);
           pastedFolders++;
           onProgress?.(pastedFiles + pastedFolders, clipboard.fileIds.length + clipboard.folderIds.length);
         }
@@ -1254,7 +1404,13 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         }
 
         for (const folderId of clipboard.folderIds) {
-          await get().moveFolder(folderId, targetFolderId);
+          // Same root normalization as copy-mode's createFolderCopy call
+          // above: moveFolder's own UI call sites (dashboard.tsx et al.)
+          // already pass `destinationFolderId ?? undefined` for a root
+          // move — matching that convention here instead of leaving a
+          // cut-and-pasted-to-root folder with parentId: '' rather than
+          // properly unset.
+          await get().moveFolder(folderId, targetFolderId || undefined);
           pastedFolders++;
           onProgress?.(pastedFiles + pastedFolders, clipboard.fileIds.length + clipboard.folderIds.length);
         }
@@ -1280,6 +1436,12 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
           'Storage Limit Reached',
           `This vault is capped at ${formatBytes(e.limitBytes)}. It's currently using ${formatBytes(e.usedBytes)}, and pasting this needs ${formatBytes(e.incomingBytes)} more. Raise the limit in Settings → Storage, or free up space first.`
         );
+      } else if (e instanceof AlbumMediaOnlyError) {
+        // Defense-in-depth fallback: the pre-flight guards above should
+        // already catch every case this could trip through today's UI, but
+        // copyFileToFolder's own per-call guard is the real enforcement
+        // layer, so give it the same friendly message if it's ever reached.
+        Alert.alert("Can't Paste Here", e.message);
       } else {
         console.error('Paste failed', e);
         Alert.alert('Paste Failed', 'An error occurred during paste. Please try again.');
@@ -1305,6 +1467,15 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // total and miss what the batch's own earlier copies are about to add.
     if (!options?.skipLimitCheck) {
       assertWithinStorageLimit(get().files, sourceFile.size, !!sourceFile.isEncrypted);
+    }
+
+    // Album guard: this is the single lowest-level primitive already shared
+    // by paste-copy, duplicateFile, and duplicateFolder's recursive copy —
+    // the right chokepoint to enforce "an album can only ever hold photos
+    // and videos" regardless of which of those three paths is calling it.
+    const targetFolder = get().folders.find(f => f.id === targetFolderId);
+    if (isAlbumFolder(targetFolder) && !isMediaMimeType(sourceFile.mimeType)) {
+      throw new AlbumMediaOnlyError(sourceFile.name, sourceFile.mimeType);
     }
 
     const newId = SecureCrypto.generateUUID();
@@ -1374,18 +1545,19 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       get().files.filter(f => f.folderId === file.folderId && !f.isTrash).map(f => f.name)
     );
 
-    const uniqueName = (baseName: string): string => {
-      const ext = baseName.includes('.') ? baseName.slice(baseName.lastIndexOf('.')) : '';
-      const nameWithoutExt = baseName.replace(ext, '');
-      let name = baseName;
-      let counter = 2;
-      while (existingNames.has(name)) {
-        name = `${nameWithoutExt} (${counter})${ext}`;
-        counter++;
-      }
-      existingNames.add(name);
-      return name;
-    };
+    // Bug fixed here (see addFileToAlbum's comment for the full story):
+    // copyFileToFolder strips sourceFile.name's extension itself before
+    // calling this callback with the extension-less baseName, so a callback
+    // that re-parses *its own argument* for an extension never finds one —
+    // the collision check then compares an extension-less candidate against
+    // extension-having existingNames and never matches. Fixed by computing
+    // the final unique name up front via dedupeFileName (extension-aware)
+    // against the file's own name, then handing copyFileToFolder a trivial
+    // callback that returns that name's already-computed base.
+    const desiredName = dedupeFileName(file.name, existingNames);
+    const desiredExt = desiredName.includes('.') ? desiredName.slice(desiredName.lastIndexOf('.')) : '';
+    const desiredBase = desiredExt ? desiredName.slice(0, -desiredExt.length) : desiredName;
+    const uniqueName = () => desiredBase;
 
     // I-22: copyFileToFolder can now throw StorageLimitExceededError (and
     // duplicateFile is called fire-and-forget from every UI call site, with
@@ -1460,20 +1632,20 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         // skipLimitCheck: the whole subtree's bytes are validated as one
         // batch below, before this recursion starts — see assertBatchWithinStorageLimit's
         // own doc comment for why a per-file check here would be wrong.
-        const copiedFile = await get().copyFileToFolder(file, newId, (base) => {
-          const ext = base.includes('.') ? base.slice(base.lastIndexOf('.')) : '';
-          const nameWithoutExt = base.replace(ext, '');
-          let name = base;
-          let counter = 2;
-          const siblingNames = new Set(
-            srcFiles.filter(f => f.folderId === newId && !f.isTrash).map(f => f.name)
-          );
-          while (siblingNames.has(name)) {
-            name = `${nameWithoutExt} (${counter})${ext}`;
-            counter++;
-          }
-          return name;
-        }, { skipLimitCheck: true });
+        // Same fix as duplicateFile above, applied here (see addFileToAlbum's
+        // comment for the full story): copyFileToFolder hands this callback
+        // an already extension-less baseName, so re-parsing `base` for an
+        // extension here always found none, and the collision check never
+        // matched a real sibling collision. Compute the final unique name
+        // up front with dedupeFileName (extension-aware) against the
+        // source file's own name, then return just that name's base.
+        const siblingNames = new Set(
+          srcFiles.filter(f => f.folderId === newId && !f.isTrash).map(f => f.name)
+        );
+        const desiredName = dedupeFileName(file.name, siblingNames);
+        const desiredExt = desiredName.includes('.') ? desiredName.slice(desiredName.lastIndexOf('.')) : '';
+        const desiredBase = desiredExt ? desiredName.slice(0, -desiredExt.length) : desiredName;
+        const copiedFile = await get().copyFileToFolder(file, newId, () => desiredBase, { skipLimitCheck: true });
         newFiles.push(copiedFile);
       }
 
@@ -1526,5 +1698,43 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       console.error('Failed to duplicate folder:', e);
       Alert.alert('Duplicate Failed', 'Could not duplicate this folder. Please try again.');
     }
+  },
+
+  addFileToAlbum: async (fileId, albumId) => {
+    const file = get().files.find(f => f.id === fileId);
+    if (!file) return;
+
+    // Dedupe against the destination album's existing names — a same-named
+    // file already in the album shouldn't silently collide.
+    //
+    // Bug found while adding this (verified against duplicateFile, which
+    // has the identical shape): copyFileToFolder strips sourceFile.name's
+    // extension itself before calling the uniqueName callback it's given
+    // (`uniqueName(baseName) + ext`, where baseName is already
+    // extension-less) — a callback that re-parses its own argument for an
+    // extension (as duplicateFile's inline closure and this one's first
+    // draft both did) is comparing an extension-less candidate against
+    // extension-having existingNames, so it can never actually detect a
+    // collision. Fixed here by using the file's own extension-aware
+    // dedupeFileName helper (already correct, already used by
+    // moveFileToFolder above) to decide the *final* name up front, then
+    // handing copyFileToFolder a callback that just returns that name's
+    // already-computed base — letting copyFileToFolder re-append the same
+    // extension it always would. (duplicateFile and duplicateFolder's
+    // createFolderCopy had this same latent bug — since fixed there too,
+    // using this same pattern.)
+    const existingNames = new Set(
+      get().files.filter(f => f.folderId === albumId && !f.isTrash).map(f => f.name)
+    );
+    const desiredName = dedupeFileName(file.name, existingNames);
+    const desiredExt = desiredName.includes('.') ? desiredName.slice(desiredName.lastIndexOf('.')) : '';
+    const desiredBase = desiredExt ? desiredName.slice(0, -desiredExt.length) : desiredName;
+
+    // copyFileToFolder already carries the album-media-only guard (§1) and
+    // the storage-limit check — both surface as thrown errors here rather
+    // than an internal Alert, so the caller (MoveVaultModalWrapper's onMove
+    // handler) can show one tailored message instead of two competing ones.
+    const copied = await get().copyFileToFolder(file, albumId, () => desiredBase);
+    await commitVaultState(set, (state) => ({ files: [...state.files, copied] }));
   },
 }));

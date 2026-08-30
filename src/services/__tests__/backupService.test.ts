@@ -43,4 +43,39 @@ describe('EnhancedBackupService.createBackupManifest', () => {
     const wrongDerivedKey = await SecureCrypto.hashPassword('wrong-passphrase', manifest.keyMaterial!.salt);
     await expect(SecureCrypto.decrypt(manifest.keyMaterial!.ciphertext, wrongDerivedKey)).rejects.toThrow();
   });
+
+  // Regression tests for the manual folders/files allowlists in
+  // createBackupManifest (plans/album implementation plan.md §1's `type`
+  // fix, and a real gap found re-verifying §1a against backup/restore: an
+  // unbacked-up iconPath/iconEncrypted silently reverts a restored media
+  // file's thumbnail to useFileThumbnailUri's pre-§1a fallback, which is
+  // flat-out broken — not just lower quality — for an encrypted file, since
+  // that fallback is file.localPath, which is ciphertext).
+  it('carries an album folder\'s type through to the manifest, not silently reverting it to a plain folder', async () => {
+    useVaultStore.setState({
+      folders: [{
+        id: 'album-1', name: 'My Album', type: 'album',
+        isFavorite: false, isPersonalFavoritesFolder: false, createdAt: Date.now(),
+      }],
+      files: [],
+    });
+    const manifest = await EnhancedBackupService.createBackupManifest(undefined);
+    expect(manifest.vaultStructure.folders[0].type).toBe('album');
+  });
+
+  it('carries a media file\'s iconPath/iconEncrypted through to the manifest', async () => {
+    useVaultStore.setState({
+      folders: [],
+      files: [{
+        id: 'file-1', folderId: 'album-1', name: 'photo.jpg', size: 1234,
+        mimeType: 'image/jpeg', localPath: '/sandbox/file-1_photo.jpg.enc',
+        iconPath: '/sandbox/file-1_photo.jpg.thumb.jpg.enc', iconEncrypted: true,
+        isEncrypted: true, encryptionKeyId: 'ek-1',
+        isFavorite: false, isTrash: false, importedAt: Date.now(),
+      }],
+    });
+    const manifest = await EnhancedBackupService.createBackupManifest(undefined);
+    expect(manifest.vaultStructure.files[0].iconPath).toBe('/sandbox/file-1_photo.jpg.thumb.jpg.enc');
+    expect(manifest.vaultStructure.files[0].iconEncrypted).toBe(true);
+  });
 });

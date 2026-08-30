@@ -41,6 +41,8 @@ export interface MoveVaultModalProps {
     id: string;
     name: string;
     type: 'file' | 'folder';
+    /** See MoveItem.mode (MoveVaultContext.tsx) — defaults to 'move'. */
+    mode?: 'move' | 'add-to-album';
   } | null;
   folders: {
     id: string;
@@ -144,10 +146,23 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
 
   if (!item) return null;
 
+  // Plan §7, Phase 6: "Add to Album…" reuses this exact modal (see the
+  // header comment above for why) but copies rather than moves — every
+  // string below that says "move"/"moved" would be actively wrong for that
+  // case, not just off-brand, so it all branches on this one flag instead
+  // of threading a second copy of the whole component.
+  const isAddToAlbum = item.mode === 'add-to-album';
+  const actionVerb = isAddToAlbum ? 'Add' : 'Move';
+
   const renderFolderRow = (
     folder: { id: string; name: string; parentId?: string; isFavorite: boolean; hasAccessKey: boolean; fileCount: number; totalSize: number }
   ) => {
     const isRoot = !folder.parentId;
+    // Every destination offered in add-to-album mode is itself an album
+    // (toMoveDestinations(albums, ...) — see VaultContentsScreen/favorites/
+    // search's 'add-to-album' handlers), and an album is always root-level,
+    // so "Root Folder"/"Subfolder" would be a meaningless label here.
+    const kindLabel = isAddToAlbum ? 'Album' : (isRoot ? 'Root Folder' : 'Subfolder');
     const statsLabel = formatFolderStatsLabel({ count: folder.fileCount, size: folder.totalSize });
     return (
       <Pressable
@@ -155,7 +170,7 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
         onPress={() => handleFolderPress({ id: folder.id, name: folder.name })}
         disabled={moving}
         accessibilityRole="button"
-        accessibilityLabel={`Open ${folder.name}, ${isRoot ? 'root folder' : 'subfolder'}, ${statsLabel}`}
+        accessibilityLabel={`Open ${folder.name}, ${isAddToAlbum ? 'album' : (isRoot ? 'root folder' : 'subfolder')}, ${statsLabel}`}
         android_ripple={{ color: `${colors.text}0F` }}
         style={({ pressed }) => [
           styles.folderItem,
@@ -184,7 +199,7 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
             style={[styles.folderSubtitle, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}
             numberOfLines={1}
           >
-            {isRoot ? 'Root Folder' : 'Subfolder'} · {statsLabel}
+            {kindLabel} · {statsLabel}
           </Text>
         </View>
         <View style={[styles.trailing, { gap: space(2) }]}>
@@ -202,16 +217,29 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
         visible={visible}
         onClose={handleDismiss}
         closeOnSwipeDown={!moving}
-        title={`Move ${item.type === 'folder' ? 'Vault' : 'File'}`}
+        title={isAddToAlbum ? 'Add to Album' : `Move ${item.type === 'folder' ? 'Vault' : 'File'}`}
         fixedHeightFraction={0.75}
       >
         <View style={{ paddingHorizontal: space(5) }}>
           <View style={[styles.itemInfo, { backgroundColor: colors.surfaceHover, borderRadius: radius(4), paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(3), gap: space(2) }]}>
-            <Text style={[styles.itemInfoLabel, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>Moving:</Text>
+            <Text style={[styles.itemInfoLabel, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>{isAddToAlbum ? 'Adding:' : 'Moving:'}</Text>
             <Text style={[styles.itemInfoName, { color: colors.text, fontSize: font(Type.label.size) }]} numberOfLines={1}>
               {item.name}
             </Text>
           </View>
+
+          {/* Plan §7: the data model has no many-to-many membership, so this
+              action copies the file rather than referencing it — the
+              original stays right where it is, now duplicated. Required,
+              visible-in-the-picker-sheet UI copy per the plan, not just an
+              internal comment. */}
+          {isAddToAlbum && (
+            <View style={[styles.copyHint, { backgroundColor: `${colors.secondary}14`, borderRadius: radius(4), paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(3) }]}>
+              <Text style={[styles.copyHintText, { color: colors.textSecondary, fontSize: font(Type.caption.size) }]}>
+                Adds a copy — the original stays where it is.
+              </Text>
+            </View>
+          )}
 
           {path.length > 0 && (
             <>
@@ -231,13 +259,13 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
               </View>
 
               <Button
-                title="Move Here"
+                title={`${actionVerb} Here`}
                 icon={Check}
                 onPress={handleMoveHerePress}
                 variant="primary"
                 disabled={moving}
                 style={{ marginBottom: space(3) }}
-                accessibilityLabel={`Move ${item.name} here, into ${currentLocationName}`}
+                accessibilityLabel={`${actionVerb} ${item.name} here, into ${currentLocationName}`}
               />
             </>
           )}
@@ -306,8 +334,10 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
               <View style={styles.emptyStateFill}>
                 <EmptyState
                   icon={Folder}
-                  title={isSearching ? 'No folders match your search' : (path.length > 0 ? 'No subfolders here' : 'No folders available')}
-                  message={!isSearching && path.length > 0 ? `Tap "Move Here" above to place it in ${currentLocationName}.` : undefined}
+                  title={isSearching
+                    ? `No ${isAddToAlbum ? 'albums' : 'folders'} match your search`
+                    : (path.length > 0 ? (isAddToAlbum ? 'This album has no subfolders' : 'No subfolders here') : `No ${isAddToAlbum ? 'other albums' : 'folders'} available`)}
+                  message={!isSearching && path.length > 0 ? `Tap "${actionVerb} Here" above to place it in ${currentLocationName}.` : undefined}
                 />
               </View>
             ) : (
@@ -321,11 +351,13 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
         visible={confirmVisible}
         onRequestClose={() => { if (!moving) setConfirmVisible(false); }}
         dismissOnBackdropPress={!moving}
-        title="Move Here?"
-        message={`Move "${item.name}" to "${currentLocationName}"?`}
+        title={`${actionVerb} Here?`}
+        message={isAddToAlbum
+          ? `Add a copy of "${item.name}" to "${currentLocationName}"? The original stays where it is.`
+          : `Move "${item.name}" to "${currentLocationName}"?`}
         actions={[
           { label: 'Cancel', variant: 'tertiary', onPress: () => setConfirmVisible(false), disabled: moving },
-          { label: 'Move Here', variant: 'primary', onPress: confirmMoveHere, loading: moving, disabled: moving },
+          { label: `${actionVerb} Here`, variant: 'primary', onPress: confirmMoveHere, loading: moving, disabled: moving },
         ]}
       />
     </>
@@ -336,6 +368,8 @@ const styles = StyleSheet.create({
   itemInfo: { flexDirection: 'row', alignItems: 'center' },
   itemInfoLabel: { fontWeight: '500' },
   itemInfoName: { fontWeight: '600', flex: 1 },
+  copyHint: {},
+  copyHintText: { fontWeight: '500' },
   breadcrumb: { flexDirection: 'row', alignItems: 'center' },
   backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   breadcrumbText: { fontWeight: '700', flexShrink: 1 },

@@ -109,7 +109,7 @@ function computeResponsiveTheme(
     return getResponsiveSize(phone, tabletVal, desktop, width);
   };
 
-  const gridColumns = (viewMode: 'list' | 'small-icons' | 'medium-icons' | 'large-icons', minItemWidth: number = 80): number => {
+  const gridColumns = (viewMode: 'list' | 'small-icons' | 'medium-icons' | 'large-icons', minItemWidth: number = 60): number => {
     return getGridColumns(viewMode, width, minItemWidth);
   };
 
