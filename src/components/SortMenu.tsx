@@ -11,7 +11,7 @@
 //     the current sort isn't the screen's own default.
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, ArrowUpDown } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';
 import { Sheet } from './primitives/Sheet';
@@ -36,6 +36,7 @@ export const SortMenu = ({ value, onChange, defaultKey }: SortMenuProps) => {
   const triggerSize = iconSize(responsiveSize(40, 48, 52));
   const currentOption = SORT_OPTIONS.find((o) => o.key === value) ?? SORT_OPTIONS[0];
   const isNonDefault = value !== defaultKey;
+  const TriggerIcon = currentOption.Icon;
 
   return (
     <View>
@@ -52,7 +53,7 @@ export const SortMenu = ({ value, onChange, defaultKey }: SortMenuProps) => {
         accessibilityRole="button"
         accessibilityLabel={`Sort options, currently ${currentOption.label}`}
       >
-        <ArrowUpDown size={iconSize(18)} color={colors.text} strokeWidth={2} />
+        <TriggerIcon size={iconSize(18)} color={colors.text} strokeWidth={2} />
         {isNonDefault && (
           <View
             style={[
