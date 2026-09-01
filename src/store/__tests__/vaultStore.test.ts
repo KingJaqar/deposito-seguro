@@ -3,9 +3,20 @@
  * Mocks @react-native-async-storage/async-storage (jest.setup.js) so this runs without a device.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { useVaultStore, StorageLimitExceededError, AlbumMediaOnlyError } from '../vaultStore';
 import { useSettingsStore } from '../settingsStore';
 import { StorageService } from '../../services/storage';
+// Deliberately `require`, not `import * as` — under this project's Babel
+// CommonJS interop, `import * as X` on a plain (non-`__esModule`) jest.mock
+// factory object produces a COPY of the exports, not a live reference to the
+// same module.exports object vaultStore.ts's own `import { extractImageThumbnail }`
+// resolves against. Spying on that copy silently does nothing to the
+// function vaultStore.ts actually calls — found while writing the
+// extraction-failure-fallback test below, which returned the real (mocked)
+// success path no matter what `mockResolvedValueOnce` was queued. `require`
+// returns the exact same object every import site sees.
+const MediaThumbnailExtractor = require('../../services/mediaThumbnailExtractor') as typeof import('../../services/mediaThumbnailExtractor');
 
 // Deliberately plain functions, not jest.fn(impl) — jest-expo's preset sets
 // `resetMocks: true`, which strips mockImplementations (even ones set at
@@ -188,7 +199,12 @@ describe('vaultStore', () => {
       expect(useVaultStore.getState().files.find(f => f.id === fileId)!.folderId).toBe(folderId);
     });
 
-    it('reports landedInFallbackFolder=true and reroutes into "Restored Files" when the original folder was deleted', async () => {
+    it('reports landedInFallbackFolder=true and reroutes into a dated "Restored Files – ..." folder when the original folder is trashed', async () => {
+      // Trash 3-segment plan §2a/§2d: deleteFolder is now a soft-delete (the
+      // folder record still exists, just isTrash: true) and the fallback
+      // folder's name is a freshly dated one instead of the old static
+      // 'Restored Files' — unreachability is now isContainerUnreachable
+      // (a trashed-but-still-present parent counts), not mere non-existence.
       await useVaultStore.getState().createFolder('Home');
       const folderId = useVaultStore.getState().folders[0].id;
       await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 10, false);
@@ -196,10 +212,14 @@ describe('vaultStore', () => {
       await useVaultStore.getState().softDeleteFile(fileId);
       await useVaultStore.getState().deleteFolder(folderId);
 
+      // The original folder still exists in state — just trashed.
+      expect(useVaultStore.getState().folders.find(f => f.id === folderId)!.isTrash).toBe(true);
+
       const result = await useVaultStore.getState().restoreFileFromTrash(fileId);
       expect(result.landedInFallbackFolder).toBe(true);
-      const restoredFolder = useVaultStore.getState().folders.find(f => f.name === 'Restored Files');
+      const restoredFolder = useVaultStore.getState().folders.find(f => f.name.startsWith('Restored Files'));
       expect(restoredFolder).toBeDefined();
+      expect(restoredFolder!.id).not.toBe(folderId);
       expect(useVaultStore.getState().files.find(f => f.id === fileId)!.folderId).toBe(restoredFolder!.id);
     });
 
@@ -292,6 +312,288 @@ describe('vaultStore', () => {
       expect(trashedFile.isTrash).toBe(true);
       expect(trashedFile.hasAccessKey).toBe(true);
       expect(trashedFile.accessKeyId).toBe('pw-1');
+    });
+  });
+
+  describe('Trash 3-segment plan §2a/§2b/§2c: folder cascade trash/shred/restore', () => {
+    it('deleteFolder cascades isTrash onto a nested subfolder AND that subfolder\'s own files (orphan-bug fix)', async () => {
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, rootId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', subId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+
+      await useVaultStore.getState().deleteFolder(rootId);
+
+      const state = useVaultStore.getState();
+      expect(state.folders.find(f => f.id === rootId)!.isTrash).toBe(true);
+      expect(state.folders.find(f => f.id === subId)!.isTrash).toBe(true);
+      // Both folder records still exist (soft-delete, not removed).
+      expect(state.folders).toHaveLength(2);
+      // The subfolder's own file — previously orphaned (never trashed) — is
+      // now trashed too.
+      expect(state.files.find(f => f.id === fileId)!.isTrash).toBe(true);
+    });
+
+    it('shredFolder cascades permanent removal onto every descendant folder and file', async () => {
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, rootId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', rootId, 'a.jpg', 'image/jpeg', 10, false);
+      await useVaultStore.getState().importFile('/src/b.jpg', subId, 'b.jpg', 'image/jpeg', 10, false);
+
+      await useVaultStore.getState().shredFolder(rootId);
+
+      const state = useVaultStore.getState();
+      expect(state.folders).toHaveLength(0);
+      expect(state.files).toHaveLength(0);
+    });
+
+    it('shredMultipleFolders cascades permanent removal across a batch of folders and their descendants', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const aId = useVaultStore.getState().folders.find(f => f.name === 'A')!.id;
+      await useVaultStore.getState().createFolder('A-Sub', undefined, undefined, undefined, aId);
+      const aSubId = useVaultStore.getState().folders.find(f => f.name === 'A-Sub')!.id;
+      await useVaultStore.getState().createFolder('B');
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', aSubId, 'a.jpg', 'image/jpeg', 10, false);
+      await useVaultStore.getState().importFile('/src/b.jpg', bId, 'b.jpg', 'image/jpeg', 10, false);
+
+      await useVaultStore.getState().shredMultipleFolders([aId, bId]);
+
+      const state = useVaultStore.getState();
+      expect(state.folders).toHaveLength(0);
+      expect(state.files).toHaveLength(0);
+    });
+
+    it('restoreFolderFromTrash restores a whole trashed subtree together, back to its original location', async () => {
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, rootId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', subId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+
+      await useVaultStore.getState().deleteFolder(rootId);
+      const result = await useVaultStore.getState().restoreFolderFromTrash(rootId);
+
+      expect(result.landedInFallbackFolder).toBe(false);
+      expect(result.parentId).toBeUndefined(); // Root's own parent (root of vault) is unchanged.
+      const state = useVaultStore.getState();
+      expect(state.folders.find(f => f.id === rootId)!.isTrash).toBe(false);
+      expect(state.folders.find(f => f.id === subId)!.isTrash).toBe(false);
+      expect(state.folders.find(f => f.id === subId)!.parentId).toBe(rootId);
+      expect(state.files.find(f => f.id === fileId)!.isTrash).toBe(false);
+    });
+
+    it('restoreFolderFromTrash lands a subfolder in a dated fallback folder when its trashed parent is not also being restored', async () => {
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, rootId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+
+      await useVaultStore.getState().deleteFolder(rootId); // trashes both Root and Sub
+
+      // Restore Sub alone — Root is still trashed, so Sub's parent is unreachable.
+      const result = await useVaultStore.getState().restoreFolderFromTrash(subId);
+      expect(result.landedInFallbackFolder).toBe(true);
+
+      const state = useVaultStore.getState();
+      const sub = state.folders.find(f => f.id === subId)!;
+      expect(sub.isTrash).toBe(false);
+      expect(sub.parentId).not.toBe(rootId);
+      const fallback = state.folders.find(f => f.id === sub.parentId);
+      expect(fallback).toBeDefined();
+      expect(fallback!.name.startsWith('Restored Files')).toBe(true);
+      // Root itself is untouched — still trashed.
+      expect(state.folders.find(f => f.id === rootId)!.isTrash).toBe(true);
+    });
+
+    it('restoreFoldersFromTrash shares one dated fallback folder across a batch', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const aId = useVaultStore.getState().folders.find(f => f.name === 'A')!.id;
+      await useVaultStore.getState().createFolder('B');
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+      await useVaultStore.getState().createFolder('A-Sub', undefined, undefined, undefined, aId);
+      const aSubId = useVaultStore.getState().folders.find(f => f.name === 'A-Sub')!.id;
+      await useVaultStore.getState().createFolder('B-Sub', undefined, undefined, undefined, bId);
+      const bSubId = useVaultStore.getState().folders.find(f => f.name === 'B-Sub')!.id;
+
+      await useVaultStore.getState().deleteFolder(aId);
+      await useVaultStore.getState().deleteFolder(bId);
+
+      // Restore only the subfolders — their trashed parents (A, B) are not
+      // being restored in this call, so both need the fallback.
+      const results = await useVaultStore.getState().restoreFoldersFromTrash([aSubId, bSubId]);
+      expect(results.every(r => r.landedInFallbackFolder)).toBe(true);
+      const aSubParent = results.find(r => r.folderId === aSubId)!.parentId;
+      const bSubParent = results.find(r => r.folderId === bSubId)!.parentId;
+      expect(aSubParent).toBe(bSubParent); // one shared fallback folder for the whole batch
+
+      const fallbackFolders = useVaultStore.getState().folders.filter(f => f.name.startsWith('Restored Files'));
+      expect(fallbackFolders).toHaveLength(1);
+    });
+
+    it('restoreFilesFromTrash shares one dated fallback folder across a batch of files', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const aId = useVaultStore.getState().folders.find(f => f.name === 'A')!.id;
+      await useVaultStore.getState().createFolder('B');
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', aId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileAId = useVaultStore.getState().files[0].id;
+      await useVaultStore.getState().importFile('/src/b.jpg', bId, 'b.jpg', 'image/jpeg', 10, false);
+      const fileBId = useVaultStore.getState().files.find(f => f.name === 'b.jpg')!.id;
+      await useVaultStore.getState().softDeleteFile(fileAId);
+      await useVaultStore.getState().softDeleteFile(fileBId);
+      await useVaultStore.getState().deleteFolder(aId);
+      await useVaultStore.getState().deleteFolder(bId);
+
+      const results = await useVaultStore.getState().restoreFilesFromTrash([fileAId, fileBId]);
+      expect(results.every(r => r.landedInFallbackFolder)).toBe(true);
+      expect(results[0].folderId).toBe(results[1].folderId); // one shared fallback folder
+
+      const fallbackFolders = useVaultStore.getState().folders.filter(f => f.name.startsWith('Restored Files'));
+      expect(fallbackFolders).toHaveLength(1);
+    });
+
+    it('restoreFoldersFromTrash keeps a subtree together regardless of which order its folders are selected in (order-dependence regression)', async () => {
+      // Parent and its own cascade-trashed child are both selected for
+      // restore in the same call. Whichever order they're processed in must
+      // not matter: the child must land back under the restored parent, not
+      // in its own new fallback folder.
+      await useVaultStore.getState().createFolder('Parent');
+      const parentId = useVaultStore.getState().folders.find(f => f.name === 'Parent')!.id;
+      await useVaultStore.getState().createFolder('Child', undefined, undefined, undefined, parentId);
+      const childId = useVaultStore.getState().folders.find(f => f.name === 'Child')!.id;
+
+      await useVaultStore.getState().deleteFolder(parentId); // cascades onto Child too
+
+      // Child-before-parent: the order that previously triggered the split.
+      const results = await useVaultStore.getState().restoreFoldersFromTrash([childId, parentId]);
+
+      expect(results.every(r => !r.landedInFallbackFolder)).toBe(true);
+      const fallbackFolders = useVaultStore.getState().folders.filter(f => f.name.startsWith('Restored Files'));
+      expect(fallbackFolders).toHaveLength(0);
+
+      const restoredParent = useVaultStore.getState().folders.find(f => f.id === parentId)!;
+      const restoredChild = useVaultStore.getState().folders.find(f => f.id === childId)!;
+      expect(restoredParent.isTrash).toBe(false);
+      expect(restoredParent.parentId).toBeUndefined();
+      expect(restoredChild.isTrash).toBe(false);
+      expect(restoredChild.parentId).toBe(parentId); // still nested under Parent, not split off
+    });
+  });
+
+  describe('Cascade-vs-independent trash review fix: restoring a folder must not resurrect items the user independently, separately trashed', () => {
+    it('restoreFolderFromTrash leaves a file the user individually trashed BEFORE the folder was ever deleted still in the trash', async () => {
+      await useVaultStore.getState().createFolder('Vacation');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/keep.jpg', folderId, 'keep.jpg', 'image/jpeg', 10, false);
+      const keepId = useVaultStore.getState().files.find(f => f.name === 'keep.jpg')!.id;
+      await useVaultStore.getState().importFile('/src/junk.jpg', folderId, 'junk.jpg', 'image/jpeg', 10, false);
+      const junkId = useVaultStore.getState().files.find(f => f.name === 'junk.jpg')!.id;
+
+      // User deliberately trashes one photo on its own, well before ever
+      // touching the containing folder.
+      await useVaultStore.getState().softDeleteFile(junkId);
+      const junkDeletedAtBeforeCascade = useVaultStore.getState().files.find(f => f.id === junkId)!.deletedAt;
+
+      // Later, the whole folder gets trashed (cascading onto `keep.jpg`,
+      // which was still live) and then restored.
+      await useVaultStore.getState().deleteFolder(folderId);
+      await useVaultStore.getState().restoreFolderFromTrash(folderId);
+
+      const state = useVaultStore.getState();
+      // The folder and the file that was only ever cascade-trashed are back.
+      expect(state.folders.find(f => f.id === folderId)!.isTrash).toBe(false);
+      expect(state.files.find(f => f.id === keepId)!.isTrash).toBe(false);
+      // The independently-trashed file stays exactly as the user left it —
+      // still trashed, with its original deletion timestamp untouched.
+      const junk = state.files.find(f => f.id === junkId)!;
+      expect(junk.isTrash).toBe(true);
+      expect(junk.deletedAt).toBe(junkDeletedAtBeforeCascade);
+      expect(junk.trashedByFolderCascade).toBeFalsy();
+    });
+
+    it('restoreFolderFromTrash leaves an independently-trashed SUBFOLDER (and everything under it) behind, even when restoring an ancestor several levels up', async () => {
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Mid', undefined, undefined, undefined, rootId);
+      const midId = useVaultStore.getState().folders.find(f => f.name === 'Mid')!.id;
+      await useVaultStore.getState().createFolder('IndependentlyTrashed', undefined, undefined, undefined, midId);
+      const indieId = useVaultStore.getState().folders.find(f => f.name === 'IndependentlyTrashed')!.id;
+      await useVaultStore.getState().importFile('/src/a.jpg', indieId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileInIndieId = useVaultStore.getState().files[0].id;
+
+      // User trashes the deepest subfolder on its own first...
+      await useVaultStore.getState().deleteFolder(indieId);
+      // ...then, separately, trashes the whole Root/Mid tree above it.
+      await useVaultStore.getState().deleteFolder(rootId);
+
+      // Restoring Root should bring Mid back, but NOT the independently
+      // trashed subfolder (or its file) sitting underneath it.
+      const result = await useVaultStore.getState().restoreFolderFromTrash(rootId);
+      expect(result.landedInFallbackFolder).toBe(false);
+
+      const state = useVaultStore.getState();
+      expect(state.folders.find(f => f.id === rootId)!.isTrash).toBe(false);
+      expect(state.folders.find(f => f.id === midId)!.isTrash).toBe(false);
+      // Independently trashed subtree: untouched, still trashed, still
+      // parented under Mid (no reparenting into a fallback folder either —
+      // it was never part of this restore).
+      const indie = state.folders.find(f => f.id === indieId)!;
+      expect(indie.isTrash).toBe(true);
+      expect(indie.parentId).toBe(midId);
+      expect(state.files.find(f => f.id === fileInIndieId)!.isTrash).toBe(true);
+    });
+
+    it('deleteFolder never overwrites the deletedAt of a file that was already independently trashed', async () => {
+      await useVaultStore.getState().createFolder('Folder');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', folderId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileId = useVaultStore.getState().files[0].id;
+      await useVaultStore.getState().softDeleteFile(fileId);
+      const originalDeletedAt = useVaultStore.getState().files.find(f => f.id === fileId)!.deletedAt;
+
+      await new Promise(r => setTimeout(r, 5));
+      await useVaultStore.getState().deleteFolder(folderId);
+
+      expect(useVaultStore.getState().files.find(f => f.id === fileId)!.deletedAt).toBe(originalDeletedAt);
+    });
+
+    it('buildDatedFallbackFolder dedupes its name against existing root folders instead of creating two visually-identical folders', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const aId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().importFile('/src/a.jpg', aId, 'a.jpg', 'image/jpeg', 10, false);
+      const fileAId = useVaultStore.getState().files[0].id;
+      await useVaultStore.getState().deleteFolder(aId);
+      const first = await useVaultStore.getState().restoreFileFromTrash(fileAId);
+
+      await useVaultStore.getState().createFolder('B');
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+      await useVaultStore.getState().importFile('/src/b.jpg', bId, 'b.jpg', 'image/jpeg', 10, false);
+      const fileBId = useVaultStore.getState().files.find(f => f.name === 'b.jpg')!.id;
+      await useVaultStore.getState().deleteFolder(bId);
+
+      // Force the same displayed name as the first fallback folder by
+      // freezing Date so the label collides, simulating two restores inside
+      // the same wall-clock second.
+      const realToLocaleString = Date.prototype.toLocaleString;
+      const firstFolder = useVaultStore.getState().folders.find(f => f.id === first.folderId)!;
+      jest.spyOn(Date.prototype, 'toLocaleString').mockImplementation(function (this: Date, ...args: any[]) {
+        return firstFolder.name.replace('Restored Files – ', '');
+      });
+      try {
+        const second = await useVaultStore.getState().restoreFileFromTrash(fileBId);
+        const secondFolder = useVaultStore.getState().folders.find(f => f.id === second.folderId)!;
+        expect(secondFolder.id).not.toBe(firstFolder.id);
+        expect(secondFolder.name).not.toBe(firstFolder.name);
+        expect(secondFolder.name.startsWith(firstFolder.name)).toBe(true); // "... (2)" style suffix
+      } finally {
+        Date.prototype.toLocaleString = realToLocaleString;
+      }
     });
   });
 
@@ -547,6 +849,24 @@ describe('vaultStore', () => {
       const copiedFolderId = useVaultStore.getState().folders.find(f => f.id !== folderId)!.id;
       const copiedFile = useVaultStore.getState().files.find(f => f.folderId === copiedFolderId)!;
       expect(copiedFile.name).toBe('a.jpg');
+    });
+
+    it('duplicateFolder excludes a trashed subfolder from the copy (regression: used to carry a phantom isTrash folder onto a parent that was never deleted)', async () => {
+      await useVaultStore.getState().createFolder('Parent');
+      const parentId = useVaultStore.getState().folders.find(f => f.name === 'Parent')!.id;
+      await useVaultStore.getState().createFolder('TrashedSub', undefined, undefined, undefined, parentId);
+      const trashedSubId = useVaultStore.getState().folders.find(f => f.name === 'TrashedSub')!.id;
+      await useVaultStore.getState().createFolder('LiveSub', undefined, undefined, undefined, parentId);
+
+      // Trash the subfolder on its own — Parent itself is never deleted.
+      await useVaultStore.getState().deleteFolder(trashedSubId);
+
+      await useVaultStore.getState().duplicateFolder(parentId);
+
+      const duplicateParent = useVaultStore.getState().folders.find(f => f.name === 'Parent (2)')!;
+      const duplicateChildren = useVaultStore.getState().folders.filter(f => f.parentId === duplicateParent.id);
+      expect(duplicateChildren.map(f => f.name)).toEqual(['LiveSub']); // no phantom TrashedSub copy
+      expect(duplicateChildren.every(f => !f.isTrash)).toBe(true);
     });
 
     it('pasteFromClipboard (copy mode) blocks a multi-file paste whose combined bytes exceed the limit even though each file fits individually', async () => {
@@ -966,6 +1286,197 @@ describe('vaultStore', () => {
         ).rejects.toBeInstanceOf(StorageLimitExceededError);
         expect(useVaultStore.getState().files.filter(f => f.folderId === albumId)).toHaveLength(0);
       });
+    });
+  });
+
+  describe('Custom folder/album thumbnails (plans/custom folders and album thumbnail implementation plan.md)', () => {
+    it('setFolderThumbnail sets customThumbnailPath on the right folder', async () => {
+      await useVaultStore.getState().createFolder('A');
+      await useVaultStore.getState().createFolder('B');
+      const aId = useVaultStore.getState().folders.find(f => f.name === 'A')!.id;
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+
+      await useVaultStore.getState().setFolderThumbnail(aId, '/picker/cover.jpg');
+
+      const { folders } = useVaultStore.getState();
+      expect(folders.find(f => f.id === aId)!.customThumbnailPath).toBeTruthy();
+      expect(folders.find(f => f.id === bId)!.customThumbnailPath).toBeUndefined();
+    });
+
+    it('setFolderThumbnail called twice on the same folder removes the first path once the second call resolves', async () => {
+      const removeSpy = jest.spyOn(StorageService, 'removeSandboxFile');
+      await useVaultStore.getState().createFolder('A');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await useVaultStore.getState().setFolderThumbnail(folderId, '/picker/first.jpg');
+      const firstPath = useVaultStore.getState().folders[0].customThumbnailPath!;
+      await useVaultStore.getState().setFolderThumbnail(folderId, '/picker/second.jpg');
+      const secondPath = useVaultStore.getState().folders[0].customThumbnailPath!;
+
+      expect(secondPath).not.toBe(firstPath);
+      expect(removeSpy).toHaveBeenCalledWith(firstPath);
+    });
+
+    it('clearFolderThumbnail unsets the field and removes the file', async () => {
+      const removeSpy = jest.spyOn(StorageService, 'removeSandboxFile');
+      await useVaultStore.getState().createFolder('A');
+      const folderId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().setFolderThumbnail(folderId, '/picker/cover.jpg');
+      const path = useVaultStore.getState().folders[0].customThumbnailPath!;
+
+      await useVaultStore.getState().clearFolderThumbnail(folderId);
+
+      expect(useVaultStore.getState().folders[0].customThumbnailPath).toBeUndefined();
+      expect(removeSpy).toHaveBeenCalledWith(path);
+    });
+
+    it('clearFolderThumbnail on a folder with no thumbnail is a no-op', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await expect(useVaultStore.getState().clearFolderThumbnail(folderId)).resolves.toBeUndefined();
+      expect(useVaultStore.getState().folders[0].customThumbnailPath).toBeUndefined();
+    });
+
+    it('duplicateFolder gives the copy its own customThumbnailPath, not a shared reference', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const sourceId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().setFolderThumbnail(sourceId, '/picker/cover.jpg');
+      const sourcePath = useVaultStore.getState().folders[0].customThumbnailPath!;
+
+      await useVaultStore.getState().duplicateFolder(sourceId);
+
+      const copy = useVaultStore.getState().folders.find(f => f.id !== sourceId)!;
+      expect(copy.customThumbnailPath).toBeTruthy();
+      expect(copy.customThumbnailPath).not.toBe(sourcePath);
+    });
+
+    it('pasteFromClipboard (copy mode) gives the pasted copy its own customThumbnailPath, not a shared reference', async () => {
+      await useVaultStore.getState().createFolder('A');
+      const sourceId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().setFolderThumbnail(sourceId, '/picker/cover.jpg');
+      const sourcePath = useVaultStore.getState().folders[0].customThumbnailPath!;
+
+      await useVaultStore.getState().copyToClipboard([sourceId], [], null);
+      await useVaultStore.getState().pasteFromClipboard('');
+
+      const copy = useVaultStore.getState().folders.find(f => f.id !== sourceId)!;
+      expect(copy.customThumbnailPath).toBeTruthy();
+      expect(copy.customThumbnailPath).not.toBe(sourcePath);
+    });
+
+    it('shredFolder removes the thumbnail file for every folder in the shredded subtree', async () => {
+      const removeSpy = jest.spyOn(StorageService, 'removeSandboxFile');
+      await useVaultStore.getState().createFolder('Root');
+      const rootId = useVaultStore.getState().folders[0].id;
+      await useVaultStore.getState().createFolder('Sub', undefined, undefined, undefined, rootId);
+      const subId = useVaultStore.getState().folders.find(f => f.name === 'Sub')!.id;
+      await useVaultStore.getState().setFolderThumbnail(rootId, '/picker/root.jpg');
+      await useVaultStore.getState().setFolderThumbnail(subId, '/picker/sub.jpg');
+      const rootPath = useVaultStore.getState().folders.find(f => f.id === rootId)!.customThumbnailPath!;
+      const subPath = useVaultStore.getState().folders.find(f => f.id === subId)!.customThumbnailPath!;
+
+      await useVaultStore.getState().shredFolder(rootId);
+
+      expect(useVaultStore.getState().folders).toHaveLength(0);
+      expect(removeSpy).toHaveBeenCalledWith(rootPath);
+      expect(removeSpy).toHaveBeenCalledWith(subPath);
+    });
+
+    it('shredMultipleFolders removes the thumbnail file for every folder across the batch', async () => {
+      const removeSpy = jest.spyOn(StorageService, 'removeSandboxFile');
+      await useVaultStore.getState().createFolder('A');
+      const aId = useVaultStore.getState().folders.find(f => f.name === 'A')!.id;
+      await useVaultStore.getState().createFolder('B');
+      const bId = useVaultStore.getState().folders.find(f => f.name === 'B')!.id;
+      await useVaultStore.getState().setFolderThumbnail(aId, '/picker/a.jpg');
+      await useVaultStore.getState().setFolderThumbnail(bId, '/picker/b.jpg');
+      const aPath = useVaultStore.getState().folders.find(f => f.id === aId)!.customThumbnailPath!;
+      const bPath = useVaultStore.getState().folders.find(f => f.id === bId)!.customThumbnailPath!;
+
+      await useVaultStore.getState().shredMultipleFolders([aId, bId]);
+
+      expect(useVaultStore.getState().folders).toHaveLength(0);
+      expect(removeSpy).toHaveBeenCalledWith(aPath);
+      expect(removeSpy).toHaveBeenCalledWith(bPath);
+    });
+
+    describe('web platform fallback (copyToSandbox is a no-op there — see Store section)', () => {
+      const originalOS = Platform.OS;
+      afterEach(() => {
+        Object.defineProperty(Platform, 'OS', { value: originalOS, configurable: true });
+      });
+
+      it('uses the picker URI directly, without copying or extracting, on web', async () => {
+        const copySpy = jest.spyOn(StorageService, 'copyToSandbox');
+        const extractSpy = jest.spyOn(MediaThumbnailExtractor, 'extractImageThumbnail');
+        Object.defineProperty(Platform, 'OS', { value: 'web', configurable: true });
+
+        await useVaultStore.getState().createFolder('A');
+        const folderId = useVaultStore.getState().folders[0].id;
+        await useVaultStore.getState().setFolderThumbnail(folderId, 'blob:web-picker-uri');
+
+        expect(useVaultStore.getState().folders[0].customThumbnailPath).toBe('blob:web-picker-uri');
+        expect(copySpy).not.toHaveBeenCalled();
+        expect(extractSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    it('falls back to the raw sandbox copy when extraction fails (extractImageThumbnail returns falsy)', async () => {
+      jest.spyOn(MediaThumbnailExtractor, 'extractImageThumbnail').mockResolvedValueOnce(null as unknown as string);
+      await useVaultStore.getState().createFolder('A');
+      const folderId = useVaultStore.getState().folders[0].id;
+
+      await useVaultStore.getState().setFolderThumbnail(folderId, '/picker/cover.jpg');
+
+      const path = useVaultStore.getState().folders[0].customThumbnailPath;
+      expect(path).toBeTruthy();
+      expect(path).not.toContain('.thumb.jpg');
+    });
+
+    it('two overlapping setFolderThumbnail calls on the same folder never orphan the losing call\'s committed thumbnail', async () => {
+      const removeSpy = jest.spyOn(StorageService, 'removeSandboxFile');
+      const copySpy = jest.spyOn(StorageService, 'copyToSandbox');
+      await useVaultStore.getState().createFolder('A');
+      const folderId = useVaultStore.getState().folders[0].id;
+      const callsBefore = copySpy.mock.calls.length;
+
+      const call1 = useVaultStore.getState().setFolderThumbnail(folderId, '/picker/one.jpg');
+      const call2 = useVaultStore.getState().setFolderThumbnail(folderId, '/picker/two.jpg');
+      await Promise.all([call1, call2]);
+
+      // NOTE on why this can't just check "was removeSandboxFile called with
+      // something other than finalPath": setFolderThumbnail ALWAYS calls
+      // removeSandboxFile on its own intermediate raw sandbox copy after a
+      // successful extraction (see the Store section), for both calls,
+      // regardless of any race outcome. That call alone would satisfy a
+      // weaker assertion even with the original, buggy entry-snapshot code —
+      // it doesn't prove the *losing call's actual committed thumbnail path*
+      // was cleaned up. So we derive each call's real extracted-thumbnail
+      // path directly from the copyToSandbox mock's recorded arguments.
+      // Take only the LAST two calls, not calls[0]/calls[1] — this spy
+      // object is shared (never restored) with earlier tests in this file,
+      // and resetMocks clears its default call-through implementation's
+      // *behavior* reset semantics but not, empirically, its accumulated
+      // .mock.calls history from a prior test's spy reference; slicing from
+      // the end keeps this assertion correct regardless. Call order still
+      // mirrors invocation order here — both calls reach their first
+      // `await StorageService.copyToSandbox(...)` synchronously, before
+      // either can yield.
+      const [thisCall1, thisCall2] = copySpy.mock.calls.slice(callsBefore);
+      const thumbPath1 = `/vault/${thisCall1[1]}.thumb.jpg`;
+      const thumbPath2 = `/vault/${thisCall2[1]}.thumb.jpg`;
+
+      const finalPath = useVaultStore.getState().folders[0].customThumbnailPath!;
+      expect([thumbPath1, thumbPath2]).toContain(finalPath);
+      const losingPath = finalPath === thumbPath1 ? thumbPath2 : thumbPath1;
+
+      // The losing call's own committed thumbnail must have been cleaned up
+      // — not left as an orphaned, unreferenced file. Against the
+      // await-gap version of the fix (previous value read before the
+      // reduceMotion await, not atomically with the commit), this assertion
+      // fails because the losing call's path is never removed by anyone.
+      expect(removeSpy).toHaveBeenCalledWith(losingPath);
     });
   });
 });

@@ -30,12 +30,17 @@ export function FileListRow({ file, ...rowProps }: { file: ThumbnailFile } & Omi
 // useAlbumCoverUri (falls back to `undefined`, which GridTile/ListRow
 // already render as the generic Icon glyph, for an empty album) rather than
 // always showing the generic album icon.
-export function AlbumGridTile({ albumId, ...tileProps }: { albumId: string } & Omit<GridTileProps, 'thumbnailUri'>) {
-  const thumbnailUri = useAlbumCoverUri(albumId);
-  return <GridTile thumbnailUri={thumbnailUri} {...tileProps} />;
+//
+// plans/custom folders and album thumbnail implementation plan.md (Phase 4)
+// — a user-picked customThumbnailPath always wins over the auto-derived
+// cover when both are present, matching a custom album cover overriding an
+// auto-picked one in Google Photos.
+export function AlbumGridTile({ albumId, customThumbnailPath, ...tileProps }: { albumId: string; customThumbnailPath?: string } & Omit<GridTileProps, 'thumbnailUri'>) {
+  const autoThumbnailUri = useAlbumCoverUri(albumId);
+  return <GridTile thumbnailUri={customThumbnailPath || autoThumbnailUri} {...tileProps} />;
 }
 
-export function AlbumListRow({ albumId, ...rowProps }: { albumId: string } & Omit<ListRowProps, 'thumbnailUri'>) {
-  const thumbnailUri = useAlbumCoverUri(albumId);
-  return <ListRow thumbnailUri={thumbnailUri} {...rowProps} />;
+export function AlbumListRow({ albumId, customThumbnailPath, ...rowProps }: { albumId: string; customThumbnailPath?: string } & Omit<ListRowProps, 'thumbnailUri'>) {
+  const autoThumbnailUri = useAlbumCoverUri(albumId);
+  return <ListRow thumbnailUri={customThumbnailPath || autoThumbnailUri} {...rowProps} />;
 }

@@ -12,7 +12,11 @@ import {
   Check,
   FileText,
   Folder,
+  Grid2x2,
+  Grid3x3,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
   Music,
   RotateCcw,
   type LucideIcon,
@@ -21,7 +25,6 @@ import AnimatedTabBar from '../../../components/AnimatedTabBar';
 import { VaultHeader } from '../../../components/VaultHeader';
 import { Button } from '../../../components/primitives/Button';
 import { Card } from '../../../components/primitives/Card';
-import { SegmentedControl } from '../../../components/primitives/SegmentedControl';
 import { CategoryTint, Palette } from '../../../constants/Colors';
 import { Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -33,11 +36,11 @@ const THEME_OPTIONS = [
   { value: 'amoled' as const, label: 'AMOLED', sub: 'True black for OLED displays' },
 ];
 
-const VIEW_MODE_OPTIONS = [
-  { value: 'list' as const, label: 'List', sub: 'Files displayed as rows' },
-  { value: 'large-icons' as const, label: 'Large', sub: 'Up to 2 columns' },
-  { value: 'medium-icons' as const, label: 'Medium', sub: 'Up to 3 columns' },
-  { value: 'small-icons' as const, label: 'Small', sub: 'Up to 5 columns' },
+const VIEW_MODE_OPTIONS: { value: 'list' | 'large-icons' | 'medium-icons' | 'small-icons'; label: string; sub: string; Icon: LucideIcon }[] = [
+  { value: 'list', label: 'List', sub: 'Files displayed as rows', Icon: List },
+  { value: 'small-icons', label: 'Small', sub: 'Up to 5 columns', Icon: Grid3x3 },
+  { value: 'medium-icons', label: 'Medium', sub: 'Up to 3 columns', Icon: LayoutGrid },
+  { value: 'large-icons', label: 'Large', sub: 'Up to 2 columns', Icon: Grid2x2 },
 ];
 
 // Text size is a direct percentage-of-normal scale (25%–250%, in 10 even
@@ -166,6 +169,76 @@ function ThemeSwatchPicker({
               }}
             >
               {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/**
+ * Icon + label + column-count tile grid for the directory layout section —
+ * replaces the plain text-label SegmentedControl so each option shows what
+ * it actually looks like (an icon) alongside how many columns it produces,
+ * not just on the selected tile but on every option at once.
+ */
+function LayoutTilePicker({
+  value,
+  onChange,
+}: {
+  value: 'list' | 'large-icons' | 'medium-icons' | 'small-icons';
+  onChange: (v: 'list' | 'large-icons' | 'medium-icons' | 'small-icons') => void;
+}) {
+  const { colors, space, font, radius, iconSize, touchTarget } = useTheme();
+
+  return (
+    <View accessibilityRole="radiogroup" accessibilityLabel="Directory layout" style={[styles.tileRow, { gap: space(2) }]}>
+      {VIEW_MODE_OPTIONS.map((opt) => {
+        const selected = opt.value === value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            accessibilityRole="radio"
+            accessibilityLabel={opt.label}
+            accessibilityState={{ checked: selected }}
+            style={[
+              styles.tileOption,
+              {
+                minHeight: touchTarget() + space(6),
+                borderRadius: radius(4),
+                borderColor: selected ? colors.primary : colors.borderLight,
+                borderWidth: selected ? 2 : StyleSheet.hairlineWidth,
+                backgroundColor: selected ? `${colors.primary}14` : colors.surfaceHover,
+                padding: space(2),
+              },
+            ]}
+          >
+            <opt.Icon size={iconSize(20)} color={selected ? colors.primary : colors.textMuted} strokeWidth={selected ? 2.5 : 2} />
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: font(Type.label.size),
+                fontWeight: selected ? '700' : '500',
+                color: selected ? colors.text : colors.textMuted,
+                marginTop: space(2),
+                textAlign: 'center',
+              }}
+            >
+              {opt.label}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: font(10),
+                fontWeight: '500',
+                color: colors.textMuted,
+                marginTop: space(1),
+                textAlign: 'center',
+              }}
+            >
+              {opt.value === 'list' ? 'Rows' : opt.sub.replace('Up to ', '')}
             </Text>
           </Pressable>
         );
@@ -394,7 +467,7 @@ export default function CustomizationSettingsScreen() {
 
         <SectionHeader label="Directory layout" value={activeViewMode.label} />
         <Card style={{ marginBottom: space(6) }}>
-          <SegmentedControl options={VIEW_MODE_OPTIONS} value={viewMode} onChange={(v) => updateSetting('viewMode', v)} accessibilityLabel="Directory layout" />
+          <LayoutTilePicker value={viewMode} onChange={(v) => updateSetting('viewMode', v)} />
           <SectionCaption text={activeViewMode.sub} />
         </Card>
 
@@ -418,6 +491,8 @@ const styles = StyleSheet.create({
   body: { flexGrow: 1 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   swatchRow: { flexDirection: 'row' },
+  tileRow: { flexDirection: 'row' },
+  tileOption: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   swatchOption: { flex: 1, alignItems: 'center' },
   swatchPreview: { width: '100%', height: 56, position: 'relative' },
   swatchBar: { height: 8 },

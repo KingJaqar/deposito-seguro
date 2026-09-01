@@ -5,11 +5,13 @@
 // hairline-scale gutter between them, matching Google Photos' Albums grid.
 // Shared by dashboard.tsx's vault grid and folder/[id].tsx's subfolder/file
 // grid so every "small/medium/large icons" view mode renders the same way.
-import React, { useState } from 'react';
-import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { CheckCircle2, Circle, Play, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
+import { Durations } from '../../constants/animations';
 
 /** A lucide icon or any icon component matching its (size/color/strokeWidth) call signature — e.g. RootFolderIcon. */
 type IconComponent = React.ComponentType<{ size?: number | string; color?: string; strokeWidth?: number | string }>;
@@ -88,6 +90,50 @@ export function GridTile({
   // positioning where needed, so no button is ever nested inside another.
   const [tilePressed, setTilePressed] = useState(false);
 
+  // Graceful fallback for a broken/missing thumbnail file (e.g. an orphaned
+  // path left by a future backup/restore gap, or a manual app-data clear) —
+  // without this, a failed <Image> load renders blank/broken forever instead
+  // of falling back to the generic Icon glyph the tile would show with no
+  // thumbnail at all. Shared by every thumbnail-bearing tile (files, albums,
+  // folders) since they all render through this one primitive.
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  useEffect(() => setThumbnailFailed(false), [thumbnailUri]);
+  const showThumbnail = !!thumbnailUri && !thumbnailFailed;
+
+  // Crossfade when a thumbnail is set/changed/cleared (e.g. via "Set
+  // Thumbnail" on a folder/album) — but never on first mount, so scrolling a
+  // virtualized grid in and out of view doesn't replay it per tile. This
+  // deliberately does NOT use LayoutAnimation: that API animates the *next*
+  // layout commit globally, not scoped to this tile, and this codebase has
+  // already hit and documented it stuttering on anything heavier than a
+  // couple of rows (see SectionHeaderToggle.tsx's header comment, the reason
+  // CollapsibleSection moved off it onto Reanimated). A per-tile Reanimated
+  // opacity tween on the UI thread avoids that entirely and matches this
+  // app's established animation pattern (useScreenEnterAnimation.ts).
+  const thumbOpacity = useSharedValue(1);
+  const hasMountedThumb = useRef(false);
+  const reduceMotionThumb = useRef(false);
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => { if (mounted) reduceMotionThumb.current = enabled; })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+  useEffect(() => {
+    if (!hasMountedThumb.current) {
+      hasMountedThumb.current = true;
+      return;
+    }
+    if (reduceMotionThumb.current) {
+      thumbOpacity.value = 1;
+      return;
+    }
+    thumbOpacity.value = 0;
+    thumbOpacity.value = withTiming(1, { duration: Durations.fast, easing: Easing.out(Easing.quad) });
+  }, [thumbnailUri, thumbOpacity]);
+  const animatedThumbStyle = useAnimatedStyle(() => ({ opacity: thumbOpacity.value }));
+
   return (
     <View style={[styles.tile, { width: size, opacity: dimmed ? 0.5 : tilePressed ? 0.85 : 1 }]}>
       <Pressable
@@ -99,24 +145,30 @@ export function GridTile({
         accessibilityLabel={accessibilityLabel ?? name}
         accessibilityState={{ selected: selectable ? selected : undefined }}
       >
-        <View
+        <Animated.View
           style={[
             styles.thumb,
+            animatedThumbStyle,
             {
               width: size,
               height: size,
-              backgroundColor: thumbnailUri ? colors.surfaceHover : `${iconColor}1F`,
+              backgroundColor: showThumbnail ? colors.surfaceHover : `${iconColor}1F`,
               borderRadius: radius(2),
             },
           ]}
         >
-          {thumbnailUri ? (
-            <RNImage source={{ uri: thumbnailUri }} style={styles.thumbImage} resizeMode="cover" />
+          {showThumbnail ? (
+            <RNImage
+              source={{ uri: thumbnailUri }}
+              style={styles.thumbImage}
+              resizeMode="cover"
+              onError={() => setThumbnailFailed(true)}
+            />
           ) : (
             <Icon size={Math.round(size * 0.4)} color={iconColor} strokeWidth={1.75} />
           )}
 
-          {!!thumbnailUri && isVideo && (
+          {showThumbnail && isVideo && (
             <View pointerEvents="none" style={styles.playBadge}>
               <View style={[styles.playCircle, { width: Math.round(size * 0.32), height: Math.round(size * 0.32), borderRadius: Math.round(size * 0.16) }]}>
                 <Play size={Math.round(size * 0.16)} color="#fff" fill="#fff" strokeWidth={0} />
@@ -139,7 +191,7 @@ export function GridTile({
               )}
             </View>
           )}
-        </View>
+        </Animated.View>
 
         {!hideName && (
           <Text numberOfLines={1} style={[styles.label, { color: colors.text, fontSize: font(Type.caption.size), width: size }]}>

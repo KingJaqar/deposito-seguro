@@ -1,21 +1,21 @@
 // File: src/app/(main)/trash.tsx
-// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4.
-// Every store hook and handler body is unchanged (handleShred, handleShredAll,
-// handleRestore + its I-12 fallback-folder warning, handleRestoreSelected,
-// handleShredSelected, toggleSelection, the filter/sort/group pipeline).
-// Notable per-plan changes:
-//  - TabRootHeader + Card/Chip/ListRow/EmptyState/Sheet primitives
-//  - the `dash` alias object and its 8 colors.dashboardX chains are gone
-//  - the local getFileVisual duplicate of getFileType's classification logic
-//    (§5 "resolves trash.tsx's separate inline duplicate") now delegates to
-//    the shared getFileTypeMeta; only the extension-based `detectType`
-//    fallback for documents is kept, since the type FILTER still needs it
-//  - hardcoded '#5162FF'/'#7C82E8'/'#DC2626' etc. replaced with real tokens
-//  - SafeAreaView added with explicit edges (the old root was a bare View
-//    with a hardcoded paddingTop: 50)
+// Rebuilt per plans/you-are-a-senior-majestic-swing.md §3/§7 Phase 4, then
+// extended per plans/trash 3 segment feature plan.md Phase 3: a
+// Files / Folders / Albums segmented control on top of the same screen, so
+// deleted folders and albums (now real, restorable trash citizens as of
+// Phase 1/2 of that plan — see vaultStore.ts's deleteFolder/
+// restoreFolderFromTrash/shredFolder) are actually reachable and recoverable
+// instead of only ever showing trashed files.
+// Every Files-segment store hook and handler body is unchanged from before
+// this phase (handleShred, handleRestore + its I-12 fallback-folder warning,
+// toggleSelection, the filter/sort/group pipeline) — Folders/Albums are
+// layered on top via their own parallel single-item handlers and by
+// branching the shared bulk (Restore selected / Delete selected / Delete
+// All) handlers on `segment`.
 import {
   Box,
   CheckSquare,
+  GalleryHorizontalEnd,
   ListFilter,
   RotateCcw,
   Search,
@@ -50,18 +50,25 @@ import { Dialog } from '../../components/primitives/Dialog';
 import { EmptyState } from '../../components/primitives/EmptyState';
 import { getFileTypeMeta } from '../../components/primitives/FileTypeIcon';
 import { FileGridTile } from '../../components/primitives/FileTile';
+import { GridTile } from '../../components/primitives/GridTile';
+import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
+import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
+import { SegmentedControl } from '../../components/primitives/SegmentedControl';
 import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
 import { CategoryTint } from '../../constants/Colors';
 import { Type } from '../../constants/typography';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAlbumCoverUri } from '../../hooks/useAlbumCoverUri';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { FolderMetadata } from '../../types';
 import { getFolderPathLabel } from '../../utils/folderStats';
-import { sortFiles, SortKey } from '../../utils/vaultSort';
+import { sortFiles, sortFolders, SortKey } from '../../utils/vaultSort';
 
 const DEFAULT_SORT: SortKey = 'date_desc';
 
+type TrashSegment = 'files' | 'folders' | 'albums';
 type FileTypeFilter = 'all' | 'image' | 'video' | 'document' | 'audio' | 'other';
 
 interface TrashedFile {
@@ -75,6 +82,11 @@ interface TrashedFile {
   [key: string]: any;
 }
 
+/** Enriched trashed folder/album — deletedAt always defined (defaults to 0), matching TrashedFile's own enrichment. */
+interface TrashedFolderItem extends FolderMetadata {
+  deletedAt: number;
+}
+
 const FILE_TYPE_MAP: Record<FileTypeFilter, string> = {
   all: 'All',
   image: 'Images',
@@ -83,6 +95,15 @@ const FILE_TYPE_MAP: Record<FileTypeFilter, string> = {
   audio: 'Audio',
   other: 'Other',
 };
+
+const SEGMENT_OPTIONS: { value: TrashSegment; label: string }[] = [
+  { value: 'files', label: 'Files' },
+  { value: 'folders', label: 'Folders' },
+  { value: 'albums', label: 'Albums' },
+];
+
+const SEGMENT_NOUN: Record<TrashSegment, string> = { files: 'file', folders: 'folder', albums: 'album' };
+const SEGMENT_LABEL: Record<TrashSegment, string> = { files: 'Files', folders: 'Folders', albums: 'Albums' };
 
 function detectType(name: string): FileTypeFilter {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -119,12 +140,18 @@ function formatDeletedAtShort(value: number | string): string {
   });
 }
 
-function groupByDate(files: TrashedFile[]): { label: string; data: TrashedFile[] }[] {
-  const groups: Record<string, TrashedFile[]> = {};
+/**
+ * Trash 3-segment plan §4b: generalized from the old file-only groupByDate
+ * so Files/Folders/Albums can all share the same "Today / Yesterday / This
+ * Week / This Month / Older" bucketing, keyed by whatever `deletedAt` each
+ * segment's items carry.
+ */
+function groupByDate<T extends { deletedAt?: number | string }>(items: T[]): { label: string; data: T[] }[] {
+  const groups: Record<string, T[]> = {};
   const now = new Date();
 
-  files.forEach(f => {
-    const d = new Date(f.deletedAt!);
+  items.forEach(item => {
+    const d = new Date(item.deletedAt ?? 0);
     const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
 
     let label: string;
@@ -135,7 +162,7 @@ function groupByDate(files: TrashedFile[]): { label: string; data: TrashedFile[]
     else label = 'Older';
 
     if (!groups[label]) groups[label] = [];
-    groups[label].push(f);
+    groups[label].push(item);
   });
 
   const ORDER = ['Today', 'Yesterday', 'This Week', 'This Month', 'Older'];
@@ -162,14 +189,31 @@ function getFileVisual(item: TrashedFile) {
   };
 }
 
+/** Root-level trashed folder gets RootFolderIcon, a nested one gets SubfolderIcon — mirrors dashboard.tsx's own root/sub icon resolution. */
+function folderVisualIcon(item: TrashedFolderItem) {
+  return item.parentId ? SubfolderIcon : RootFolderIcon;
+}
+
 export default function TrashScreen() {
-  const { colors, space, font, radius, screenPadding, bottomTabSpacing , iconSize } = useTheme();
+  const { colors, space, font, radius, screenPadding, bottomTabSpacing, iconSize } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const viewMode = useSettingsStore((s: any) => s.viewMode);
-  const { files, restoreFileFromTrash, permanentlyDeleteFile, permanentlyDeleteFiles } = useVaultStore();
+  const {
+    files,
+    folders,
+    restoreFileFromTrash,
+    restoreFilesFromTrash,
+    restoreFolderFromTrash,
+    restoreFoldersFromTrash,
+    permanentlyDeleteFile,
+    permanentlyDeleteFiles,
+    shredFolder,
+    shredMultipleFolders,
+  } = useVaultStore();
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
   const { topToastState, showTopToast } = useTopToast();
 
+  const [segment, setSegment] = useState<TrashSegment>('files');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all');
   const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
@@ -185,6 +229,13 @@ export default function TrashScreen() {
   const closeRestoreConfirm = useCallback(() => {
     setRestoreConfirm(prev => ({ ...prev, visible: false }));
   }, []);
+
+  const exitSelectionMode = useCallback(() => { setSelectionMode(false); setSelectedIds([]); }, []);
+
+  const changeSegment = useCallback((next: TrashSegment) => {
+    setSegment(next);
+    exitSelectionMode();
+  }, [exitSelectionMode]);
 
   const enrichedFiles: TrashedFile[] = useMemo(() => {
     return (files as TrashedFile[])
@@ -217,6 +268,45 @@ export default function TrashScreen() {
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
+  // Trash 3-segment plan §4b: Folders/Albums pipelines. Deliberately no
+  // type-filter chip application (that row only makes sense for file mime
+  // types — hidden entirely outside the Files segment, see below).
+  const filteredFolders = useMemo(() => {
+    let result: TrashedFolderItem[] = (folders as TrashedFolderItem[])
+      .filter(f => f.isTrash && f.type !== 'album')
+      .map(f => ({ ...f, deletedAt: f.deletedAt ?? 0 }));
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter(f => f.name.toLowerCase().includes(q));
+    }
+
+    return sortFolders(result, sort, { dateField: 'deletedAt' });
+  }, [folders, search, sort]);
+
+  const filteredAlbums = useMemo(() => {
+    let result: TrashedFolderItem[] = (folders as TrashedFolderItem[])
+      .filter(f => f.isTrash && f.type === 'album')
+      .map(f => ({ ...f, deletedAt: f.deletedAt ?? 0 }));
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter(f => f.name.toLowerCase().includes(q));
+    }
+
+    return sortFolders(result, sort, { dateField: 'deletedAt' });
+  }, [folders, search, sort]);
+
+  const groupedFolders = useMemo(() => groupByDate(filteredFolders), [filteredFolders]);
+  const groupedAlbums = useMemo(() => groupByDate(filteredAlbums), [filteredAlbums]);
+
+  // The segment's own visible list — drives count text, select-all, "Delete
+  // All", and the empty state, the same way `filtered` alone used to.
+  const activeList: (TrashedFile | TrashedFolderItem)[] =
+    segment === 'files' ? filtered : segment === 'folders' ? filteredFolders : filteredAlbums;
+  const activeGrouped = segment === 'files' ? grouped : segment === 'folders' ? groupedFolders : groupedAlbums;
+  const isFolderSegment = segment === 'folders' || segment === 'albums';
+
   const handleShred = useCallback((id: string, name: string) => {
     confirmDestructive(
       'Permanently Delete File',
@@ -233,23 +323,50 @@ export default function TrashScreen() {
     );
   }, [confirmDestructive, permanentlyDeleteFile, showTopToast]);
 
-  const handleShredAll = useCallback(() => {
-    if (filtered.length === 0) return;
-    const count = filtered.length;
+  // Trash 3-segment plan §4d: Folders/Albums single-item permanent delete —
+  // same confirm-modal pattern as handleShred, through the cascade-fixed
+  // shredFolder (§2b).
+  const handleShredFolder = useCallback((id: string, name: string, isAlbum: boolean) => {
     confirmDestructive(
-      'Delete All Files?',
-      `This will permanently delete all ${count} files.`,
+      `Permanently Delete ${isAlbum ? 'Album' : 'Folder'}`,
+      `"${name}" and everything inside it will be destroyed forever.`,
       async () => {
         try {
-          await permanentlyDeleteFiles(filtered.map(f => f.id));
-          showTopToast(`${count} file${count !== 1 ? 's' : ''} deleted permanently`);
+          await shredFolder(id);
+          showTopToast(`${name} deleted permanently`);
         } catch {
-          showTopToast(`Failed to delete ${count} file${count !== 1 ? 's' : ''} permanently`, 'error');
+          showTopToast(`Failed to delete ${name} permanently`, 'error');
+        }
+      },
+      'Delete'
+    );
+  }, [confirmDestructive, shredFolder, showTopToast]);
+
+  // "Delete All" — now segment-aware: acts on whichever list is currently
+  // visible (respecting search), matching the Files segment's pre-existing
+  // "delete everything currently shown" behavior.
+  const handleDeleteAllVisible = useCallback(() => {
+    if (activeList.length === 0) return;
+    const count = activeList.length;
+    const noun = SEGMENT_NOUN[segment];
+    confirmDestructive(
+      `Delete All ${SEGMENT_LABEL[segment]}?`,
+      `This will permanently delete all ${count} ${noun}${count !== 1 ? 's' : ''}${isFolderSegment ? ' and everything inside them' : ''}.`,
+      async () => {
+        try {
+          if (segment === 'files') {
+            await permanentlyDeleteFiles(filtered.map(f => f.id));
+          } else {
+            await shredMultipleFolders(activeList.map(f => f.id));
+          }
+          showTopToast(`${count} ${noun}${count !== 1 ? 's' : ''} deleted permanently`);
+        } catch {
+          showTopToast(`Failed to delete ${count} ${noun}${count !== 1 ? 's' : ''} permanently`, 'error');
         }
       },
       'Delete All'
     );
-  }, [filtered, confirmDestructive, permanentlyDeleteFiles, showTopToast]);
+  }, [activeList, segment, isFolderSegment, filtered, confirmDestructive, permanentlyDeleteFiles, shredMultipleFolders, showTopToast]);
 
   // I-12: restoreFileFromTrash reports when a file's original folder no
   // longer exists (it lands in an unprotected auto-created "Restored Files"
@@ -295,11 +412,18 @@ export default function TrashScreen() {
             // this restore even though the destination folder doesn't
             // require unlocking — say so accurately instead of implying the
             // file is now fully exposed.
+            // Bug fix (post-plan review): §2d gives the fallback folder a
+            // freshly *dated* name (e.g. "Restored Files – Aug 31, 2026,
+            // 3:52:04 PM"), not the literal fixed name "Restored Files" this
+            // alert used to hardcode — which read as flatly wrong right next
+            // to the toast above showing the real name via `locationLabel`.
+            // Interpolate the actual destination name instead of quoting a
+            // name that no longer exists.
             Alert.alert(
-              'Restored to "Restored Files"',
+              `Restored to "${destinationFolder?.name ?? 'a new folder'}"`,
               filePreservedAccessKey
-                ? 'This file’s original folder no longer exists, so it was restored into the "Restored Files" folder, which anyone can browse into. The file itself is still password-protected, so its contents stay locked.'
-                : 'This file’s original folder no longer exists, so it was restored into the unprotected "Restored Files" folder instead of its original (possibly password/encryption-protected) location.'
+                ? `This file's original folder no longer exists, so it was restored into the "${destinationFolder?.name ?? 'new'}" folder, which anyone can browse into. The file itself is still password-protected, so its contents stay locked.`
+                : `This file's original folder no longer exists, so it was restored into the unprotected "${destinationFolder?.name ?? 'new'}" folder instead of its original (possibly password/encryption-protected) location.`
             );
           }
         } catch {
@@ -309,63 +433,136 @@ export default function TrashScreen() {
     });
   }, [restoreFileFromTrash, showTopToast]);
 
-  const handleRestoreSelected = useCallback(() => {
-    if (selectedIds.length === 0) return;
-    const count = selectedIds.length;
+  // Trash 3-segment plan §4d: Folders/Albums single-item restore — same
+  // Dialog, through restoreFolderFromTrash (§2c), with a generic (not
+  // file-specific "still password-protected") fallback-folder warning per
+  // the plan's own wording call.
+  const handleRestoreFolder = useCallback((folderId: string, name: string, isAlbum: boolean) => {
     setRestoreConfirm({
       visible: true,
-      title: 'Restore Files',
-      message: `${count} file${count === 1 ? '' : 's'} will be moved back to their original location.`,
+      title: isAlbum ? 'Restore Album' : 'Restore Folder',
+      message: `"${name}" will be moved back to its original location.`,
       onConfirm: async () => {
-        // allSettled rather than all: with Promise.all, one rejection loses
-        // track of every other restore that already succeeded (they're
-        // fire-and-forget once the promise races on), so the toast could
-        // report total failure when most of the batch actually landed fine.
-        const results = await Promise.allSettled(selectedIds.map(id => restoreFileFromTrash(id)));
-        setSelectedIds([]);
-        setSelectionMode(false);
-        const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }> => r.status === 'fulfilled');
-        const { message, tone } = bulkOutcomeToast(fulfilled.length, count, 'file', 'restored', 'restore');
-        showTopToast(message, tone);
-        const landedInFallback = fulfilled.filter(r => r.value.landedInFallbackFolder);
-        if (landedInFallback.length > 0) {
-          // I-12: same accuracy fix as the single-file toast above — only
-          // claim full exposure for the files that actually lost their lock.
-          const allPreserved = landedInFallback.every(r => r.value.filePreservedAccessKey);
-          Alert.alert(
-            'Some Files Restored to "Restored Files"',
-            allPreserved
-              ? 'One or more original folders no longer exist, so those files were restored into the "Restored Files" folder, which anyone can browse into. Those files are still password-protected, so their contents stay locked.'
-              : 'One or more original folders no longer exist, so those files were restored into the unprotected "Restored Files" folder instead.'
+        try {
+          const { landedInFallbackFolder, parentId } = await restoreFolderFromTrash(folderId);
+          const freshFolders = useVaultStore.getState().folders;
+          const locationLabel = getFolderPathLabel(parentId, freshFolders);
+          const destinationFolder = parentId ? freshFolders.find(f => f.id === parentId) : undefined;
+          const isLocked = !!(destinationFolder?.hasAccessKey || destinationFolder?.accessKeyId);
+          showTopToast(
+            `${name} restored in `,
+            'success',
+            isLocked ? undefined : () => (parentId
+              ? router.push({ pathname: '/(main)/folder/[id]', params: { id: parentId } })
+              : router.replace('/(main)/dashboard')),
+            locationLabel
           );
+          if (landedInFallbackFolder) {
+            // Bug fix (post-plan review): same fix as handleRestore above —
+            // interpolate the real dated fallback-folder name instead of
+            // quoting the stale literal "Restored Files".
+            Alert.alert(
+              `Restored to "${destinationFolder?.name ?? 'a new folder'}"`,
+              `This ${isAlbum ? 'album' : 'folder'}'s original location no longer exists, so it was restored into a new "${destinationFolder?.name ?? 'folder'}" instead.`
+            );
+          }
+        } catch {
+          showTopToast(`Failed to restore ${name}`, 'error');
         }
       },
     });
-  }, [selectedIds, restoreFileFromTrash, setSelectedIds, showTopToast]);
+  }, [restoreFolderFromTrash, showTopToast]);
+
+  // Trash 3-segment plan §4d: bulk restore now branches on `segment` —
+  // Files uses the batched restoreFilesFromTrash (one shared fallback
+  // folder for the whole selection, applied in a single commitVaultState)
+  // instead of the old Promise.allSettled(selectedIds.map(restoreFileFromTrash))
+  // loop; Folders/Albums use the equivalent restoreFoldersFromTrash.
+  const handleRestoreSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    const noun = SEGMENT_NOUN[segment];
+    setRestoreConfirm({
+      visible: true,
+      title: `Restore ${SEGMENT_LABEL[segment]}`,
+      message: `${count} ${noun}${count === 1 ? '' : 's'} will be moved back to their original location.`,
+      onConfirm: async () => {
+        try {
+          if (segment === 'files') {
+            const results = await restoreFilesFromTrash(selectedIds);
+            setSelectedIds([]);
+            setSelectionMode(false);
+            const { message, tone } = bulkOutcomeToast(results.length, count, 'file', 'restored', 'restore');
+            showTopToast(message, tone);
+            const landedInFallback = results.filter(r => r.landedInFallbackFolder);
+            if (landedInFallback.length > 0) {
+              const allPreserved = landedInFallback.every(r => r.filePreservedAccessKey);
+              // Bug fix (post-plan review): restoreFilesFromTrash shares ONE
+              // dated fallback folder across the whole batch, so every
+              // landed-in-fallback result carries the same folderId — look
+              // its real name up instead of quoting the stale literal
+              // "Restored Files".
+              const fallbackName = useVaultStore.getState().folders.find(f => f.id === landedInFallback[0].folderId)?.name ?? 'a new folder';
+              Alert.alert(
+                `Some Files Restored to "${fallbackName}"`,
+                allPreserved
+                  ? `One or more original folders no longer exist, so those files were restored into the "${fallbackName}" folder, which anyone can browse into. Those files are still password-protected, so their contents stay locked.`
+                  : `One or more original folders no longer exist, so those files were restored into the unprotected "${fallbackName}" folder instead.`
+              );
+            }
+          } else {
+            const results = await restoreFoldersFromTrash(selectedIds);
+            setSelectedIds([]);
+            setSelectionMode(false);
+            const { message, tone } = bulkOutcomeToast(results.length, count, noun, 'restored', 'restore');
+            showTopToast(message, tone);
+            const landedInFolderFallback = results.find(r => r.landedInFallbackFolder);
+            if (landedInFolderFallback) {
+              // Bug fix (post-plan review): same shared-fallback-folder name
+              // lookup as the Files branch above, instead of quoting the
+              // stale literal "Restored Files".
+              const fallbackName = useVaultStore.getState().folders.find(f => f.id === landedInFolderFallback.parentId)?.name ?? 'a new folder';
+              Alert.alert(
+                `Some ${SEGMENT_LABEL[segment]} Restored to "${fallbackName}"`,
+                `One or more original locations no longer exist, so some ${noun}s were restored into a new "${fallbackName}" folder instead.`
+              );
+            }
+          }
+        } catch {
+          showTopToast(`Failed to restore ${noun}s`, 'error');
+          setSelectedIds([]);
+          setSelectionMode(false);
+        }
+      },
+    });
+  }, [selectedIds, segment, restoreFilesFromTrash, restoreFoldersFromTrash, showTopToast]);
 
   const handleShredSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
     const count = selectedIds.length;
+    const noun = SEGMENT_NOUN[segment];
     confirmDestructive(
-      'Delete Selected Files?',
-      `This will permanently delete ${count} files.`,
+      `Delete Selected ${SEGMENT_LABEL[segment]}?`,
+      `This will permanently delete ${count} ${noun}${count !== 1 ? 's' : ''}${isFolderSegment ? ' and everything inside them' : ''}.`,
       async () => {
         try {
-          await permanentlyDeleteFiles(selectedIds);
-          showTopToast(`${count} file${count !== 1 ? 's' : ''} deleted permanently`);
+          if (segment === 'files') {
+            await permanentlyDeleteFiles(selectedIds);
+          } else {
+            await shredMultipleFolders(selectedIds);
+          }
+          showTopToast(`${count} ${noun}${count !== 1 ? 's' : ''} deleted permanently`);
         } catch {
-          showTopToast(`Failed to delete ${count} file${count !== 1 ? 's' : ''} permanently`, 'error');
+          showTopToast(`Failed to delete ${count} ${noun}${count !== 1 ? 's' : ''} permanently`, 'error');
         }
       },
       'Delete'
     );
-  }, [selectedIds, confirmDestructive, permanentlyDeleteFiles, showTopToast]);
+  }, [selectedIds, segment, isFolderSegment, confirmDestructive, permanentlyDeleteFiles, shredMultipleFolders, showTopToast]);
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
-
-  const exitSelectionMode = () => { setSelectionMode(false); setSelectedIds([]); };
 
   const toggleFilters = () => {
     setShowFilters(!showFilters);
@@ -501,24 +698,212 @@ export default function TrashScreen() {
     );
   };
 
+  // Trash 3-segment plan §4c: list-mode row for Folders/Albums — visually
+  // identical to TrashRow (icon chip + name + meta row + Restore/Delete icon
+  // actions), just sourcing its icon from the folder-type resolution and its
+  // meta line from formatDeletedAt + (Folders only) a path caption showing
+  // where the item used to live.
+  const FolderTrashRow = ({ item, isAlbum }: { item: TrashedFolderItem; isAlbum: boolean }) => {
+    const isSelected = selectedIds.includes(item.id);
+    const VisualIcon = isAlbum ? GalleryHorizontalEnd : folderVisualIcon(item);
+    const pathCaption = isAlbum ? undefined : getFolderPathLabel(item.parentId, folders);
+
+    return (
+      <Card
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onPress={() => { if (selectionMode) toggleSelection(item.id); }}
+        accessibilityLabel={item.name}
+        style={[
+          styles.rowCard,
+          {
+            marginBottom: space(2),
+            padding: space(3),
+            borderRadius: radius(6),
+            backgroundColor: isSelected ? `${colors.primary}14` : colors.surfaceElevated,
+            borderColor: colors.borderLight,
+            borderWidth: StyleSheet.hairlineWidth,
+          },
+        ]}
+      >
+        <View style={[styles.rowTop, { gap: space(3) }]}>
+          {selectionMode && (
+            <Pressable
+              onPress={() => toggleSelection(item.id)}
+              hitSlop={8}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`Select ${item.name}`}
+            >
+              {isSelected ? (
+                <CheckSquare size={iconSize(22)} color={colors.primary} strokeWidth={2} />
+              ) : (
+                <Square size={iconSize(22)} color={colors.textMuted} strokeWidth={2} />
+              )}
+            </Pressable>
+          )}
+
+          <View style={[styles.iconChip, { backgroundColor: `${colors.primary}1F`, borderRadius: radius(3) }]}>
+            <VisualIcon size={iconSize(17)} color={colors.primary} strokeWidth={2} />
+          </View>
+
+          <View style={styles.rowInfo}>
+            <Text style={[styles.rowName, { color: colors.text, fontSize: font(Type.body.size) }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <View style={[styles.rowMetaRow, { gap: space(2) }]}>
+              <Text style={[styles.rowMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                {formatDeletedAt(item.deletedAt)}
+              </Text>
+              {!!pathCaption && (
+                <>
+                  <View style={[styles.metaDot, { backgroundColor: colors.textMuted }]} />
+                  <Text style={[styles.rowMeta, { color: colors.textMuted, fontSize: font(Type.caption.size) }]} numberOfLines={1}>
+                    {pathCaption}
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+
+          {!selectionMode && (
+            <View style={[styles.rowActions, { gap: space(2) }]}>
+              <Pressable
+                onPress={() => handleRestoreFolder(item.id, item.name, isAlbum)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Restore ${item.name}`}
+                style={({ pressed }) => [
+                  styles.iconAction,
+                  {
+                    width: iconSize(30),
+                    height: iconSize(30),
+                    borderRadius: radius(3),
+                    backgroundColor: colors.surfaceHover,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <RotateCcw size={iconSize(15)} color={colors.text} strokeWidth={2.25} />
+              </Pressable>
+              <Pressable
+                onPress={() => handleShredFolder(item.id, item.name, isAlbum)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${item.name}`}
+                style={({ pressed }) => [
+                  styles.iconAction,
+                  {
+                    width: iconSize(30),
+                    height: iconSize(30),
+                    borderRadius: radius(3),
+                    backgroundColor: `${colors.error}1F`,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Trash2 size={iconSize(15)} color={colors.error} strokeWidth={2.25} />
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </Card>
+    );
+  };
+
+  // Trash 3-segment plan §4c: grid tile for a trashed plain folder — a
+  // user-picked customThumbnailPath (custom thumbnail plan) still renders
+  // here same as everywhere else; falls back to the root/sub icon otherwise.
+  const FolderGridTile = ({ item }: { item: TrashedFolderItem }) => {
+    const isSelected = selectedIds.includes(item.id);
+    const VisualIcon = folderVisualIcon(item);
+    return (
+      <GridTile
+        size={gridItemWidth}
+        name={item.name}
+        caption={formatDeletedAtShort(item.deletedAt)}
+        thumbnailUri={item.customThumbnailPath}
+        Icon={VisualIcon}
+        iconColor={colors.primary}
+        selectable={selectionMode}
+        selected={isSelected}
+        onPress={() => { if (selectionMode) toggleSelection(item.id); }}
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onRestorePress={() => handleRestoreFolder(item.id, item.name, false)}
+        onDeletePress={() => handleShredFolder(item.id, item.name, false)}
+      />
+    );
+  };
+
+  // Trash 3-segment plan §4c: grid tile for a trashed album — real cover
+  // thumbnail via useAlbumCoverUri(albumId, includeTrash: true), since the
+  // default (non-Trash) call would always resolve undefined for an album
+  // whose own files were just cascade-trashed along with it (see
+  // useAlbumCoverUri.ts). Split into its own component because the hook
+  // must be called unconditionally per item, not from inside a shared
+  // conditional branch.
+  const AlbumGridTile = ({ item }: { item: TrashedFolderItem }) => {
+    const isSelected = selectedIds.includes(item.id);
+    // A user-picked customThumbnailPath (custom thumbnail plan) always wins
+    // over the auto-derived cover, same precedence as every other album
+    // tile in the app (FileTile.tsx's own AlbumGridTile/AlbumListRow).
+    const autoThumbnailUri = useAlbumCoverUri(item.id, true);
+    return (
+      <GridTile
+        size={gridItemWidth}
+        name={item.name}
+        caption={formatDeletedAtShort(item.deletedAt)}
+        Icon={GalleryHorizontalEnd}
+        iconColor={colors.primary}
+        thumbnailUri={item.customThumbnailPath || autoThumbnailUri}
+        selectable={selectionMode}
+        selected={isSelected}
+        onPress={() => { if (selectionMode) toggleSelection(item.id); }}
+        onLongPress={() => { setSelectionMode(true); setSelectedIds([item.id]); }}
+        onRestorePress={() => handleRestoreFolder(item.id, item.name, true)}
+        onDeletePress={() => handleShredFolder(item.id, item.name, true)}
+      />
+    );
+  };
+
   type ListItem =
     | { type: 'section'; label: string }
-    | { type: 'file'; file: TrashedFile };
+    | { type: 'file'; file: TrashedFile }
+    | { type: 'folder'; folder: TrashedFolderItem };
 
   const listData: ListItem[] = useMemo(() => {
     const items: ListItem[] = [];
-    grouped.forEach(g => {
-      items.push({ type: 'section', label: g.label });
-      g.data.forEach(f => items.push({ type: 'file', file: f }));
-    });
+    if (segment === 'files') {
+      grouped.forEach(g => {
+        items.push({ type: 'section', label: g.label });
+        g.data.forEach(f => items.push({ type: 'file', file: f }));
+      });
+    } else {
+      activeGrouped.forEach(g => {
+        items.push({ type: 'section', label: g.label });
+        (g.data as TrashedFolderItem[]).forEach(f => items.push({ type: 'folder', folder: f }));
+      });
+    }
     return items;
-  }, [grouped]);
+  }, [segment, grouped, activeGrouped]);
+
+  const searchPlaceholder = segment === 'files'
+    ? 'Search deleted files…'
+    : segment === 'folders'
+      ? 'Search deleted folders…'
+      : 'Search deleted albums…';
+
+  const emptyTitle = segment === 'files' ? 'Trash is empty' : segment === 'folders' ? 'No deleted folders' : 'No deleted albums';
+  const emptyMessage = segment === 'files'
+    ? 'Files you delete will appear here.'
+    : segment === 'folders'
+      ? 'Folders you delete will appear here.'
+      : 'Albums you delete will appear here.';
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
       <TabRootHeader
         title="Trash"
-        tagline="Deleted files"
+        tagline="Deleted items"
         rightSlot={
           <View style={styles.headerControls}>
             <SortMenu value={sort} onChange={setSort} defaultKey={DEFAULT_SORT} />
@@ -532,16 +917,25 @@ export default function TrashScreen() {
           contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(2), paddingBottom: bottomTabSpacing }]}
           showsVerticalScrollIndicator={false}
         >
+          <View style={{ marginBottom: space(3) }}>
+            <SegmentedControl
+              options={SEGMENT_OPTIONS}
+              value={segment}
+              onChange={changeSegment}
+              accessibilityLabel="Trash segment"
+            />
+          </View>
+
           <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
             <Search size={iconSize(18)} color={colors.textMuted} />
             <TextInput
               style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
-              placeholder="Search deleted files…"
+              placeholder={searchPlaceholder}
               placeholderTextColor={colors.textMuted}
               value={search}
               onChangeText={setSearch}
               returnKeyType="search"
-              accessibilityLabel="Search deleted files"
+              accessibilityLabel={searchPlaceholder}
             />
             {search.length > 0 && (
               <TouchableOpacity onPress={() => setSearch('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
@@ -551,20 +945,24 @@ export default function TrashScreen() {
           </View>
 
           <View style={[styles.filterRow, { marginBottom: space(2) }]}>
-            <Button title="Filters" onPress={toggleFilters} icon={ListFilter} variant="tertiary" size="sm" />
+            {segment === 'files' ? (
+              <Button title="Filters" onPress={toggleFilters} icon={ListFilter} variant="tertiary" size="sm" />
+            ) : (
+              <View />
+            )}
             <View style={styles.headerRightBlock}>
-              {!selectionMode && filtered.length > 0 && (
-                <Button title="Delete All" onPress={handleShredAll} variant="ghost" size="sm" />
+              {!selectionMode && activeList.length > 0 && (
+                <Button title="Delete All" onPress={handleDeleteAllVisible} variant="ghost" size="sm" />
               )}
               {!selectionMode && (
                 <Text style={[styles.countText, { color: colors.textMuted, fontSize: font(Type.caption.size) }]}>
-                  {filtered.length} {filtered.length === 1 ? 'file' : 'files'}
+                  {activeList.length} {SEGMENT_NOUN[segment]}{activeList.length === 1 ? '' : 's'}
                 </Text>
               )}
             </View>
           </View>
 
-          {showFilters && (
+          {segment === 'files' && showFilters && (
             <View style={{ marginTop: space(2), marginBottom: space(2) }}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space(2), paddingVertical: space(2) }}>
                 {(Object.keys(FILE_TYPE_MAP) as FileTypeFilter[]).map(k => (
@@ -584,9 +982,9 @@ export default function TrashScreen() {
             <View style={[styles.selectionBar, { gap: space(2), paddingBottom: space(3) }]}>
               <Pressable
                 onPress={() => {
-                  const fileIds = filtered.map(f => f.id);
-                  const allSelected = fileIds.every(id => selectedIds.includes(id));
-                  setSelectedIds(allSelected ? [] : fileIds);
+                  const ids = activeList.map(f => f.id);
+                  const allSelected = ids.every(id => selectedIds.includes(id));
+                  setSelectedIds(allSelected ? [] : ids);
                 }}
                 style={[styles.iconActionPill, { backgroundColor: colors.surfaceHover }]}
                 accessibilityRole="button"
@@ -625,18 +1023,18 @@ export default function TrashScreen() {
             </View>
           )}
 
-          {filtered.length === 0 && !search && (
-            <EmptyState icon={Trash2} title="Trash is empty" message="Files you delete will appear here." />
+          {activeList.length === 0 && !search && (
+            <EmptyState icon={Trash2} title={emptyTitle} message={emptyMessage} />
           )}
 
-          {filtered.length === 0 && search && (
+          {activeList.length === 0 && !!search && (
             <EmptyState icon={Search} title="No results found" message="Try a different search term" />
           )}
 
-          {filtered.length > 0 && (
+          {activeList.length > 0 && (
             isGridMode ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(1) }}>
-                {filtered.map((item) => {
+                {segment === 'files' && filtered.map((item) => {
                   const isSelected = selectedIds.includes(item.id);
                   const visual = getFileVisual(item);
                   return (
@@ -659,12 +1057,18 @@ export default function TrashScreen() {
                     />
                   );
                 })}
+                {segment === 'folders' && filteredFolders.map((item) => (
+                  <FolderGridTile key={item.id} item={item} />
+                ))}
+                {segment === 'albums' && filteredAlbums.map((item) => (
+                  <AlbumGridTile key={item.id} item={item} />
+                ))}
               </View>
             ) : (
               <FlatList
                 data={listData}
                 keyExtractor={(item) =>
-                  item.type === 'section' ? `section-${item.label}` : item.file.id
+                  item.type === 'section' ? `section-${item.label}` : item.type === 'file' ? item.file.id : item.folder.id
                 }
                 nestedScrollEnabled
                 scrollEnabled={false}
@@ -679,7 +1083,10 @@ export default function TrashScreen() {
                       </View>
                     );
                   }
-                  return <TrashRow item={item.file} />;
+                  if (item.type === 'file') {
+                    return <TrashRow item={item.file} />;
+                  }
+                  return <FolderTrashRow item={item.folder} isAlbum={segment === 'albums'} />;
                 }}
               />
             )

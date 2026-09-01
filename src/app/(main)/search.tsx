@@ -74,6 +74,7 @@ import { MIN_TOUCH_TARGET } from '../../utils/responsive';
 import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
 import { buildVaultSections, VaultSectionData, VaultSectionKey, CategoryFilter } from '../../utils/vaultSections';
 import { sortFolders, sortFiles, SortKey } from '../../utils/vaultSort';
+import { pickAndSetFolderThumbnail } from '../../utils/pickFolderThumbnail';
 
 const DEFAULT_SORT: SortKey = 'name_asc';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -108,11 +109,12 @@ export default function SearchScreen() {
     assignFolderAccessKey, removeFolderAccessKey,
     renameFile, renameFolder, moveFileToFolder, moveFolder,
     exportFileToDevice, exportFolderFiles,
+    setFolderThumbnail, clearFolderThumbnail,
   } = useVaultStore();
   // "Add to Album…" (plan §7, Phase 6) destinations — this screen's own
   // independent copy, matching how every other file action here is already
   // independently wired per screen rather than shared.
-  const albums = useMemo(() => folders.filter(f => f.type === 'album'), [folders]);
+  const albums = useMemo(() => folders.filter(f => f.type === 'album' && !f.isTrash), [folders]);
   const { openMoveModal, setOnMove } = useMove();
   const { openRenameModal, setOnRename } = useRename();
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
@@ -373,7 +375,7 @@ export default function SearchScreen() {
         });
         openMoveModal(
           { id: file.id, name: file.name, type: 'file' },
-          toMoveDestinations(folders.filter(f => f.id !== file.folderId && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== file.folderId && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'add-to-album': {
@@ -447,7 +449,7 @@ export default function SearchScreen() {
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'export':
@@ -467,6 +469,17 @@ export default function SearchScreen() {
       case 'copy': copyToClipboard([folder.id], [], null); break;
       case 'cut': cutToClipboard([folder.id], [], null); break;
       case 'duplicate': duplicateFolder(folder.id); break;
+      case 'change-thumbnail':
+        pickAndSetFolderThumbnail(folder.id, setFolderThumbnail).then((result) => {
+          if (result === 'set') showTopToast(`${folder.name} thumbnail updated`);
+          else if (result === 'permission-denied') Alert.alert('Photo Access Needed', 'Photo access is required to choose a thumbnail — enable it in Settings.');
+          else if (result === 'error') Alert.alert('Couldn’t Set Thumbnail', 'Something went wrong while processing that image.');
+          // 'canceled' → no-op, matches every other cancel-a-picker path in this app
+        });
+        break;
+      case 'remove-thumbnail':
+        clearFolderThumbnail(folder.id).then(() => showTopToast(`${folder.name} thumbnail removed`));
+        break;
       case 'paste':
         if (clipboard) {
           pasteFromClipboard(folder.id).then((result) => {
@@ -556,6 +569,8 @@ export default function SearchScreen() {
       !isAlbum ? { action: 'move', label: 'Move', color: colors.text } : null,
       { action: 'export', label: 'Export', color: colors.text },
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
+      { action: 'change-thumbnail', label: targetItem.customThumbnailPath ? 'Change Thumbnail' : 'Set Thumbnail', color: colors.text },
+      targetItem.customThumbnailPath ? { action: 'remove-thumbnail', label: 'Remove Thumbnail', color: colors.error } : null,
       hasClipboard ? { action: 'paste', label: 'Paste Here', color: colors.secondary } : null,
       hasPassword ? { action: 'remove-key', label: 'Remove Assigned Access Key', color: colors.error } : null,
       !hasPassword ? { action: 'register-key', label: 'Assign and Create Access Key', color: colors.secondary } : null,
@@ -627,6 +642,7 @@ export default function SearchScreen() {
                 <AlbumGridTile
                   key={item.id}
                   albumId={item.id}
+                  customThumbnailPath={item.customThumbnailPath}
                   size={gridItemWidth}
                   name={item.name}
                   subtitle={`Album · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
@@ -654,6 +670,7 @@ export default function SearchScreen() {
                 key={item.id}
                 size={gridItemWidth}
                 name={item.name}
+                thumbnailUri={item.customThumbnailPath}
                 subtitle={`${isRoot ? 'Root Folder' : 'Subfolder'} · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
                 Icon={isRoot ? RootFolderIcon : SubfolderIcon}
                 iconColor={colors.primary}
@@ -689,6 +706,7 @@ export default function SearchScreen() {
               <AlbumListRow
                 key={item.id}
                 albumId={item.id}
+                customThumbnailPath={item.customThumbnailPath}
                 title={item.name}
                 subtitle={`Album · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
                 leading={<GalleryHorizontalEnd size={iconSize(22)} color={colors.primary} />}
@@ -711,6 +729,7 @@ export default function SearchScreen() {
             <ListRow
               key={item.id}
               title={item.name}
+              thumbnailUri={item.customThumbnailPath}
               subtitle={`${isRoot ? 'Root Folder' : 'Subfolder'} · ${formatFolderStatsLabel(folderStatsMap[item.id])}`}
               leading={isRoot ? (
                 <RootFolderIcon size={iconSize(22)} color={colors.primary} />

@@ -82,6 +82,7 @@ import { StorageService } from '../../services/storage';
 import { getFolderStatsMap, formatFolderStatsLabel, toMoveDestinations } from '../../utils/folderStats';
 import { sortFolders, SortKey } from '../../utils/vaultSort';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
+import { pickAndSetFolderThumbnail } from '../../utils/pickFolderThumbnail';
 
 const DEFAULT_SORT: SortKey = 'name_asc';
 
@@ -100,6 +101,7 @@ export default function DashboardScreen() {
     assignFolderAccessKey, removeFolderAccessKey,
     copyToClipboard, cutToClipboard, pasteFromClipboard, undoLastCut,
     duplicateFolder,
+    setFolderThumbnail, clearFolderThumbnail,
   } = useVaultStore();
   const { accessKeys } = useSettingsStore();
   const { openRenameModal, setOnRename } = useRename();
@@ -268,15 +270,15 @@ export default function DashboardScreen() {
   // rootFolders/subFolders exclude albums (own "My Albums" section below) —
   // otherwise an album would render under both sections at once.
   const rootFolders = useMemo(
-    () => sortFolders(folders.filter(f => !f.parentId && f.type !== 'album'), sortKey),
+    () => sortFolders(folders.filter(f => !f.parentId && f.type !== 'album' && !f.isTrash), sortKey),
     [folders, sortKey]
   );
   const subFolders = useMemo(
-    () => sortFolders(folders.filter(f => !!f.parentId), sortKey),
+    () => sortFolders(folders.filter(f => !!f.parentId && !f.isTrash), sortKey),
     [folders, sortKey]
   );
   const albums = useMemo(
-    () => sortFolders(folders.filter(f => f.type === 'album'), sortKey),
+    () => sortFolders(folders.filter(f => f.type === 'album' && !f.isTrash), sortKey),
     [folders, sortKey]
   );
 
@@ -335,7 +337,7 @@ export default function DashboardScreen() {
         });
         openMoveModal(
           { id: folder.id, name: folder.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== folder.id && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'export':
@@ -404,6 +406,17 @@ export default function DashboardScreen() {
       }
       case 'duplicate':
         duplicateFolder(folder.id);
+        break;
+      case 'change-thumbnail':
+        pickAndSetFolderThumbnail(folder.id, setFolderThumbnail).then((result) => {
+          if (result === 'set') showTopToast(`${folder.name} thumbnail updated`);
+          else if (result === 'permission-denied') Alert.alert('Photo Access Needed', 'Photo access is required to choose a thumbnail — enable it in Settings.');
+          else if (result === 'error') Alert.alert('Couldn’t Set Thumbnail', 'Something went wrong while processing that image.');
+          // 'canceled' → no-op, matches every other cancel-a-picker path in this app
+        });
+        break;
+      case 'remove-thumbnail':
+        clearFolderThumbnail(folder.id).then(() => showTopToast(`${folder.name} thumbnail removed`));
         break;
       case 'paste':
         if (clipboard) {
@@ -576,6 +589,7 @@ export default function DashboardScreen() {
                 <View key={item.id} style={{ width: itemWidth }}>
                   <AlbumListRow
                     albumId={item.id}
+                    customThumbnailPath={item.customThumbnailPath}
                     title={item.name}
                     subtitle={statsLabel}
                     allowMultilineTitle
@@ -591,6 +605,7 @@ export default function DashboardScreen() {
               <AlbumGridTile
                 key={item.id}
                 albumId={item.id}
+                customThumbnailPath={item.customThumbnailPath}
                 size={itemWidth}
                 name={item.name}
                 subtitle={statsLabel}
@@ -610,6 +625,7 @@ export default function DashboardScreen() {
                   title={item.name}
                   subtitle={statsLabel}
                   allowMultilineTitle
+                  thumbnailUri={item.customThumbnailPath}
                   leading={<FolderIcon size={iconSize(22)} color={colors.primary} strokeWidth={2.2} />}
                   trailingBadges={badgesNode}
                   onPress={() => handleVaultPress(item)}
@@ -629,6 +645,7 @@ export default function DashboardScreen() {
               size={itemWidth}
               name={item.name}
               subtitle={statsLabel}
+              thumbnailUri={item.customThumbnailPath}
               Icon={FolderIcon}
               iconColor={colors.primary}
               selectable={selectionMode}
@@ -653,10 +670,22 @@ export default function DashboardScreen() {
       { action: 'move', label: 'Move', color: colors.text },
       { action: 'export', label: 'Export', color: colors.text },
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
+      { action: 'change-thumbnail', label: targetFolder.customThumbnailPath ? 'Change Thumbnail' : 'Set Thumbnail', color: colors.text },
       { action: 'favorite', label: targetFolder.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', color: colors.warning },
       { action: 'delete', label: 'Move to Trash', color: colors.error },
       { action: 'shred', label: 'Delete Permanently', color: colors.error },
     ];
+    if (targetFolder.customThumbnailPath) {
+      // Must run BEFORE the hasClipboard/hasPassword splices below — both of
+      // those target a hardcoded index 3 (inserting before whatever
+      // currently sits there). 'change-thumbnail' sits at index 4 in the
+      // literal above (after 'duplicate' at index 3), so splicing
+      // 'remove-thumbnail' in at index 5 here is only safe while it runs
+      // first; if it ran after the clipboard/password splices, index 5
+      // would land inside items they just inserted at index 3, silently
+      // misplacing 'Remove Thumbnail'. Do not reorder relative to those.
+      baseItems.splice(5, 0, { action: 'remove-thumbnail', label: 'Remove Thumbnail', color: colors.error });
+    }
     if (hasClipboard) {
       baseItems.splice(3, 0, { action: 'paste', label: 'Paste Here', color: colors.secondary });
     }

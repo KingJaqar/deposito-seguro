@@ -70,8 +70,21 @@ export function useScreenEnterAnimation() {
     // flicker every time the user comes back from the picker.
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && hasAnimated.current) {
-        screenOpacity.value = 1;
-        screenTranslateY.value = 0;
+        // Reasserting synchronously here isn't enough: Reanimated's
+        // UI-thread reset (see header note) isn't guaranteed to have
+        // finished by the time the JS-side 'active' event fires — it can
+        // land a frame or two later and clobber this assignment right back
+        // to 0, which is exactly what was still reproducing (screen blank
+        // after returning from the image/document picker). Deferring two
+        // frames — the same "let the resume settle" pattern already used
+        // around the picker calls in VaultContentsScreen — pushes this
+        // past that reset instead of racing it.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            screenOpacity.value = 1;
+            screenTranslateY.value = 0;
+          });
+        });
       }
     });
 

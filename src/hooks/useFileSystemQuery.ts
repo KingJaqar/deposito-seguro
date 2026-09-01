@@ -7,7 +7,7 @@ export const useFileSystemQuery = (folderId?: string, queryText?: string) => {
 
   return useMemo(() => {
     let filteredFiles = files.filter(f => !f.isTrash);
-    let filteredFolders = folders;
+    let filteredFolders = folders.filter(f => !f.isTrash);
 
     if (folderId) {
       filteredFiles = filteredFiles.filter(f => f.folderId === folderId);

@@ -12,18 +12,29 @@ import { useMemo } from 'react';
 import { useVaultStore } from '../store/vaultStore';
 import { useFileThumbnailUri, ThumbnailFile } from './useFileThumbnailUri';
 
-export function useAlbumCoverUri(albumId: string): string | undefined {
+/**
+ * `includeTrash` (default false, so every existing non-Trash caller is
+ * unaffected): trash 3-segment plan §4c — deleting an album cascades
+ * `isTrash: true` onto its own files too (vaultStore.deleteFolder), so a
+ * *trashed* album's cover candidates are themselves all trashed. Without
+ * this flag the default `f.isTrash` exclusion below would always resolve to
+ * `undefined` for a trashed album, silently losing its cover the moment
+ * it's trashed. Trash → Albums passes `includeTrash: true` to keep showing
+ * the real cover there.
+ */
+export function useAlbumCoverUri(albumId: string, includeTrash: boolean = false): string | undefined {
   const files = useVaultStore((s) => s.files);
 
   const coverFile = useMemo<ThumbnailFile>(() => {
     let latest: (typeof files)[number] | undefined;
     for (const f of files) {
-      if (f.folderId !== albumId || f.isTrash) continue;
+      if (f.folderId !== albumId) continue;
+      if (f.isTrash && !includeTrash) continue;
       if (!(f.mimeType?.startsWith('image/') || f.mimeType?.startsWith('video/'))) continue;
       if (!latest || f.importedAt > latest.importedAt) latest = f;
     }
     return latest ?? {};
-  }, [files, albumId]);
+  }, [files, albumId, includeTrash]);
 
   return useFileThumbnailUri(coverFile);
 }

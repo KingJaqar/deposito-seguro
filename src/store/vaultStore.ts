@@ -67,6 +67,12 @@ interface VaultStoreActions extends VaultState {
   toggleFolderFavorite: (folderId: string, markFavorite?: boolean) => Promise<void>;
   softDeleteFile: (fileId: string) => Promise<void>;
   restoreFileFromTrash: (fileId: string) => Promise<{ landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }>;
+  /** Bulk restoreFileFromTrash (trash 3-segment plan §2c) — computes one shared dated fallback folder for the whole batch instead of one per file, applied in a single commitVaultState. */
+  restoreFilesFromTrash: (fileIds: string[]) => Promise<{ fileId: string; landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }[]>;
+  /** Restores a trashed folder (or album) and its entire trashed descendant subtree together, all-or-nothing. Reachability is checked only for the target's own parent — descendants are covered by being restored in the same call. */
+  restoreFolderFromTrash: (folderId: string) => Promise<{ landedInFallbackFolder: boolean; parentId?: string }>;
+  /** Bulk restoreFolderFromTrash — same shared-fallback-folder batching as restoreFilesFromTrash. */
+  restoreFoldersFromTrash: (folderIds: string[]) => Promise<{ folderId: string; landedInFallbackFolder: boolean; parentId?: string }[]>;
   permanentlyDeleteFile: (fileId: string) => Promise<void>;
   permanentlyDeleteFiles: (fileIds: string[]) => Promise<void>;
   clearEverythingState: () => void;
@@ -107,6 +113,14 @@ interface VaultStoreActions extends VaultState {
   assignFileAccessKey: (fileId: string, passwordId: string) => Promise<void>;
   removeFolderAccessKey: (folderId: string) => Promise<void>;
   removeFileAccessKey: (fileId: string) => Promise<void>;
+  /**
+   * plans/custom folders and album thumbnail implementation plan.md — lets
+   * a user override a root folder/subfolder/album's thumbnail with a picked
+   * image, unencrypted like an album's own auto-derived cover (see the
+   * plan's Context note). Always wins over any default/auto-derived visual.
+   */
+  setFolderThumbnail: (folderId: string, sourceUri: string) => Promise<void>;
+  clearFolderThumbnail: (folderId: string) => Promise<void>;
   // Legacy encryption methods (kept for backward compatibility)
   assignFolderEncryptionKey: (folderId: string, keyId: string) => Promise<void>;
   assignFileEncryptionKey: (fileId: string, keyId: string) => Promise<void>;
@@ -169,6 +183,159 @@ const dedupeFileName = (name: string, existingNames: Set<string>): string => {
     candidate = `${base} (${counter})${ext}`;
   }
   return candidate;
+};
+
+/**
+ * BFS walk of every descendant folder of `folderId` (children, grandchildren,
+ * ...) given an explicit folders array — the pure function `getFolderDescendants`
+ * (the store action below) and every cascade-trash/cascade-shred/cascade-restore
+ * action in this file share, so a `commitVaultState` updater can compute a
+ * subtree against the exact `state.folders` it was handed rather than racing
+ * `get().folders` from inside its own closure.
+ */
+const collectDescendantFolders = (folders: FolderMetadata[], folderId: string): FolderMetadata[] => {
+  const descendants: FolderMetadata[] = [];
+  const queue = [folderId];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const children = folders.filter(f => f.parentId === currentId);
+    descendants.push(...children);
+    queue.push(...children.map(c => c.id));
+  }
+  return descendants;
+};
+
+/**
+ * Trash 3-segment plan §2a: generalizes deleteFolder's original single-walk
+ * "inherit the nearest locked ancestor's key" logic (see the I-12/I-12-follow-up
+ * comments this replaced) so it can be resolved once per folder in a whole
+ * subtree being cascade-trashed, not just for the top-level target. A
+ * folder's own hasAccessKey/accessKeyId wins if set; otherwise the walk
+ * continues up through parentId. `resolved` memoizes folders already
+ * resolved earlier in the same batch (their nearest key is reused instead of
+ * re-walked) — since deleteFolder resolves the target before its descendants,
+ * a descendant's walk up through the target (or a nearer already-resolved
+ * descendant) short-circuits immediately. `visiting` guards against a
+ * corrupt/circular parentId chain the same way getFolderPathLabel's own
+ * visited set does.
+ */
+const resolveNearestAccessKeyId = (
+  folder: FolderMetadata | undefined,
+  foldersById: Map<string, FolderMetadata>,
+  resolved: Map<string, string | undefined>,
+  visiting: Set<string> = new Set()
+): string | undefined => {
+  if (!folder) return undefined;
+  if (resolved.has(folder.id)) return resolved.get(folder.id);
+  if (visiting.has(folder.id)) return undefined; // circular parentId — treat as no inherited key
+  visiting.add(folder.id);
+
+  let result: string | undefined;
+  if (folder.hasAccessKey && folder.accessKeyId) {
+    result = folder.accessKeyId;
+  } else if (folder.parentId) {
+    result = resolveNearestAccessKeyId(foldersById.get(folder.parentId), foldersById, resolved, visiting);
+  }
+  resolved.set(folder.id, result);
+  return result;
+};
+
+/**
+ * Trash 3-segment plan §2c: the unified "would restoring here strand the
+ * item outside normal browsing" check — true whether the container was
+ * permanently deleted (shredded, so the id no longer resolves at all) or is
+ * simply still sitting in trash itself (present, but `isTrash: true`, so
+ * every "live folder" listing in the app already hides it — restoring into
+ * it would make the restored item unreachable too). `undefined`/root is
+ * always reachable. Guards against a corrupt/circular parentId chain by
+ * treating it as unreachable rather than looping forever.
+ */
+const isContainerUnreachable = (containerId: string | undefined, folders: FolderMetadata[]): boolean => {
+  if (!containerId) return false;
+  const byId = new Map(folders.map(f => [f.id, f]));
+  const visited = new Set<string>();
+  let current = byId.get(containerId);
+  if (!current) return true; // shredded — no longer resolves at all
+  while (current) {
+    if (visited.has(current.id)) return true; // circular chain — treat as broken
+    visited.add(current.id);
+    if (current.isTrash) return true; // container (or an ancestor) is itself trashed
+    if (!current.parentId) return false; // reached root without hitting trash — reachable
+    const parent: FolderMetadata | undefined = byId.get(current.parentId);
+    if (!parent) return true; // a link in the chain is missing
+    current = parent;
+  }
+  return false;
+};
+
+/**
+ * Trash 3-segment plan §2d: replaces the old static `'Restored Files'`
+ * lookup/create with a freshly dated name built from the current moment
+ * (matching trash.tsx's `formatDeletedAt` style, with seconds added for
+ * extra collision safety). One is created per store-action call (single or
+ * bulk) and reused for every item that call restores into.
+ *
+ * The per-call UUID `id` is always unique on its own, but two restores
+ * landing in the same wall-clock second (a fast double-tap, or two bulk
+ * actions moments apart) would otherwise produce two *root-level* folders
+ * with the identical displayed name, which reads as a bug even though both
+ * work correctly. Run the name through the same sibling-dedup every other
+ * folder-creation path already applies (createFolder/moveFolder/
+ * moveFileToFolder) — callers pass the current root-level folder names.
+ */
+const buildDatedFallbackFolder = (existingRootNames: Set<string>): FolderMetadata => {
+  const label = new Date().toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return {
+    id: SecureCrypto.generateUUID(),
+    name: uniqueClampedName(`Restored Files – ${label}`, existingRootNames),
+    color: '#34C759',
+    icon: 'folder',
+    isEncrypted: false,
+    isFavorite: false,
+    isPersonalFavoritesFolder: false,
+    createdAt: Date.now(),
+    type: 'folder',
+  };
+};
+
+/**
+ * Trash 3-segment plan §2c revision: the set of folder ids that must be
+ * restored alongside `rootId` when it's restored via restoreFolderFromTrash.
+ * Always includes `rootId` itself (the explicit restore target, restored
+ * regardless of its own trashedByFolderCascade flag — whatever the caller
+ * asked to restore, gets restored). A descendant is pulled in only if EVERY
+ * folder on the path from `rootId` down to it is flagged
+ * trashedByFolderCascade: true — i.e. the whole branch was swept in by a
+ * cascade, never independently trashed by the user partway down. The moment
+ * a branch hits a folder that was trashed on its own (flag false/undefined),
+ * that branch is excluded entirely and left exactly as it was: still
+ * trashed, still reachable only from Trash, with its existing parentId (no
+ * reparenting) — restoring an ancestor must never resurrect a subtree the
+ * user deliberately, independently trashed. This is what
+ * `collectDescendantFolders` (used by deleteFolder/shredFolder, which
+ * legitimately want the FULL subtree regardless of flags) is not.
+ */
+const collectCascadeRestorableSubtree = (folders: FolderMetadata[], rootId: string): Set<string> => {
+  const restorable = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const children = folders.filter(f => f.parentId === currentId);
+    for (const child of children) {
+      if (child.trashedByFolderCascade) {
+        restorable.add(child.id);
+        queue.push(child.id);
+      }
+    }
+  }
+  return restorable;
 };
 
 const removeFilePayload = async (file: FileMetadata) => {
@@ -433,58 +600,87 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     await commitVaultState(set, (state) => ({ folders: [...state.folders, newFolder] }));
   },
   deleteFolder: async (folderId) => {
-    // I-12: this is the only place folder metadata is ever discarded
-    // (FolderMetadata has no isTrash/deletedAt of its own — folders are
-    // removed outright, never trashed), so it's also the only place a file
-    // can lose the protection it was inheriting purely from its parent
-    // folder's access-key lock. assignFolderEncryptionKey/
-    // removeFolderEncryptionKey already cascade real encryption onto every
-    // child file's own isEncrypted/encryptionKeyId (I-9), so a file is never
-    // relying on folder-only encryption — but assignFolderAccessKey/
-    // removeFolderAccessKey (above) only ever touch the folder's own
-    // fields. A file with no access key of its own is protected purely by
-    // "must unlock this folder to browse into it", which deleting the
-    // folder erases. Snapshot that gate onto the file's own hasAccessKey/
-    // accessKeyId in the same update that trashes it, so it survives even
-    // though the folder itself is gone by the time restoreFileFromTrash
-    // runs — covers both orderings (file trashed earlier, folder deleted
-    // now; or this cascade trashing the file for the first time).
+    // Trash 3-segment plan §2a: real soft-delete over the folder AND its
+    // entire descendant subtree, replacing the old hard-delete. Folder
+    // records are never removed by this action anymore — only
+    // shredFolder/shredMultipleFolders (permanent delete) do that. This also
+    // fixes the orphaned-subfolder-files bug: previously only the target
+    // folder's *direct* files were trashed, leaving files in a nested
+    // subfolder unreachable (never trashed, never browsable) once the
+    // subfolder's own parent was gone.
+    //
+    // I-12 (access-key inheritance): a file with no access key of its own is
+    // protected purely by "must unlock this folder to browse into it", which
+    // trashing the folder (now hiding it from every live listing, same as
+    // deleting used to) erases just as surely. Snapshot that gate onto the
+    // file's own hasAccessKey/accessKeyId in the same update that trashes
+    // it. I-12 follow-up: must run per descendant, not once for the
+    // top-level folder — each descendant folder needs its own inherited-lock
+    // resolution (its own ancestor chain, which passes up through the target
+    // folder into the same external ancestors), not just the target's.
+    //
+    // Cascade-vs-independent trash review fix: a descendant folder or file
+    // that is ALREADY isTrash (independently trashed by the user at some
+    // earlier point, before this cascade ever reached it) is left completely
+    // untouched here — not re-stamped with `deletedAt: now`, and critically
+    // not marked `trashedByFolderCascade`. Without this, restoring the
+    // target folder later would silently resurrect items the user
+    // deliberately, separately trashed beforehand (e.g. a photo trashed
+    // individually inside a folder that only later itself got trashed and
+    // restored) — the two "why is this trashed" reasons would be
+    // indistinguishable. Only items this call actually trashes just now get
+    // `trashedByFolderCascade: true` (descendants) so restoreFolderFromTrash
+    // knows they're safe to pull back in; the explicit target folder itself
+    // is never flagged (it's the thing the user actually asked to delete,
+    // not a side effect of deleting something else).
     await commitVaultState(set, (state) => {
-      const folder = state.folders.find(f => f.id === folderId);
-      const folders = state.folders.filter(f => f.id !== folderId);
+      const target = state.folders.find(f => f.id === folderId);
+      if (!target || target.isTrash) return {}; // not found, or already trashed — nothing to cascade
 
-      // I-12 follow-up (found in re-verification, same disposition as the
-      // I-22 batch-check gap above: a completion gap in an already-"done"
-      // item, fixed in place rather than filed separately): the original
-      // fix only checked the deleted folder's *own* hasAccessKey, not its
-      // ancestor chain. assignFolderAccessKey never cascades onto child
-      // folders, so a file with no key of its own, sitting in an unlocked
-      // folder nested under a *locked* grandparent, was still only reachable
-      // by unlocking that grandparent — deleting the unlocked immediate
-      // parent (a completely ordinary action, independent of ever touching
-      // the locked ancestor) erases that gate just as surely as deleting the
-      // locked folder itself would, and the single-level check missed it.
-      // Walk the chain and inherit the nearest lock found, if any.
-      let inheritedAccessKeyId: string | undefined;
-      let cursor = folder;
-      const visited = new Set<string>();
-      while (cursor && !visited.has(cursor.id)) {
-        visited.add(cursor.id);
-        if (cursor.hasAccessKey && cursor.accessKeyId) {
-          inheritedAccessKeyId = cursor.accessKeyId;
-          break;
-        }
-        cursor = cursor.parentId ? state.folders.find(f => f.id === cursor!.parentId) : undefined;
+      const descendantFolders = collectDescendantFolders(state.folders, folderId);
+      const subtreeIds = new Set<string>([folderId, ...descendantFolders.map(f => f.id)]);
+      const untouchedDescendantIds = new Set<string>(descendantFolders.filter(f => !f.isTrash).map(f => f.id));
+      const now = Date.now();
+
+      // Access-key resolution runs over the WHOLE subtree, including any
+      // already-trashed descendant folder — its own files still need the
+      // inherited-lock snapshot below even though the folder's own
+      // isTrash/deletedAt/trashedByFolderCascade are left alone (its
+      // "must unlock this folder to browse into it" protection is
+      // disappearing right along with the rest of the subtree, regardless of
+      // whether that particular folder happened to already be trashed).
+      const foldersById = new Map(state.folders.map(f => [f.id, f]));
+      const resolved = new Map<string, string | undefined>();
+      const accessKeyByFolderId = new Map<string, string | undefined>();
+      for (const fid of subtreeIds) {
+        accessKeyByFolderId.set(fid, resolveNearestAccessKeyId(foldersById.get(fid), foldersById, resolved));
       }
 
+      const folders = state.folders.map(f => {
+        if (f.id === folderId) return { ...f, isTrash: true, deletedAt: now };
+        if (untouchedDescendantIds.has(f.id)) return { ...f, isTrash: true, deletedAt: now, trashedByFolderCascade: true };
+        return f;
+      });
+
       const files = state.files.map(f => {
-        if (f.folderId !== folderId) return f;
+        if (!subtreeIds.has(f.folderId)) return f;
+        const inheritedAccessKeyId = accessKeyByFolderId.get(f.folderId);
         const inheritsAccessKey = !f.hasAccessKey && !f.accessKeyId && !!inheritedAccessKeyId;
+        const accessKeyPatch = inheritsAccessKey ? { hasAccessKey: true, accessKeyId: inheritedAccessKeyId } : {};
+        if (f.isTrash) {
+          // Already trashed independently (softDeleteFile, before this
+          // cascade reached its folder) — preserve its own isTrash/
+          // deletedAt/trashedByFolderCascade so restoreFolderFromTrash never
+          // resurrects it, but still snapshot the access key it would
+          // otherwise silently lose.
+          return { ...f, ...accessKeyPatch };
+        }
         return {
           ...f,
           isTrash: true,
-          deletedAt: Date.now(),
-          ...(inheritsAccessKey ? { hasAccessKey: true, accessKeyId: inheritedAccessKeyId } : {}),
+          deletedAt: now,
+          trashedByFolderCascade: true,
+          ...accessKeyPatch,
         };
       });
       return { folders, files };
@@ -616,15 +812,15 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   restoreFileFromTrash: async (fileId) => {
-    // I-12: report when the file's original folder no longer exists (it
-    // lands in the auto-created, unprotected "Restored Files" folder
-    // instead) so the caller can warn the user that whatever protection
-    // the original folder had is not carried forward — that folder's
-    // metadata is gone by this point, so there is nothing to actually
-    // "carry forward" from; the honest fix is surfacing this, not
-    // pretending it was preserved.
-    const targetFile = get().files.find(f => f.id === fileId);
-    const originalFolderExists = !!targetFile && get().folders.some(f => f.id === targetFile.folderId);
+    // I-12: report when the file's original folder is unreachable (shredded,
+    // or itself still sitting in trash — trash 3-segment plan §2c widens
+    // this from a simple existence check to isContainerUnreachable, since a
+    // folder can now be soft-deleted and still technically "exist") — it
+    // lands in a freshly dated fallback folder instead, so the caller can
+    // warn the user that whatever protection the original folder had is not
+    // carried forward.
+    const targetFileBefore = get().files.find(f => f.id === fileId);
+    const wasUnreachable = !!targetFileBefore && isContainerUnreachable(targetFileBefore.folderId, get().folders);
     // Set inside the commitVaultState updater below, whose closure runs
     // synchronously against the latest state — read back afterward so the
     // caller (e.g. trash.tsx's restore toast) knows exactly which folder
@@ -637,30 +833,18 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
       let targetFolderId = targetFile.folderId;
       let folders = state.folders;
-      const folderExists = state.folders.some(f => f.id === targetFile.folderId);
 
-      if (!folderExists) {
-        let restoredFolder = state.folders.find(f => f.name === 'Restored Files');
-        if (!restoredFolder) {
-          restoredFolder = {
-            id: SecureCrypto.generateUUID(),
-            name: 'Restored Files',
-            color: '#34C759',
-            icon: 'folder',
-            isEncrypted: false,
-            isFavorite: false,
-            isPersonalFavoritesFolder: false,
-            createdAt: Date.now()
-          };
-          folders = [...state.folders, restoredFolder];
-        }
-        targetFolderId = restoredFolder.id;
+      if (isContainerUnreachable(targetFile.folderId, state.folders)) {
+        const rootNames = new Set(state.folders.filter(f => !f.parentId).map(f => f.name));
+        const fallbackFolder = buildDatedFallbackFolder(rootNames);
+        folders = [...state.folders, fallbackFolder];
+        targetFolderId = fallbackFolder.id;
       }
 
       resolvedFolderId = targetFolderId;
 
       const files = state.files.map(f =>
-        f.id === fileId ? { ...f, isTrash: false, deletedAt: undefined, folderId: targetFolderId } : f
+        f.id === fileId ? { ...f, isTrash: false, deletedAt: undefined, folderId: targetFolderId, trashedByFolderCascade: undefined } : f
       );
 
       return { folders, files };
@@ -674,10 +858,210 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // landed in the unprotected fallback folder.
     const restoredFile = get().files.find(f => f.id === fileId);
     return {
-      landedInFallbackFolder: !!targetFile && !originalFolderExists,
+      landedInFallbackFolder: wasUnreachable,
       folderId: resolvedFolderId,
       filePreservedAccessKey: !!(restoredFile?.hasAccessKey && restoredFile?.accessKeyId),
     };
+  },
+  restoreFilesFromTrash: async (fileIds) => {
+    // Trash 3-segment plan §2c: same isContainerUnreachable/fallback logic
+    // as restoreFileFromTrash, but computes ONE shared dated fallback folder
+    // for the whole batch (if any file needs it) instead of one per file,
+    // applied inside a single commitVaultState.
+    const results = new Map<string, { landedInFallbackFolder: boolean; folderId?: string; filePreservedAccessKey: boolean }>();
+
+    await commitVaultState(set, (state) => {
+      let folders = state.folders;
+      let fallbackFolder: FolderMetadata | undefined;
+
+      const files = state.files.map(f => {
+        if (!fileIds.includes(f.id)) return f;
+
+        const unreachable = isContainerUnreachable(f.folderId, state.folders);
+        let targetFolderId = f.folderId;
+        if (unreachable) {
+          if (!fallbackFolder) {
+            const rootNames = new Set(folders.filter(fo => !fo.parentId).map(fo => fo.name));
+            fallbackFolder = buildDatedFallbackFolder(rootNames);
+            folders = [...folders, fallbackFolder];
+          }
+          targetFolderId = fallbackFolder.id;
+        }
+
+        results.set(f.id, {
+          landedInFallbackFolder: unreachable,
+          folderId: targetFolderId,
+          filePreservedAccessKey: !!(f.hasAccessKey && f.accessKeyId),
+        });
+
+        return { ...f, isTrash: false, deletedAt: undefined, folderId: targetFolderId, trashedByFolderCascade: undefined };
+      });
+
+      return { folders, files };
+    });
+
+    return fileIds.map(fileId => ({
+      fileId,
+      ...(results.get(fileId) ?? { landedInFallbackFolder: false, filePreservedAccessKey: false }),
+    }));
+  },
+  restoreFolderFromTrash: async (folderId) => {
+    // Trash 3-segment plan §2c: restores the target folder (or album)
+    // together with the part of its trashed descendant subtree that was
+    // only trashed as a side effect of deleteFolder's cascade — mirroring
+    // deleteFolder's own cascade in reverse. Reachability is checked only
+    // for the target folder's own parent (cascade-flagged descendants are
+    // covered by being restored in the same call, so they never
+    // independently trigger the fallback) — if unreachable, only the target
+    // folder itself is reparented into a dated fallback folder;
+    // cascade-restored descendants keep their existing parentId pointing at
+    // the target, correct since that part of the subtree moves together.
+    // Albums (parentId always undefined) never hit the fallback path —
+    // isContainerUnreachable(undefined, ...) is always false, so they always
+    // restore straight to root.
+    //
+    // Cascade-vs-independent trash review fix: a descendant that was
+    // independently, separately trashed by the user (not merely swept up by
+    // this or an ancestor's cascade — trashedByFolderCascade is
+    // false/undefined) is NOT restored here, and neither is anything below
+    // it — see collectCascadeRestorableSubtree. It stays trashed, still only
+    // reachable from Trash, exactly as the user left it.
+    const targetBefore = get().folders.find(f => f.id === folderId);
+    const wasUnreachable = !!targetBefore && isContainerUnreachable(targetBefore.parentId, get().folders);
+    let resolvedParentId: string | undefined;
+
+    await commitVaultState(set, (state) => {
+      const target = state.folders.find(f => f.id === folderId);
+      if (!target) return {};
+
+      const restorableIds = collectCascadeRestorableSubtree(state.folders, folderId);
+
+      let folders = state.folders;
+      let newParentId = target.parentId;
+
+      if (isContainerUnreachable(target.parentId, state.folders)) {
+        const rootNames = new Set(state.folders.filter(f => !f.parentId).map(f => f.name));
+        const fallbackFolder = buildDatedFallbackFolder(rootNames);
+        folders = [...folders, fallbackFolder];
+        newParentId = fallbackFolder.id;
+      }
+
+      resolvedParentId = newParentId;
+
+      folders = folders.map(f => {
+        if (!restorableIds.has(f.id)) return f;
+        const restored = { ...f, isTrash: false, deletedAt: undefined, trashedByFolderCascade: undefined };
+        return f.id === folderId ? { ...restored, parentId: newParentId } : restored;
+      });
+
+      const files = state.files.map(f =>
+        restorableIds.has(f.folderId) && f.trashedByFolderCascade
+          ? { ...f, isTrash: false, deletedAt: undefined, trashedByFolderCascade: undefined }
+          : f
+      );
+
+      return { folders, files };
+    });
+
+    return { landedInFallbackFolder: wasUnreachable, parentId: resolvedParentId };
+  },
+  restoreFoldersFromTrash: async (folderIds) => {
+    // Trash 3-segment plan §2c: same shared-fallback-folder batching as
+    // restoreFilesFromTrash, one call covering multiple folders/albums —
+    // and, per folder, the same independently-trashed-descendant exclusion
+    // as the single-item restoreFolderFromTrash above (see
+    // collectCascadeRestorableSubtree).
+    const results = new Map<string, { landedInFallbackFolder: boolean; parentId?: string }>();
+
+    await commitVaultState(set, (state) => {
+      // Bug fix (post-plan review): reachability and cascade-membership used
+      // to be recomputed against `folders` as it was progressively mutated by
+      // earlier iterations of this same loop. That made a bulk restore
+      // order-dependent: if a folder and its own cascade-trashed descendant
+      // were both selected and the descendant happened to be processed
+      // first, its parent still looked trashed (not yet restored) so it got
+      // shunted into a brand-new fallback folder — permanently splitting the
+      // subtree once the ancestor was restored afterward. Selection order
+      // comes from tap order / UUID tie-breaking, so this was a coin-flip on
+      // the single most natural bulk-recovery action ("Select All → Restore
+      // Selected" in Trash → Folders).
+      //
+      // Fix: compute everything up front against an immutable snapshot of
+      // the pre-restore state, and treat every folder this batch will end up
+      // restoring (explicit targets plus their cascade-restorable
+      // descendants) as already "restored" for reachability purposes,
+      // regardless of which one is processed first below.
+      const originalFolders = state.folders;
+      let folders = state.folders;
+      let files = state.files;
+      let fallbackFolder: FolderMetadata | undefined;
+
+      const restorableByFolderId = new Map<string, Set<string>>();
+      const batchRestoredIds = new Set<string>();
+      for (const folderId of folderIds) {
+        if (!originalFolders.some(f => f.id === folderId)) continue;
+        const restorableIds = collectCascadeRestorableSubtree(originalFolders, folderId);
+        restorableByFolderId.set(folderId, restorableIds);
+        for (const id of restorableIds) batchRestoredIds.add(id);
+      }
+
+      const isUnreachableForBatch = (containerId: string | undefined): boolean => {
+        if (!containerId) return false;
+        const byId = new Map(originalFolders.map(f => [f.id, f]));
+        const visited = new Set<string>();
+        let current = byId.get(containerId);
+        if (!current) return true; // shredded — no longer resolves at all
+        while (current) {
+          if (visited.has(current.id)) return true; // circular chain — treat as broken
+          visited.add(current.id);
+          if (current.isTrash && !batchRestoredIds.has(current.id)) return true;
+          if (!current.parentId) return false; // reached root without hitting trash — reachable
+          const parent: FolderMetadata | undefined = byId.get(current.parentId);
+          if (!parent) return true; // a link in the chain is missing
+          current = parent;
+        }
+        return false;
+      };
+
+      for (const folderId of folderIds) {
+        const target = originalFolders.find(f => f.id === folderId);
+        if (!target) continue;
+
+        const restorableIds = restorableByFolderId.get(folderId)!;
+
+        const unreachable = isUnreachableForBatch(target.parentId);
+        let newParentId = target.parentId;
+        if (unreachable) {
+          if (!fallbackFolder) {
+            const rootNames = new Set(folders.filter(f => !f.parentId).map(f => f.name));
+            fallbackFolder = buildDatedFallbackFolder(rootNames);
+            folders = [...folders, fallbackFolder];
+          }
+          newParentId = fallbackFolder.id;
+        }
+
+        results.set(folderId, { landedInFallbackFolder: unreachable, parentId: newParentId });
+
+        folders = folders.map(f => {
+          if (!restorableIds.has(f.id)) return f;
+          const restored = { ...f, isTrash: false, deletedAt: undefined, trashedByFolderCascade: undefined };
+          return f.id === folderId ? { ...restored, parentId: newParentId } : restored;
+        });
+
+        files = files.map(f =>
+          restorableIds.has(f.folderId) && f.trashedByFolderCascade
+            ? { ...f, isTrash: false, deletedAt: undefined, trashedByFolderCascade: undefined }
+            : f
+        );
+      }
+
+      return { folders, files };
+    });
+
+    return folderIds.map(folderId => ({
+      folderId,
+      ...(results.get(folderId) ?? { landedInFallbackFolder: false }),
+    }));
   },
   permanentlyDeleteFile: async (fileId) => {
     const targetFile = get().files.find(f => f.id === fileId);
@@ -794,8 +1178,20 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }, onProgress);
   },
   shredFolder: async (folderId, onProgress) => {
-    const { files } = get();
-    const folderFiles = files.filter(f => f.folderId === folderId);
+    // Trash 3-segment plan §2b: cascade fix — previously only removed the
+    // one folder record and its *direct* files, leaking dangling
+    // subfolder/file metadata. Now walks the full descendant subtree first.
+    // Deliberately ignores trashedByFolderCascade/isTrash on every
+    // descendant and file — unlike restoreFolderFromTrash, "permanently
+    // delete" doesn't get to leave part of the subtree behind, and this
+    // action is not exclusively a Trash-screen operation: dashboard.tsx,
+    // favorites.tsx, search.tsx, and VaultContentsScreen.tsx all also wire
+    // it directly to a "Delete Permanently" option on *live* (non-trashed)
+    // folders, skipping Trash entirely — so it must be able to remove a
+    // subtree that's a mix of trashed and never-trashed items.
+    const { files, folders } = get();
+    const subtreeIds = new Set<string>([folderId, ...collectDescendantFolders(folders, folderId).map(f => f.id)]);
+    const folderFiles = files.filter(f => subtreeIds.has(f.folderId));
 
     await processSequentially(folderFiles.map(f => f.id), async (fileId) => {
       const targetFile = files.find(f => f.id === fileId);
@@ -804,9 +1200,19 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       }
     }, onProgress);
 
+    // Clean up every folder-in-the-subtree's own custom thumbnail file
+    // before dropping its record — otherwise it's an orphaned file on
+    // disk with nothing left pointing at it.
+    const foldersToShred = folders.filter(f => subtreeIds.has(f.id));
+    await Promise.all(
+      foldersToShred
+        .filter(f => f.customThumbnailPath)
+        .map(f => StorageService.removeSandboxFile(f.customThumbnailPath!).catch(() => {}))
+    );
+
     await commitVaultState(set, (state) => ({
-      files: state.files.filter(f => f.folderId !== folderId),
-      folders: state.folders.filter(f => f.id !== folderId),
+      files: state.files.filter(f => !subtreeIds.has(f.folderId)),
+      folders: state.folders.filter(f => !subtreeIds.has(f.id)),
     }));
   },
   exportFolderFiles: async (folderId) => {
@@ -850,6 +1256,123 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     await commitVaultState(set, (state) => ({
       folders: state.folders.map(f => f.id === folderId ? { ...f, hasAccessKey: false, accessKeyId: undefined } : f)
     }));
+  },
+  setFolderThumbnail: async (folderId, sourceUri) => {
+    const folder = get().folders.find(f => f.id === folderId);
+    if (!folder) return;
+
+    let newThumbnailPath: string;
+    if (Platform.OS === 'web') {
+      // StorageService.copyToSandbox is a synthetic no-op on web — it
+      // returns a `/web-vault/...` placeholder with no bytes reachable
+      // from it, since nothing resolves that placeholder back to real
+      // content at <Image> render time (a pre-existing gap shared by every
+      // other web thumbnail in this app, e.g. importFile's own iconPath
+      // slot). Use the picker's own URI directly instead: on web this is
+      // already a real, renderable blob:/data: URI, and there's no
+      // persistent app-private filesystem on web to copy it into anyway.
+      newThumbnailPath = sourceUri;
+    } else {
+      // Copy into the sandbox first so extractImageThumbnail has a stable,
+      // VAULT_DIR-anchored path to derive its output path from — same
+      // reason importFile copies before extracting (see its own comment).
+      const rawPath = await StorageService.copyToSandbox(sourceUri, `${SecureCrypto.generateUUID()}_folder_thumb_src`);
+      const thumbOutputPath = `${rawPath}.thumb.jpg`;
+      const extracted = await extractImageThumbnail(rawPath, thumbOutputPath);
+      if (extracted) {
+        await StorageService.removeSandboxFile(rawPath); // intermediate full-res copy, superseded by the downscaled output
+        newThumbnailPath = extracted;
+      } else {
+        // Extraction failed: fall back to the raw copy itself rather than
+        // failing the whole action — matches importFile's own never-blocks
+        // contract for this exact failure mode, just applied to a required
+        // field here (a folder thumbnail has no "generic icon iconPath
+        // slot" to silently leave empty the way importFile's iconPath does
+        // — the user explicitly asked to set one, so the fallback is the
+        // plain image instead of the downscaled one, never an error).
+        newThumbnailPath = rawPath;
+      }
+    }
+
+    // Revision note (plan review pass): a prior version of this action fired
+    // `LayoutAnimation.configureNext` here, right before the commit below.
+    // Reverted — LayoutAnimation is a *global* next-layout-commit animation,
+    // not scoped to this one tile, and this codebase already has documented,
+    // hard-won precedent that it stutters on anything heavier than a couple
+    // of rows (see SectionHeaderToggle.tsx's header comment, which is why
+    // CollapsibleSection was rewritten off LayoutAnimation onto Reanimated).
+    // A folder/album tile whose thumbnail just changed almost always lives
+    // inside exactly the kind of grid that comment warns about
+    // (VaultContentsScreen's virtualized SectionList grid, dashboard's grid,
+    // etc.), so the global-recompute risk is real, not theoretical. The
+    // crossfade now lives in GridTile.tsx/ListRow.tsx instead — a per-tile
+    // Reanimated opacity tween keyed off `thumbnailUri` changing, matching
+    // this app's actual established pattern (useScreenEnterAnimation.ts) —
+    // so the store no longer touches any animation API at all.
+
+    // Race fix (atomic version): read-the-previous-value-and-decide happens
+    // INSIDE this synchronous updater callback, which zustand's set() runs
+    // in one uninterrupted tick — not as a separate `get()` call before an
+    // `await`. A prior version of this fix re-read customThumbnailPath just
+    // before this call but still left an await (the reduceMotion check
+    // above) between that read and the actual commit; two calls whose reads
+    // both land in that window before either commits would both see the
+    // same stale "previous" value and orphan one file. Reading and writing
+    // in the same synchronous callback removes the window entirely: no
+    // matter how many setFolderThumbnail/clearFolderThumbnail calls overlap
+    // on this folder, whichever commits second always sees the first call's
+    // just-written value as "previous" (or the folder's absence, if it was
+    // deleted out from under this flow), because there is no await between
+    // reading state and writing it.
+    let previousThumbnailPath: string | undefined;
+    let folderStillExists = true;
+    await commitVaultState(set, (state) => {
+      const target = state.folders.find(f => f.id === folderId);
+      if (!target) {
+        folderStillExists = false;
+        return {};
+      }
+      previousThumbnailPath = target.customThumbnailPath;
+      return {
+        folders: state.folders.map(f => f.id === folderId ? { ...f, customThumbnailPath: newThumbnailPath } : f)
+      };
+    });
+    if (!folderStillExists) {
+      // Folder was deleted between entry and commit — the file we just
+      // produced (extracted thumbnail or raw copy) has nothing to attach to.
+      await StorageService.removeSandboxFile(newThumbnailPath);
+      return;
+    }
+    if (previousThumbnailPath) {
+      await StorageService.removeSandboxFile(previousThumbnailPath);
+    }
+  },
+  clearFolderThumbnail: async (folderId) => {
+    const folder = get().folders.find(f => f.id === folderId);
+    if (!folder?.customThumbnailPath) return;
+    // No animation call here — see setFolderThumbnail's revision note above;
+    // the crossfade now lives in GridTile.tsx/ListRow.tsx, keyed off
+    // `thumbnailUri` changing, not triggered from the store.
+    //
+    // Same atomic race fix as setFolderThumbnail above: read-then-decide
+    // happens inside the synchronous updater, not via a separate get() call
+    // before this point. A concurrent setFolderThumbnail could have written
+    // a new path during whatever this function awaits before reaching the
+    // commit; reading fresh inside the updater (not before it) means this
+    // only clears/removes whatever is actually committed at the moment this
+    // callback runs, never a stale snapshot from before any earlier await.
+    let removedPath: string | undefined;
+    await commitVaultState(set, (state) => {
+      const target = state.folders.find(f => f.id === folderId);
+      if (!target?.customThumbnailPath) return {};
+      removedPath = target.customThumbnailPath;
+      return {
+        folders: state.folders.map(f => f.id === folderId ? { ...f, customThumbnailPath: undefined } : f)
+      };
+    });
+    if (removedPath) {
+      await StorageService.removeSandboxFile(removedPath);
+    }
   },
   removeFileAccessKey: async (fileId) => {
     await commitVaultState(set, (state) => ({
@@ -1011,30 +1534,37 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     }));
   },
   shredMultipleFolders: async (folderIds) => {
-    const { files } = get();
-    const filesToDelete = files.filter(f => folderIds.includes(f.folderId));
+    // Trash 3-segment plan §2b: same cascade fix as shredFolder, applied to
+    // every folder in the batch.
+    const { files, folders } = get();
+    const allFolderIds = new Set<string>(folderIds);
+    for (const folderId of folderIds) {
+      collectDescendantFolders(folders, folderId).forEach(d => allFolderIds.add(d.id));
+    }
+    const filesToDelete = files.filter(f => allFolderIds.has(f.folderId));
 
     for (const file of filesToDelete) {
       await removeFilePayload(file);
     }
 
+    // Clean up every folder-in-the-batch's own custom thumbnail file
+    // before dropping its record — same reasoning as shredFolder's own
+    // pass just above in this file.
+    const foldersToShred = folders.filter(f => allFolderIds.has(f.id));
+    await Promise.all(
+      foldersToShred
+        .filter(f => f.customThumbnailPath)
+        .map(f => StorageService.removeSandboxFile(f.customThumbnailPath!).catch(() => {}))
+    );
+
     await commitVaultState(set, (state) => ({
-      folders: state.folders.filter(f => !folderIds.includes(f.id)),
-      files: state.files.filter(f => !folderIds.includes(f.folderId)),
+      folders: state.folders.filter(f => !allFolderIds.has(f.id)),
+      files: state.files.filter(f => !allFolderIds.has(f.folderId)),
     }));
   },
 
   getFolderDescendants: (folderId: string): FolderMetadata[] => {
-    const descendants: FolderMetadata[] = [];
-    const folders = get().folders;
-    const queue = [folderId];
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      const children = folders.filter(f => f.parentId === currentId);
-      descendants.push(...children);
-      queue.push(...children.map(c => c.id));
-    }
-    return descendants;
+    return collectDescendantFolders(get().folders, folderId);
   },
 
   // I-11 residual: this used to swallow every failure internally, so
@@ -1319,12 +1849,35 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
           const newId = SecureCrypto.generateUUID();
           folderIdToNewId.set(sourceFolder.id, newId);
 
+          // Give the copy its own thumbnail file rather than a shared path
+          // — otherwise permanently deleting either the original or this
+          // paste-copy (shredFolder/shredMultipleFolders delete a folder's
+          // customThumbnailPath unconditionally) would leave the other's
+          // thumbnail file missing. Mirrors copyFileToFolder's identical
+          // fix for FileMetadata.iconPath just below in this file.
+          let newThumbnailPath: string | undefined;
+          if (sourceFolder.customThumbnailPath) {
+            const ext = sourceFolder.customThumbnailPath.includes('.')
+              ? sourceFolder.customThumbnailPath.slice(sourceFolder.customThumbnailPath.lastIndexOf('.'))
+              : '';
+            newThumbnailPath = ext
+              ? `${sourceFolder.customThumbnailPath.slice(0, -ext.length)}_copy_${newId}${ext}`
+              : `${sourceFolder.customThumbnailPath}_copy_${newId}`;
+            try {
+              await StorageService.copySandboxFile(sourceFolder.customThumbnailPath, newThumbnailPath);
+            } catch (e) {
+              console.error('Failed to copy folder thumbnail', e);
+              newThumbnailPath = undefined;
+            }
+          }
+
           const newFolder: FolderMetadata = {
             ...sourceFolder,
             id: newId,
             name: uniqueName(sourceFolder.name),
             parentId,
             createdAt: Date.now(),
+            customThumbnailPath: newThumbnailPath,
           };
 
           newFolders.push(newFolder);
@@ -1612,17 +2165,46 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       const newId = SecureCrypto.generateUUID();
       folderIdToNewId.set(sourceFolder.id, newId);
 
+      // Give the copy its own thumbnail file rather than a shared path —
+      // same rationale as pasteFromClipboard's identical fix above, and
+      // copyFileToFolder's existing fix for FileMetadata.iconPath.
+      let newThumbnailPath: string | undefined;
+      if (sourceFolder.customThumbnailPath) {
+        const ext = sourceFolder.customThumbnailPath.includes('.')
+          ? sourceFolder.customThumbnailPath.slice(sourceFolder.customThumbnailPath.lastIndexOf('.'))
+          : '';
+        newThumbnailPath = ext
+          ? `${sourceFolder.customThumbnailPath.slice(0, -ext.length)}_copy_${newId}${ext}`
+          : `${sourceFolder.customThumbnailPath}_copy_${newId}`;
+        try {
+          await StorageService.copySandboxFile(sourceFolder.customThumbnailPath, newThumbnailPath);
+        } catch (e) {
+          console.error('Failed to copy folder thumbnail', e);
+          newThumbnailPath = undefined;
+        }
+      }
+
       const newFolder: FolderMetadata = {
         ...sourceFolder,
         id: newId,
         name: uniqueName(sourceFolder.name),
         parentId: newParentId,
         createdAt: Date.now(),
+        isTrash: false,
+        deletedAt: undefined,
+        trashedByFolderCascade: undefined,
+        customThumbnailPath: newThumbnailPath,
       };
 
       newFolders.push(newFolder);
 
-      const subfolders = srcFolders.filter(f => f.parentId === sourceFolder.id);
+      // A trashed subfolder isn't a live part of this folder's contents — it's
+      // waiting in Trash for the user to restore or permanently delete
+      // independently of its (live) parent. Duplicating the parent must not
+      // resurrect it as a phantom trashed node under a brand-new parent that
+      // was never actually deleted (mirrors the !isTrash filter on files
+      // below).
+      const subfolders = srcFolders.filter(f => f.parentId === sourceFolder.id && !f.isTrash);
       for (const sub of subfolders) {
         await createFolderCopy(sub, newId);
       }

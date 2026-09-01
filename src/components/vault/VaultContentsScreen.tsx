@@ -97,6 +97,7 @@ import { getFolderStatsMap, toMoveDestinations } from '../../utils/folderStats';
 import { chunkIntoRows } from '../../utils/gridRows';
 import { groupFilesByDate } from '../../utils/dateGroups';
 import { sortFolders, sortFiles, SortKey } from '../../utils/vaultSort';
+import { pickAndSetFolderThumbnail } from '../../utils/pickFolderThumbnail';
 
 const DEFAULT_SORT: SortKey = 'name_asc';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
@@ -119,13 +120,14 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
     clipboard, undoLastCut,
     copyToClipboard, cutToClipboard, pasteFromClipboard,
     duplicateFile, duplicateFolder, addFileToAlbum,
+    setFolderThumbnail, clearFolderThumbnail,
   } = useVaultStore();
 
   const folderStatsMap = useMemo(() => getFolderStatsMap(files), [files]);
   // "Add to Album…" (§7, Phase 6) destinations — every root-level album in
   // the vault, regardless of which screen/folder this file is being viewed
   // from.
-  const albums = useMemo(() => folders.filter(f => f.type === 'album'), [folders]);
+  const albums = useMemo(() => folders.filter(f => f.type === 'album' && !f.isTrash), [folders]);
 
   const { accessKeys } = useSettingsStore();
   const { matchedFiles, matchedFolders } = useFileSystemQuery(id);
@@ -524,7 +526,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         });
         openMoveModal(
           { id: targetFile.id, name: targetFile.name, type: 'file', folderId: id },
-          toMoveDestinations(folders.filter(f => f.id !== targetFile.folderId && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== targetFile.folderId && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'add-to-album': {
@@ -619,7 +621,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         });
         openMoveModal(
           { id: subfolder.id, name: subfolder.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== subfolder.id && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== subfolder.id && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'export':
@@ -631,6 +633,17 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       case 'copy': copyToClipboard([subfolder.id], [], id as string); break;
       case 'cut': cutToClipboard([subfolder.id], [], id as string); break;
       case 'duplicate': duplicateFolder(subfolder.id); break;
+      case 'change-thumbnail':
+        pickAndSetFolderThumbnail(subfolder.id, setFolderThumbnail).then((result) => {
+          if (result === 'set') showTopToast(`${subfolder.name} thumbnail updated`);
+          else if (result === 'permission-denied') Alert.alert('Photo Access Needed', 'Photo access is required to choose a thumbnail — enable it in Settings.');
+          else if (result === 'error') Alert.alert('Couldn’t Set Thumbnail', 'Something went wrong while processing that image.');
+          // 'canceled' → no-op, matches every other cancel-a-picker path in this app
+        });
+        break;
+      case 'remove-thumbnail':
+        clearFolderThumbnail(subfolder.id).then(() => showTopToast(`${subfolder.name} thumbnail removed`));
+        break;
       case 'create-password': handleOpenKeyModal(subfolder.id, subfolder.name, 'folder'); break;
       case 'assign-password':
         if (accessKeys.length === 0) Alert.alert('No Access Keys', 'Create a access key in Settings first.');
@@ -686,7 +699,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         });
         openMoveModal(
           { id: folderRecord.id, name: folderRecord.name, type: 'folder' },
-          toMoveDestinations(folders.filter(f => f.id !== folderRecord.id && f.type !== 'album'), folderStatsMap)
+          toMoveDestinations(folders.filter(f => f.id !== folderRecord.id && f.type !== 'album' && !f.isTrash), folderStatsMap)
         );
         break;
       case 'export':
@@ -698,6 +711,17 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       case 'copy': copyToClipboard([folderRecord.id], [], id as string); break;
       case 'cut': cutToClipboard([folderRecord.id], [], id as string); break;
       case 'duplicate': duplicateFolder(folderRecord.id); break;
+      case 'change-thumbnail':
+        pickAndSetFolderThumbnail(folderRecord.id, setFolderThumbnail).then((result) => {
+          if (result === 'set') showTopToast(`${folderRecord.name} thumbnail updated`);
+          else if (result === 'permission-denied') Alert.alert('Photo Access Needed', 'Photo access is required to choose a thumbnail — enable it in Settings.');
+          else if (result === 'error') Alert.alert('Couldn’t Set Thumbnail', 'Something went wrong while processing that image.');
+          // 'canceled' → no-op, matches every other cancel-a-picker path in this app
+        });
+        break;
+      case 'remove-thumbnail':
+        clearFolderThumbnail(folderRecord.id).then(() => showTopToast(`${folderRecord.name} thumbnail removed`));
+        break;
       case 'create-password': handleOpenKeyModal(folderRecord.id, folderRecord.name, 'folder'); break;
       case 'assign-password':
         if (accessKeys.length === 0) Alert.alert('No Access Keys', 'Create a access key in Settings first.');
@@ -790,6 +814,8 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       !isThisAlbum ? { action: 'move', label: 'Move', color: colors.text } : null,
       { action: 'export', label: 'Export', color: colors.text },
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
+      { action: 'change-thumbnail', label: folderRecord.customThumbnailPath ? 'Change Thumbnail' : 'Set Thumbnail', color: colors.text },
+      folderRecord.customThumbnailPath ? { action: 'remove-thumbnail', label: 'Remove Thumbnail', color: colors.error } : null,
       hasClipboard ? { action: 'paste', label: 'Paste Here', color: colors.secondary } : null,
       hasPassword ? { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error } : null,
       !hasPassword ? { action: 'create-password', label: 'Assign and Create Access Key', color: colors.secondary } : null,
@@ -810,6 +836,8 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       { action: 'copy', label: 'Copy', color: colors.secondary },
       { action: 'cut', label: 'Cut', color: colors.secondary },
       { action: 'duplicate', label: 'Duplicate', color: colors.text },
+      { action: 'change-thumbnail', label: targetSubfolder.customThumbnailPath ? 'Change Thumbnail' : 'Set Thumbnail', color: colors.text },
+      targetSubfolder.customThumbnailPath ? { action: 'remove-thumbnail', label: 'Remove Thumbnail', color: colors.error } : null,
       hasPassword ? { action: 'remove-password', label: 'Remove Assigned Access Key', color: colors.error } : null,
       !hasPassword ? { action: 'create-password', label: 'Assign and Create Access Key', color: colors.secondary } : null,
       !hasPassword ? { action: 'assign-password', label: 'Assign Existing Access Key', color: colors.secondary } : null,
@@ -900,6 +928,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
           key={folder.id}
           size={gridItemWidthValue}
           name={folder.name}
+          thumbnailUri={folder.customThumbnailPath}
           Icon={SubfolderIcon}
           iconColor={colors.primary}
           selectable={selectionMode}
@@ -924,6 +953,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         key={folder.id}
         title={folder.name}
         subtitle="Directory Folder"
+        thumbnailUri={folder.customThumbnailPath}
         leading={<SubfolderIcon size={iconSize(22)} color={colors.primary} />}
         trailingBadges={
           <>

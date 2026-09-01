@@ -181,6 +181,14 @@ export class EnhancedBackupService {
       appName: 'Deposito Seguro',
       appVersion: '1.0.0',
       vaultStructure: {
+        // Deliberately NOT in this whitelist: FolderMetadata.customThumbnailPath.
+        // A restored folder/album silently reverts to its generic icon /
+        // auto-derived cover instead of shipping a dangling path that points
+        // at nothing on the new device (the thumbnail file itself is never
+        // zipped either — see buildAndWriteZip). Same reasoning as this same
+        // whitelist's existing omission of isTrash/deletedAt for folders. See
+        // plans/custom folders and album thumbnail implementation plan.md's
+        // "Backup/restore" section — don't "fix" this as an oversight.
         folders: folders.map(f => ({
           id: f.id,
           name: f.name,

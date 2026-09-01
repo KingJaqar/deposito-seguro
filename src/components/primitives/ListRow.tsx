@@ -2,11 +2,13 @@
 // The file/folder row shape repeated across folder/[id].tsx, trash.tsx,
 // favorites.tsx, search.tsx: leading icon/thumbnail, title (wrapAtLength-
 // wrapped), metadata line, trailing badges, trailing overflow/checkbox slot.
-import React, { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { CheckSquare, Square, MoreVertical } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
+import { Durations } from '../../constants/animations';
 import { wrapAtLength } from '../../utils/wrapAtLength';
 
 export interface ListRowProps {
@@ -61,6 +63,43 @@ export function ListRow({
   // no control is ever a <button> inside another <button>.
   const [rowPressed, setRowPressed] = useState(false);
 
+  // Graceful fallback for a broken/missing thumbnail file — see GridTile.tsx's
+  // identical addition for the full rationale. ListRow only has the one
+  // thumbnailUri read below (the leading Image/leading-node ternary), so
+  // there's nothing else in this component to switch over to showThumbnail.
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  useEffect(() => setThumbnailFailed(false), [thumbnailUri]);
+  const showThumbnail = !!thumbnailUri && !thumbnailFailed;
+
+  // Crossfade on thumbnail set/change/clear — see GridTile.tsx's identical
+  // addition for the full rationale (per-tile Reanimated tween instead of
+  // LayoutAnimation, which this codebase already found stutters on grids/
+  // lists heavier than a couple of rows; skipped on first mount so
+  // scrolling a virtualized list doesn't replay it per row).
+  const thumbOpacity = useSharedValue(1);
+  const hasMountedThumb = useRef(false);
+  const reduceMotionThumb = useRef(false);
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => { if (mounted) reduceMotionThumb.current = enabled; })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+  useEffect(() => {
+    if (!hasMountedThumb.current) {
+      hasMountedThumb.current = true;
+      return;
+    }
+    if (reduceMotionThumb.current) {
+      thumbOpacity.value = 1;
+      return;
+    }
+    thumbOpacity.value = 0;
+    thumbOpacity.value = withTiming(1, { duration: Durations.fast, easing: Easing.out(Easing.quad) });
+  }, [thumbnailUri, thumbOpacity]);
+  const animatedThumbStyle = useAnimatedStyle(() => ({ opacity: thumbOpacity.value }));
+
   return (
     <View
       style={[
@@ -114,13 +153,18 @@ export function ListRow({
         accessibilityState={{ selected: selectable ? selected : undefined, disabled }}
         style={styles.rowBody}
       >
-        <View style={[styles.leading, { width: leadingSize, height: leadingSize, marginRight: space(3), borderRadius: radius(3), backgroundColor: colors.vaultIconBg }]}>
-          {thumbnailUri ? (
-            <Image source={{ uri: thumbnailUri }} style={[styles.thumbnail, { width: leadingSize, height: leadingSize, borderRadius: radius(3) }]} resizeMode="cover" />
+        <Animated.View style={[styles.leading, animatedThumbStyle, { width: leadingSize, height: leadingSize, marginRight: space(3), borderRadius: radius(3), backgroundColor: colors.vaultIconBg }]}>
+          {showThumbnail ? (
+            <Image
+              source={{ uri: thumbnailUri }}
+              style={[styles.thumbnail, { width: leadingSize, height: leadingSize, borderRadius: radius(3) }]}
+              resizeMode="cover"
+              onError={() => setThumbnailFailed(true)}
+            />
           ) : (
             leading
           )}
-        </View>
+        </Animated.View>
 
         <View style={styles.textCol}>
           {titleLines.map((line, i) => (

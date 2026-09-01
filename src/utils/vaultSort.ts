@@ -70,6 +70,13 @@ export interface SortableFolder {
   id: string;
   name: string;
   createdAt?: number;
+  /** Trash 3-segment plan §2e — lets Trash's Folders/Albums segments sort by deletion time. */
+  deletedAt?: number;
+}
+
+export interface SortFoldersOptions {
+  /** Which field feeds the date_* keys. Defaults to 'createdAt'; Trash's Folders/Albums segments pass 'deletedAt'. */
+  dateField?: 'createdAt' | 'deletedAt';
 }
 
 function compareNumbers(a: number | undefined, b: number | undefined): number {
@@ -97,7 +104,8 @@ function tiebreak<T extends { id: string }>(a: T, b: T): number {
  * rather than inventing a fake ordering. This is an accepted limitation,
  * not a bug (Fix 6).
  */
-export function sortFolders<T extends SortableFolder>(folders: T[], key: SortKey): T[] {
+export function sortFolders<T extends SortableFolder>(folders: T[], key: SortKey, options: SortFoldersOptions = {}): T[] {
+  const dateField = options.dateField ?? 'createdAt';
   const sorted = [...folders];
   sorted.sort((a, b) => {
     switch (key) {
@@ -107,10 +115,15 @@ export function sortFolders<T extends SortableFolder>(folders: T[], key: SortKey
       case 'name_desc':
       case 'type_desc':
         return -compareNames(a.name, b.name) || tiebreak(a, b);
+      // toTime() (not compareNumbers directly) to mirror sortFiles's own
+      // date_* handling exactly, per §2e — harmless today since
+      // SortableFolder's createdAt/deletedAt are always plain numbers, but
+      // keeps the two sort functions' date logic identical instead of
+      // diverging for no reason.
       case 'date_asc':
-        return compareNumbers(a.createdAt, b.createdAt) || tiebreak(a, b);
+        return (toTime(a[dateField]) - toTime(b[dateField])) || tiebreak(a, b);
       case 'date_desc':
-        return -compareNumbers(a.createdAt, b.createdAt) || tiebreak(a, b);
+        return (toTime(b[dateField]) - toTime(a[dateField])) || tiebreak(a, b);
       // Folders have no size field of their own (that's `folderStatsMap`,
       // a derived aggregate keyed separately) — fall back to name, same
       // reasoning as `type_*` above.
