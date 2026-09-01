@@ -23,7 +23,8 @@ const CALC_ICON_SOURCES: Record<DisguiseIconTheme, ReturnType<typeof require>> =
   red: require('../../assets/icons/calculator-icons/calculator-icon-black-red.png'),
 };
 
-// NORMAL_BG matches app.json's expo-splash-screen plugin backgroundColor;
+// NORMAL_BG matches app.json's expo-splash-screen plugin backgroundColor and
+// the native splash's logo background;
 // CALC_BG matches login.tsx's CALC_BG for the calculator disguise itself —
 // kept as separate literals (not imported) since neither is a themed token.
 const NORMAL_BG = '#121212';
