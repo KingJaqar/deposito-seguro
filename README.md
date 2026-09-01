@@ -1,131 +1,45 @@
-# deposito-seguro
-A vault storage mobile app for storing photos, videos and other files with encryption developed using React Native Expo
+# Deposito Seguro
 
+Deposito Seguro is a local-first vault app for keeping personal files private, organised, and easy to find. Your vault stays on the device: there is no account, cloud sync, or server connection.
 
-**Project Description:**
+## What you can do
 
-Deposito Seguro is created to store personal/sensitive photos, videos, and other files for privacy and as a personal storage app, the app is locked with a password requiring the user to create their own password for protection purposes, encryption for folders and specific files is optional for the user. Local storage is used instead of cloud for the database since this is a personal project, stored files can only be recovered in the device the app was installed on, downloadable backup contents in zip will be available for backups. React Native Expo framework will be used to develop this project since it is a modern framework, flexible and much easier to deal with in terms of development, AI autonomous coding (Kilo Code, Cline, Google Gemini, ChatGPT, and Claude) will be part of the project too. 
+- Set a six-digit master PIN and an optional reminder hint.
+- Lock the app automatically after it has been in the background for a minute.
+- Create vault folders, subfolders, and media-only albums.
+- Import files into folders, or add photos and videos to albums.
+- Browse photos, videos, PDFs, Word documents, OpenDocument text files, spreadsheets, and text files in the app where supported.
+- Search across the vault and filter by images, videos, documents, audio, apps, other files, or favourites.
+- Rename, move, copy, cut, paste, duplicate, export, favourite, and bulk-manage files and folders.
+- Add custom cover images to folders and albums.
+- Protect a file or folder with an extra access-key password.
+- Move items to Trash, restore them later, or delete them permanently.
+- Create a ZIP backup and restore it later. An optional backup passphrase includes saved access-key material.
+- Choose light, dark, or AMOLED themes; change the list/grid layout and text size.
+- Use an optional calculator-style disguise. Android builds also support calculator launcher-icon choices and screenshot protection.
 
+## How it works
 
-**Features:**
+Files and vault details are stored in the app's private device storage. The master PIN and access-key secrets use the device's secure storage on native apps. The app does not use a cloud database or upload your vault contents.
 
-1. App Password
-2. Create Folders for Storing Files
-3. Specific File Encryption
-4. Downloadable Content Zip Backup
-5. App Disguise and Stealth
-6. Customization
+Albums are for photos and videos only. They stay at the top level and group media by import date. Folders can contain files and subfolders.
 
-**Scope, Delimitations and Limitations**
+## Security notes
 
-**Scope**
+The master PIN is stored as a salted, iterated hash. After five incorrect PIN or access-key attempts, the app temporarily blocks more attempts for 30 seconds.
 
-- A personal vault storage mobile application
-- Password authentication
-- Optional encryption for specific chosen files
-- App camouflaged / mask option
-- Friendly and customizable UI for personal preference
-- Backup availability
-- Internet connection is not required
+Access keys add another password check inside the app. They are separate from the master PIN.
 
-**Delimitations**  
+The source includes file-encryption support for compatible vault data, but the current interface does not offer controls to create encryption keys or encrypt individual files or folders. This build should therefore not be described as offering user-managed file encryption.
 
-- No usage of cloud storage or no moving files to cloud storage option
-- Stored files can only accessed in the local storage of the device the vault app were installed
-- No usage of cloud database (e.g firebase, supabase, mongoDB atlas & realm)
-- Manual backup instead of automatic backup since no cloud storage were utilized
+## Backups and limits
 
-**Limitations**
+Backups are manual. Create them from **Settings → Create Backup** and keep the ZIP somewhere safe. Restoring without the backup passphrase can restore the files and folder structure, but protected items may still need matching keys already on the device.
 
-- Local storage as the database might eat up high memory usage
-- Large files could be too big to be stored
-- If device was lost, then stored files will also be lost
+If the device is lost, damaged, or its app data is erased before you make a backup, the vault may not be recoverable. Exported files are shared outside the vault, so handle them carefully.
 
+The Storage screen shows vault usage, available device space, and an optional vault-size limit. Large files and copies use real device storage.
 
+## Built with
 
-
-
-
-**Source Code File Structure**
-
-    deposito-seguro/ 
-    ├── app.json                                 # OS manifest permissions (FaceID strings & sandboxing)
-    ├── package.json                             # Structural frozen dependency engine tree
-    ├── tsconfig.json 
-    └── src/
-    ├── app/
-    │   ├── _layout.tsx                      # Core zero-knowledge application boot gatekeeper
-    │   ├── (auth)/
-    │   │   ├── lock.tsx                     # Non-destructive session lock screen matrix
-    │   │   ├── login.tsx                    # Dual-purpose portal (Standard / Calculator Skin)
-    │   │   ├── onboarding.tsx               # First-time local installation setup intro
-    │   │   └── register.tsx                 # Zero-knowledge master payload provisioning
-    │   └── (main)/
-    │       ├── _layout.tsx                  # Automated background listener & hardware lock hook
-    │       ├── dashboard.tsx                # Space capacity metrics & allocation controller
-    │       ├── favorites.tsx                # Fast-access pointer file shortcut directory
-    │       ├── search.tsx                   # Multi-mime global sandbox indexing search engine
-    │       ├── trash.tsx                    # Multi-stage secure shredded retention queue
-    │       ├── folder/
-    │       │   └── [id].tsx                 # Sandbox asset importer & partition view
-    │       ├── settings/
-    │       │   ├── customization.tsx        # UI Skin swapping configuration layout (AMOLED/Light)
-    │       │   ├── index.tsx                # Global settings controller root file
-    │       │   └── storage.tsx              # Hardware block storage telemetry data metrics
-    │       └── viewer/
-    │           ├── document.tsx             # Sandboxed plain text/doc secure memory preview canvas
-    │           ├── image.tsx                # Memory-sweeping decrypted local image rendering canvas
-    │           └── video.tsx                # Local loop stream asset execution matrix
-    ├── components/
-    │   ├── AnimatedCard.tsx                 # Dynamic layout motion framework
-    │   ├── StyledButton.tsx                 # Master design system interactive click button
-    │   └── VaultHeader.tsx                  # Cryptographic navigation top bar
-    ├── constants/
-    │   └── Colors.ts                        # Camouflage theme multi-skin palette hex variables
-    ├── contexts/
-    │   └── ThemeContext.tsx                 # Real-time skin swapping state rendering context
-    ├── hooks/
-    │   └── useFileSystemQuery.ts            # Local hierarchy path metadata collection query hook
-    ├── security/
-    │   └── crypto.ts                        # 5,000-cycle local iteration security hashing engine
-    ├── services/
-    │   ├── backup.ts                        # Non-cloud local manifest backup file stream matrix
-    │   └── storage.ts                       # Physical sandbox sector directory read/write manager
-    ├── store/
-    │   ├── authStore.ts                     # State machine managing zero-knowledge app lock variables
-    │   ├── settingsStore.ts                 # Local state tracker for layout schemes and disguise states
-    │   └── vaultStore.ts                    # Physical core engine managing files, directories, & trash state
-    └── types/
-        └── index.ts                         # System data model definitions (Folder, File, Settings definitions)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+React Native, Expo SDK 57, Expo Router, Zustand, and local device storage.
