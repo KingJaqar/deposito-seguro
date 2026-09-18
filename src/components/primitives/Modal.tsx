@@ -56,6 +56,7 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   content: {
+    width: '100%',
     maxHeight: '100%',
     flexShrink: 1,
   },

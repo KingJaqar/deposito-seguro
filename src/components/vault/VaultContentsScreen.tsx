@@ -1262,6 +1262,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
           onRequestClose={() => { setShowCreateFolderModal(false); setNewFolderName(''); }}
           icon={FolderPlus}
           title="Create Subfolder"
+          scrollable={false}
           actions={[
             { label: 'Cancel', onPress: () => { setShowCreateFolderModal(false); setNewFolderName(''); }, variant: 'tertiary' },
             { label: 'Create', onPress: confirmCreateFolder, variant: 'primary' },

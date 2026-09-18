@@ -57,6 +57,7 @@ function RenameModalContent({ visible, item, onClose, onRename, title }: {
       onRequestClose={handleCancel}
       icon={Pencil}
       title={modalTitle}
+      scrollable={false}
       actions={[
         { label: 'Cancel', onPress: handleCancel, variant: 'tertiary' },
         { label: 'Rename', onPress: handleRename, variant: 'primary', disabled: !renameText.trim() },

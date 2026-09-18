@@ -127,6 +127,7 @@ export default function DashboardScreen() {
 
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   // New Vault → two-step flow (plans/album implementation plan.md §3, Phase
   // 4): the Fab opens the type-choice Sheet first; each of its two rows sets
   // pendingVaultType and swaps straight to the existing name-entry Dialog.
@@ -299,14 +300,20 @@ export default function DashboardScreen() {
   // and by the type-specific EmptyState buttons below.
   const openCreateDialogFor = (type: 'folder' | 'album') => {
     setPendingVaultType(type);
+    setFolderName('');
     setShowVaultTypeSheet(false);
     setShowFolderModal(true);
   };
 
-  const confirmFolderCreation = () => {
-    handleCreateFolder(folderName);
-    setShowFolderModal(false);
-    setFolderName('');
+  const confirmFolderCreation = async () => {
+    setIsCreatingFolder(true);
+    try {
+      await handleCreateFolder(folderName);
+      setShowFolderModal(false);
+      setFolderName('');
+    } finally {
+      setIsCreatingFolder(false);
+    }
   };
 
   const handleOpenKeyModal = (targetId: string, targetName: string) => {
@@ -970,12 +977,13 @@ export default function DashboardScreen() {
 
       <Dialog
         visible={showFolderModal}
-        onRequestClose={() => setShowFolderModal(false)}
+        onRequestClose={() => { if (!isCreatingFolder) setShowFolderModal(false); }}
         icon={pendingVaultType === 'album' ? GalleryHorizontalEnd : Folder}
         title={pendingVaultType === 'album' ? 'New Album' : 'New Folder'}
+        scrollable={false}
         actions={[
-          { label: 'Cancel', onPress: () => setShowFolderModal(false), variant: 'tertiary' },
-          { label: 'Create', onPress: confirmFolderCreation, variant: 'primary' },
+          { label: 'Cancel', onPress: () => setShowFolderModal(false), variant: 'tertiary', disabled: isCreatingFolder },
+          { label: 'Create', onPress: confirmFolderCreation, variant: 'primary', loading: isCreatingFolder },
         ]}
       >
         <View style={{ width: '100%', marginTop: 8 }}>

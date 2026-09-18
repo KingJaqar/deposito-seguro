@@ -37,6 +37,8 @@ export interface DialogProps {
   maxWidth?: number;
   /** Overrides the default space(5) horizontal card padding. */
   contentPaddingHorizontal?: number;
+  /** Short dialogs can opt out so the card wraps its content exactly. */
+  scrollable?: boolean;
 }
 
 export function Dialog({
@@ -51,6 +53,7 @@ export function Dialog({
   dismissOnBackdropPress = true,
   maxWidth,
   contentPaddingHorizontal,
+  scrollable = true,
 }: DialogProps) {
   const { colors, space, font, radius, shadow, isTablet, iconSize } = useTheme();
   const iconWrapSize = iconSize(56);
@@ -101,47 +104,87 @@ export function Dialog({
         ]}
         accessibilityViewIsModal
       >
-        <KeyboardAwareScrollView
-          bounces={false}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scrollContent}
-        >
-          {Icon && (
-            <View style={[styles.iconWrap, { width: iconWrapSize, height: iconWrapSize, borderRadius: iconWrapSize / 2, backgroundColor: `${tint}1F`, marginBottom: space(4) }]}>
-              <Icon size={iconSize(24)} color={tint} strokeWidth={2.5} />
-            </View>
-          )}
-          <Text
-            style={[
-              styles.title,
-              { fontSize: font(Type.headline.size), color: colors.text, marginBottom: message || children ? space(2) : 0 },
-            ]}
+        {scrollable ? (
+          <KeyboardAwareScrollView
+            style={styles.scroll}
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollContent}
           >
-            {title}
-          </Text>
-          {message ? (
-            <Text style={[styles.message, { fontSize: font(Type.body.size), color: colors.textSecondary, marginBottom: space(6) }]}>
-              {message}
+            {Icon && (
+              <View style={[styles.iconWrap, { width: iconWrapSize, height: iconWrapSize, borderRadius: iconWrapSize / 2, backgroundColor: `${tint}1F`, marginBottom: space(4) }]}>
+                <Icon size={iconSize(24)} color={tint} strokeWidth={2.5} />
+              </View>
+            )}
+            <Text
+              style={[
+                styles.title,
+                { fontSize: font(Type.headline.size), color: colors.text, marginBottom: message || children ? space(2) : 0 },
+              ]}
+            >
+              {title}
             </Text>
-          ) : null}
-          {children}
-          {actions.length > 0 && (
-            <View style={[styles.actionRow, { gap: space(3), marginTop: children || message ? 0 : space(6) }]}>
-              {actions.map((action, i) => (
-                <Button
-                  key={i}
-                  title={action.label}
-                  onPress={action.onPress}
-                  variant={action.variant ?? (i === actions.length - 1 ? 'primary' : 'tertiary')}
-                  loading={action.loading}
-                  disabled={action.disabled}
-                  style={styles.actionBtn}
-                />
-              ))}
-            </View>
-          )}
-        </KeyboardAwareScrollView>
+            {message ? (
+              <Text style={[styles.message, { fontSize: font(Type.body.size), color: colors.textSecondary, marginBottom: space(6) }]}>
+                {message}
+              </Text>
+            ) : null}
+            {children}
+            {actions.length > 0 && (
+              <View style={[styles.actionRow, { gap: space(3), marginTop: children || message ? 0 : space(6) }]}>
+                {actions.map((action, i) => (
+                  <Button
+                    key={i}
+                    title={action.label}
+                    onPress={action.onPress}
+                    variant={action.variant ?? (i === actions.length - 1 ? 'primary' : 'tertiary')}
+                    loading={action.loading}
+                    disabled={action.disabled}
+                    style={styles.actionBtn}
+                  />
+                ))}
+              </View>
+            )}
+          </KeyboardAwareScrollView>
+        ) : (
+          <View style={styles.staticContent}>
+            {Icon && (
+              <View style={[styles.iconWrap, { width: iconWrapSize, height: iconWrapSize, borderRadius: iconWrapSize / 2, backgroundColor: `${tint}1F`, marginBottom: space(4) }]}>
+                <Icon size={iconSize(24)} color={tint} strokeWidth={2.5} />
+              </View>
+            )}
+            <Text
+              style={[
+                styles.title,
+                { fontSize: font(Type.headline.size), color: colors.text, marginBottom: message || children ? space(2) : 0 },
+              ]}
+            >
+              {title}
+            </Text>
+            {message ? (
+              <Text style={[styles.message, { fontSize: font(Type.body.size), color: colors.textSecondary, marginBottom: space(6) }]}>
+                {message}
+              </Text>
+            ) : null}
+            {children}
+            {actions.length > 0 && (
+              <View style={[styles.actionRow, { gap: space(3), marginTop: children || message ? 0 : space(6) }]}>
+                {actions.map((action, i) => (
+                  <Button
+                    key={i}
+                    title={action.label}
+                    onPress={action.onPress}
+                    variant={action.variant ?? (i === actions.length - 1 ? 'primary' : 'tertiary')}
+                    loading={action.loading}
+                    disabled={action.disabled}
+                    style={styles.actionBtn}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </Animated.View>
     </BaseModal>
   );
@@ -155,7 +198,18 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   scrollContent: {
-    flexGrow: 1,
+    width: '100%',
+    alignItems: 'stretch',
+  },
+  scroll: {
+    width: '100%',
+    flex: 0,
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  staticContent: {
+    width: '100%',
+    alignItems: 'stretch',
   },
   iconWrap: {
     alignItems: 'center',

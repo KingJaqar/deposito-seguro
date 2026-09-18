@@ -20,6 +20,7 @@ export interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   icon?: LucideIcon;
+  iconPosition?: 'before' | 'after';
   style?: ViewStyle;
   accessibilityLabel?: string;
 }
@@ -36,6 +37,7 @@ export function Button({
   disabled = false,
   loading = false,
   icon: Icon,
+  iconPosition = 'before',
   style,
   accessibilityLabel,
 }: ButtonProps) {
@@ -98,13 +100,18 @@ export function Button({
         <ActivityIndicator size="small" color={palette.fg} />
       ) : (
         <View style={styles.content}>
-          {Icon && <Icon size={iconSize(SIZE_ICON[size])} color={palette.fg} strokeWidth={2.25} style={{ marginRight: space(2) }} />}
+          {Icon && iconPosition === 'before' && (
+            <Icon size={iconSize(SIZE_ICON[size])} color={palette.fg} strokeWidth={2.25} style={{ marginRight: space(2) }} />
+          )}
           <Text
             numberOfLines={1}
             style={[styles.label, { color: palette.fg, fontSize: font(SIZE_FONT[size]) }]}
           >
             {title}
           </Text>
+          {Icon && iconPosition === 'after' && (
+            <Icon size={iconSize(SIZE_ICON[size])} color={palette.fg} strokeWidth={2.25} style={{ marginLeft: space(2) }} />
+          )}
         </View>
       )}
     </Pressable>
@@ -121,8 +128,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   label: {
     fontWeight: '700',
+    flexShrink: 0,
   },
 });

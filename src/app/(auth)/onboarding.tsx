@@ -111,6 +111,7 @@ export default function OnboardingScreen() {
           title="Create master key"
           onPress={() => router.push('/(auth)/register')}
           icon={ArrowRight}
+          iconPosition="after"
           size="lg"
           style={{ width: '100%', marginTop: space(6), marginBottom: space(4) }}
         />
