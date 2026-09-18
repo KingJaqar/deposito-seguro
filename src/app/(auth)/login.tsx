@@ -787,6 +787,7 @@ const styles = StyleSheet.create({
   },
   historyText: {
     color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'monospace',
     fontWeight: '400',
     minHeight: 20,
     textAlign: 'right',
@@ -795,6 +796,7 @@ const styles = StyleSheet.create({
   },
   expressionText: {
     color: 'rgba(255,255,255,0.7)',
+    fontFamily: 'monospace',
     fontWeight: '400',
     minHeight: 28,
     textAlign: 'right',
@@ -803,6 +805,7 @@ const styles = StyleSheet.create({
   },
   mainText: {
     color: CALC_TEXT,
+    fontFamily: 'monospace',
     fontWeight: '300',
     minHeight: 72,
     textAlign: 'right',
@@ -817,7 +820,7 @@ const styles = StyleSheet.create({
   buttonGrid: {},
   row: { flexDirection: 'row' },
   calcButton: { justifyContent: 'center', alignItems: 'center', flex: 1, minWidth: 44 },
-  calcButtonText: { fontWeight: '400', includeFontPadding: false },
+  calcButtonText: { fontFamily: 'monospace', fontWeight: '400', includeFontPadding: false },
   calcScrollContent: { flexGrow: 1, backgroundColor: CALC_BG },
   decorCircle: { position: 'absolute', borderRadius: 999 },
   iconBadge: {
