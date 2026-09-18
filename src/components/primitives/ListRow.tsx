@@ -83,7 +83,7 @@ export function ListRow({
     let mounted = true;
     AccessibilityInfo.isReduceMotionEnabled()
       .then((enabled) => { if (mounted) reduceMotionThumb.current = enabled; })
-      .catch(() => {});
+      .catch(() => { });
     return () => { mounted = false; };
   }, []);
   useEffect(() => {

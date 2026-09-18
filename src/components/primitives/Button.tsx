@@ -3,7 +3,8 @@
 // entirely. Material structure (state layer, ripple), flat rendering (solid
 // fill, no gradients). MIN_TOUCH_TARGET is a non-optional floor.
 import React, { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View, ViewStyle } from 'react-native';
+import { Text } from './Text';
 import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';

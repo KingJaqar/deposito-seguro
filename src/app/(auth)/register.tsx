@@ -13,7 +13,8 @@
 import { router } from 'expo-router';
 import { ArrowRight, Check, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import { BrandHeader } from '../../components/onboarding/BrandHeader';
@@ -100,10 +101,11 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView
+      <KeyboardAwareScrollView
+          style={styles.flex}
           contentContainerStyle={[styles.scrollContent, { paddingHorizontal: space(6), paddingTop: space(5), paddingBottom: space(8) }]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           <StepBody key={step}>
             {step === 'pin' && (
@@ -250,8 +252,7 @@ export default function RegisterScreen() {
               </>
             )}
           </StepBody>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

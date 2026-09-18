@@ -21,6 +21,7 @@
       }
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/calculator-icons/calculator-icon-black-white.png",
         "backgroundColor": "#121212"

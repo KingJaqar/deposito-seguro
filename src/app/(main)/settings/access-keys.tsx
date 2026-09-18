@@ -30,7 +30,8 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import { AccessKeyUnlockModal } from '../../../components/AccessKeyUnlockModal';
@@ -204,10 +205,12 @@ export default function AccessKeysScreen() {
       <VaultHeader title="Access Keys" showBack />
 
       <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-        <ScrollView
+        <KeyboardAwareScrollView
+          style={styles.flex1}
           contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing + space(6) }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           <Text style={[styles.description, { color: colors.textMuted, fontSize: font(Type.caption.size), marginBottom: space(4) }]}>
             Create up to <Text style={{ color: colors.text, fontWeight: '800' }}>20 passwords</Text> to protect your folders and files. Stored securely and must meet strength requirements.
@@ -302,7 +305,7 @@ export default function AccessKeysScreen() {
               </Card>
             ))
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </Animated.View>
 
       <AnimatedTabBar />
@@ -348,7 +351,7 @@ export default function AccessKeysScreen() {
       )}
 
       <Sheet visible={showEditModal && !!editingPassword} onClose={() => { setShowEditModal(false); setEditingPassword(null); }} title="Edit Access Key">
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space(5) }} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space(5) }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <Text style={[styles.editSubtitle, { color: colors.textMuted, fontSize: font(Type.caption.size), marginBottom: space(4) }]}>Editing: {editingPassword?.label}</Text>
 
           <TextField label="Password Label" value={editLabel} onChangeText={setEditLabel} placeholder="e.g. Personal Vault Password" accessibilityLabel="Password label" />
@@ -385,7 +388,7 @@ export default function AccessKeysScreen() {
             />
             <Button title="Save Changes" style={{ flex: 1 }} onPress={handleEditConfirm} />
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </Sheet>
     </SafeAreaView>
   );

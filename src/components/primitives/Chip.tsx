@@ -4,7 +4,8 @@
 // (§6): a checkmark-style active indicator and label-weight change accompany
 // the color change.
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
+import { Text } from './Text';
 import { Check } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

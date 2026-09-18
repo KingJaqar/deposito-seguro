@@ -2,7 +2,8 @@
 // Consolidates ~6 near-identical empty-state blocks across dashboard/folder/
 // trash/settings/auth-key (§5).
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from './Text';
 import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';

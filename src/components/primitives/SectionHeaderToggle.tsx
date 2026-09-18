@@ -7,7 +7,8 @@
 // Reanimated instead of the old JS-thread LayoutAnimation approach, which
 // stuttered on anything heavier than a couple of rows (grids, ScrollViews).
 import React, { useEffect, useState } from 'react';
-import { Animated as RNAnimated, Pressable, StyleSheet, Text } from 'react-native';
+import { Animated as RNAnimated, Pressable, StyleSheet } from 'react-native';
+import { Text } from './Text';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { ChevronDown } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

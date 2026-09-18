@@ -12,12 +12,12 @@ import {
   Easing,
   PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -315,14 +315,15 @@ export function Sheet({
             {children}
           </View>
         ) : (
-          <ScrollView
+          <KeyboardAwareScrollView
             style={{ flexShrink: 1 }}
             contentContainerStyle={{ paddingBottom: insets.bottom + space(4) }}
             showsVerticalScrollIndicator={false}
             bounces={false}
+            keyboardShouldPersistTaps="handled"
           >
             {children}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         )}
       </Animated.View>
     </BaseModal>
@@ -331,6 +332,7 @@ export function Sheet({
 
 const styles = StyleSheet.create({
   sheet: {
+    flexShrink: 1,
     borderWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: 0,
     paddingTop: 10,

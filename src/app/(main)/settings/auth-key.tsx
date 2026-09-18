@@ -14,7 +14,8 @@
 //  - the screen-enter fade goes through the shared useScreenEnterAnimation()
 //    hook (§4) instead of a hand-rolled copy — see folder/[id].tsx
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Key, Lock, ShieldCheck } from 'lucide-react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';
@@ -156,11 +157,12 @@ export default function AuthKeyScreen() {
       <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
         <VaultHeader title="Authentication Key" showBack />
         <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-          <KeyboardAvoidingView style={styles.flex1} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView
+          <KeyboardAwareScrollView
+              style={styles.flex1}
               contentContainerStyle={[styles.verifyContent, { paddingHorizontal: screenPadding, paddingBottom: bottomTabSpacing }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
               <Card style={[styles.verifyCard, { maxWidth: isTablet ? 420 : undefined, padding: space(6) }]}>
                 <View style={[styles.lockIconCircle, { backgroundColor: colors.surfaceHover, marginBottom: space(5) }]}>
@@ -175,8 +177,7 @@ export default function AuthKeyScreen() {
                   <Button title={isVerifying ? 'Verifying…' : 'Verify'} onPress={handleVerify} loading={isVerifying} icon={ShieldCheck} />
                 </View>
               </Card>
-            </ScrollView>
-          </KeyboardAvoidingView>
+          </KeyboardAwareScrollView>
         </Animated.View>
         <AnimatedTabBar />
       </SafeAreaView>
@@ -187,8 +188,7 @@ export default function AuthKeyScreen() {
     <SafeAreaView edges={['bottom', 'left', 'right']} style={[styles.root, { backgroundColor: colors.background }]}>
       <VaultHeader title="Authentication Key" showBack />
       <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-        <KeyboardAvoidingView style={styles.flex1} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView style={styles.flex1} contentContainerStyle={[styles.content, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
             <Text style={[styles.description, { color: colors.textMuted, fontSize: font(Type.caption.size), marginBottom: space(4) }]}>
               Manage your vault authentication key. This key is required to access protected folders and files.
             </Text>
@@ -250,8 +250,7 @@ export default function AuthKeyScreen() {
                 />
               </View>
             </Card>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
       </Animated.View>
       <AnimatedTabBar />
       <TopToast state={topToastState} />

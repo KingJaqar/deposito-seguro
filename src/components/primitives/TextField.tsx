@@ -3,10 +3,11 @@
 // across auth-key.tsx/access-keys.tsx/register.tsx (§4). Errors always
 // surface as icon+text, never a bare red border (§6).
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, TextInputProps, View } from 'react-native';
 import { Eye, EyeOff, CircleAlert } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
-import { Type } from '../../constants/typography';
+import { FontFamily, Type } from '../../constants/typography';
+import { Text } from './Text';
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'secureTextEntry'> {
   label?: string;
@@ -113,6 +114,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     paddingVertical: 12,
+    fontFamily: FontFamily.medium,
   },
   toggle: {
     padding: 4,

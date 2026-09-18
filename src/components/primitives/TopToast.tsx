@@ -6,7 +6,8 @@
 // from above the safe area instead of up from below, and is centered/
 // content-width instead of full-bleed.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, Animated, Pressable, StyleSheet } from 'react-native';
+import { Text } from './Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CircleCheck, CircleX } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

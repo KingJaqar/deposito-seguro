@@ -2,7 +2,8 @@
 // Base overlay (backdrop + tap-to-dismiss + KeyboardAvoidingView) that Dialog
 // and Sheet are built on. Not used directly by screens.
 import React from 'react';
-import { KeyboardAvoidingView, Modal as RNModal, Platform, Pressable, StyleSheet, View, ViewStyle } from 'react-native';
+import { Modal as RNModal, Pressable, StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 export interface BaseModalProps {
   visible: boolean;
@@ -25,7 +26,7 @@ export function BaseModal({
 
   return (
     <RNModal visible={visible} transparent animationType="none" onRequestClose={onRequestClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="height" automaticOffset>
         <View style={[styles.overlay, align === 'bottom' && styles.overlayBottom]}>
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -33,7 +34,7 @@ export function BaseModal({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           />
-          <View style={contentStyle} pointerEvents="box-none">
+          <View style={[styles.content, contentStyle]} pointerEvents="box-none">
             {children}
           </View>
         </View>
@@ -53,5 +54,9 @@ const styles = StyleSheet.create({
   overlayBottom: {
     justifyContent: 'flex-end',
     alignItems: 'stretch',
+  },
+  content: {
+    maxHeight: '100%',
+    flexShrink: 1,
   },
 });
