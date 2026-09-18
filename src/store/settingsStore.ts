@@ -480,14 +480,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   restoreKeysFromBackup: async (accessKeys, encryptionKeys) => {
     await Promise.all([
       ...accessKeys.map((ak) =>
-        SecureStore.setItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX), ak.password).catch((err) =>
-          console.error('Restore: failed to write access key to SecureStore', err)
-        )
+        SecureStore.setItemAsync(getSecureKeyPath(ak.id, ACCESS_KEY_PREFIX), ak.password)
       ),
       ...encryptionKeys.map((ek) =>
-        SecureStore.setItemAsync(getSecureKeyPath(ek.id, ENCRYPTION_KEY_PREFIX), ek.key).catch((err) =>
-          console.error('Restore: failed to write encryption key to SecureStore', err)
-        )
+        SecureStore.setItemAsync(getSecureKeyPath(ek.id, ENCRYPTION_KEY_PREFIX), ek.key)
       ),
     ]);
     // I-11 residual: commitSettingsState can now throw on a persist

@@ -75,6 +75,27 @@ export interface BackupEstimate {
   estimatedZipSize: number;
 }
 
+const getUriScheme = (uri: string): string => uri.split(':', 1)[0] || 'unknown';
+
+const getUriProvider = (uri: string): string => {
+  if (!uri.startsWith('content://')) return 'app-sandbox';
+  const authority = uri.slice('content://'.length).split('/', 1)[0];
+  return authority || 'unknown';
+};
+
+const getUriBasename = (uri: string): string => {
+  const withoutQuery = uri.split(/[?#]/, 1)[0];
+  return decodeURIComponent(withoutQuery.split('/').pop() || '');
+};
+
+const logBackupDiagnostic = (event: string, details: Record<string, unknown> = {}) => {
+  // Temporary APK diagnostics. Never include full URIs, passphrases, keys,
+  // archive contents, or user-selected filesystem paths.
+  if (__DEV__ && process.env.NODE_ENV !== 'test') {
+    console.info(`[BackupDiag] ${event}`, details);
+  }
+};
+
 /** A folder handle returned by pickBackupFolder(): either an Android SAF directory URI, or a plain iOS sandbox path. */
 export interface BackupFolderHandle {
   uri: string;
@@ -89,17 +110,16 @@ export class EnhancedBackupService {
   private static readonly BACKUP_EXTENSION = '.zip';
   private static readonly MANIFEST_FILENAME = 'manifest.json';
   private static readonly BACKUP_VERSION = '2.0.0';
+  private static readonly SUPPORTED_BACKUP_VERSIONS = new Set(['2.0.0']);
 
   private static backupPermissionGranted: boolean | null = null;
 
   // Step 1: Request Permissions
   static async requestStoragePermission(): Promise<boolean> {
-    if (Platform.OS === 'web' || Platform.OS === 'ios') {
-      // iOS backups stay inside the app sandbox (Documents dir) — no OS
-      // permission is needed there. Android's SAF folder picker itself is
-      // the permission grant (requestDirectoryPermissionsAsync), so this
-      // legacy MediaLibrary permission is only relevant as a pre-flight
-      // check before showing the picker.
+    if (Platform.OS === 'web' || Platform.OS === 'ios' || Platform.OS === 'android') {
+      // iOS backups stay inside the app sandbox (Documents dir) — no OS permission needed.
+      // Android uses Storage Access Framework (requestDirectoryPermissionsAsync), which handles
+      // permissions per selected directory.
       return true;
     }
 
@@ -111,8 +131,6 @@ export class EnhancedBackupService {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       this.backupPermissionGranted = status === 'granted';
     } catch (e) {
-      // S-10: fail closed, not open — an unexpected error negotiating
-      // permission is a denial, not an authorization.
       console.warn('Permission request failed, denying access by default', e);
       this.backupPermissionGranted = false;
     }
@@ -132,8 +150,13 @@ export class EnhancedBackupService {
   static async pickBackupFolder(): Promise<BackupFolderHandle | null> {
     try {
       if (Platform.OS === 'android') {
+        logBackupDiagnostic('backup:request-directory-permission');
         const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
         if (!permissions.granted) return null;
+        logBackupDiagnostic('backup:directory-selected', {
+          scheme: getUriScheme(permissions.directoryUri),
+          provider: getUriProvider(permissions.directoryUri),
+        });
         return { uri: permissions.directoryUri, isSAF: true, label: 'Selected folder' };
       }
 
@@ -145,6 +168,7 @@ export class EnhancedBackupService {
       if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(backupFolderPath, { intermediates: true });
       }
+      logBackupDiagnostic('backup:directory-selected', { scheme: getUriScheme(backupFolderPath), provider: 'app-sandbox' });
       return { uri: backupFolderPath, isSAF: false, label: this.BACKUP_FOLDER_NAME };
     } catch (e) {
       console.error('Failed to pick backup folder', e);
@@ -283,39 +307,35 @@ export class EnhancedBackupService {
 
     const files = useVaultStore.getState().files.filter(f => !f.isTrash);
     const filesFolder = zip.folder('files')!;
+    const archiveNames = new Set<string>();
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (file.localPath) {
-        try {
-          const info = await FileSystem.getInfoAsync(file.localPath);
-          if (info.exists) {
-            const base64 = await FileSystem.readAsStringAsync(file.localPath, { encoding: FileSystem.EncodingType.Base64 });
-            const basename = file.localPath.split('/').pop()!;
-            filesFolder.file(basename, base64, { base64: true });
-          }
-        } catch (e) {
-          console.warn(`Failed to add file ${file.id} to backup archive:`, e);
+        const info = await FileSystem.getInfoAsync(file.localPath);
+        if (!info.exists) {
+          throw new Error('Backup payload is missing for one or more vault files');
         }
+        const base64 = await FileSystem.readAsStringAsync(file.localPath, { encoding: FileSystem.EncodingType.Base64 });
+        const basename = getUriBasename(file.localPath);
+        if (!basename || archiveNames.has(basename)) {
+          throw new Error('Backup contains duplicate or invalid payload names');
+        }
+        archiveNames.add(basename);
+        filesFolder.file(basename, base64, { base64: true });
       }
-      // Matching fix for the iconPath manifest field added above: without
-      // this, the manifest would claim iconPath is still valid but the
-      // restore side would have no bytes to write there — same "info.exists
-      // check, best-effort, never blocks the rest of the backup" shape as
-      // localPath just above. Written into the same 'files/' zip folder
-      // (not a separate one) so the existing generic restore loop below
-      // (which just replays every 'files/*' entry) picks it up for free.
       if (file.iconPath) {
-        try {
-          const iconInfo = await FileSystem.getInfoAsync(file.iconPath);
-          if (iconInfo.exists) {
-            const iconBase64 = await FileSystem.readAsStringAsync(file.iconPath, { encoding: FileSystem.EncodingType.Base64 });
-            const iconBasename = file.iconPath.split('/').pop()!;
-            filesFolder.file(iconBasename, iconBase64, { base64: true });
-          }
-        } catch (e) {
-          console.warn(`Failed to add file ${file.id}'s thumbnail to backup archive:`, e);
+        const iconInfo = await FileSystem.getInfoAsync(file.iconPath);
+        if (!iconInfo.exists) {
+          throw new Error('Backup thumbnail payload is missing for one or more vault files');
         }
+        const iconBase64 = await FileSystem.readAsStringAsync(file.iconPath, { encoding: FileSystem.EncodingType.Base64 });
+        const iconBasename = getUriBasename(file.iconPath);
+        if (!iconBasename || archiveNames.has(iconBasename)) {
+          throw new Error('Backup contains duplicate or invalid payload names');
+        }
+        archiveNames.add(iconBasename);
+        filesFolder.file(iconBasename, iconBase64, { base64: true });
       }
       onProgress?.(`Compressing files: ${i + 1}/${files.length}`, 20 + ((i + 1) / Math.max(files.length, 1)) * 50);
     }
@@ -329,32 +349,67 @@ export class EnhancedBackupService {
     const filename = `${this.BACKUP_PREFIX}${new Date().toISOString().replace(/[:.]/g, '-')}${this.BACKUP_EXTENSION}`;
 
     onProgress?.('Writing backup file...', 92);
-    let fileUri: string;
-    if (folder.isSAF) {
-      fileUri = await FileSystem.StorageAccessFramework.createFileAsync(folder.uri, filename, 'application/zip');
-    } else {
-      fileUri = `${folder.uri}${filename}`;
+    let fileUri: string | undefined;
+    try {
+      if (folder.isSAF) {
+        const baseName = filename.endsWith(this.BACKUP_EXTENSION)
+          ? filename.slice(0, -this.BACKUP_EXTENSION.length)
+          : filename;
+        logBackupDiagnostic('backup:create-file', {
+          scheme: getUriScheme(folder.uri),
+          provider: getUriProvider(folder.uri),
+        });
+        fileUri = await FileSystem.StorageAccessFramework.createFileAsync(folder.uri, baseName, 'application/zip');
+      } else {
+        fileUri = `${folder.uri}${filename}`;
+      }
+      await FileSystem.writeAsStringAsync(fileUri, zipBase64, { encoding: FileSystem.EncodingType.Base64 });
+      logBackupDiagnostic('backup:archive-written', {
+        scheme: getUriScheme(fileUri),
+        provider: getUriProvider(fileUri),
+        archiveSize: Math.round(zipBase64.length * 0.75),
+      });
+      return fileUri;
+    } catch (error) {
+      if (fileUri) await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+      throw error;
     }
-    await FileSystem.writeAsStringAsync(fileUri, zipBase64, { encoding: FileSystem.EncodingType.Base64 });
-
-    return fileUri;
   }
 
   static async validateBackup(backupUri: string): Promise<{ zipExists: boolean; sizeGreaterThanZero: boolean; manifestExists: boolean }> {
     try {
+      logBackupDiagnostic('backup:validation-start', {
+        scheme: getUriScheme(backupUri),
+        provider: getUriProvider(backupUri),
+      });
       const info = await FileSystem.getInfoAsync(backupUri);
       const zipExists = info.exists;
-      const sizeGreaterThanZero = info.exists && 'size' in info && (info.size || 0) > 0;
+      let sizeGreaterThanZero = info.exists && 'size' in info && (info.size || 0) > 0;
 
       let manifestExists = false;
       if (zipExists) {
         const base64 = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
-        const zip = await JSZip.loadAsync(base64, { base64: true });
-        manifestExists = !!zip.file(this.MANIFEST_FILENAME);
+        if (base64 && base64.length > 0) {
+          sizeGreaterThanZero = true;
+          const zip = await JSZip.loadAsync(base64, { base64: true });
+          const manifestEntry = zip.file(this.MANIFEST_FILENAME);
+          if (manifestEntry) {
+            const manifest = JSON.parse(await manifestEntry.async('string')) as Partial<BackupManifest>;
+            manifestExists = this.SUPPORTED_BACKUP_VERSIONS.has(manifest.version || '');
+          }
+        }
       }
 
+      logBackupDiagnostic('backup:validation-complete', {
+        scheme: getUriScheme(backupUri),
+        provider: getUriProvider(backupUri),
+        archiveSize: 'size' in info && typeof info.size === 'number' ? info.size : undefined,
+        manifestExists,
+      });
+
       return { zipExists, sizeGreaterThanZero, manifestExists };
-    } catch {
+    } catch (e) {
+      console.warn('Backup validation check caught error:', e);
       return { zipExists: false, sizeGreaterThanZero: false, manifestExists: false };
     }
   }
@@ -395,16 +450,28 @@ export class EnhancedBackupService {
         return { success: false, error: 'Backup validation failed', validation };
       }
 
-      onProgress?.('Backup complete! Sharing...', 100);
-      await this.shareBackup(backupUri).catch(() => {});
-
       const fileInfo = await FileSystem.getInfoAsync(backupUri);
-      const fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
+      let fileSize = fileInfo.exists && 'size' in fileInfo && fileInfo.size && fileInfo.size > 0 ? fileInfo.size : 0;
+      if (fileSize === 0) {
+        try {
+          const zipData = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
+          fileSize = Math.round(zipData.length * 0.75);
+        } catch {
+          fileSize = manifest.statistics.totalSize;
+        }
+      }
 
-      return { success: true, backupPath: backupUri, backupName: backupUri.split('/').pop(), fileSize, validation };
-    } catch (e) {
+      onProgress?.('Backup complete!', 100);
+
+      let backupName = decodeURIComponent(backupUri.split('/').pop() || 'backup.zip');
+      if (backupName.includes(':')) {
+        backupName = backupName.split(':').pop() || backupName;
+      }
+
+      return { success: true, backupPath: backupUri, backupName, fileSize, validation };
+    } catch (e: any) {
       console.error('Backup failed:', e);
-      return { success: false, error: 'Backup operation failed. Please try again.' };
+      return { success: false, error: e?.message ? `Backup operation failed: ${e.message}` : 'Backup operation failed. Please try again.' };
     }
   }
 
@@ -419,39 +486,105 @@ export class EnhancedBackupService {
   static async restoreBackup(
     backupUri: string,
     backupPassphrase: string | undefined,
-    onProgress?: (message: string, progress: number) => void
+    onProgress?: (message: string, progress: number) => void,
+    skipKeyMaterial?: boolean
   ): Promise<RestoreResult> {
+    const createdPayloadPaths = new Set<string>();
     try {
+      logBackupDiagnostic('restore:read-start', {
+        scheme: getUriScheme(backupUri),
+        provider: getUriProvider(backupUri),
+      });
+      const backupInfo = await FileSystem.getInfoAsync(backupUri);
+      if (!backupInfo.exists) {
+        return { success: false, error: 'Selected backup file is not readable' };
+      }
+
       onProgress?.('Reading backup archive...', 5);
-      const zipBase64 = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
-      const zip = await JSZip.loadAsync(zipBase64, { base64: true });
+      let zipBase64: string;
+      try {
+        zipBase64 = await FileSystem.readAsStringAsync(backupUri, { encoding: FileSystem.EncodingType.Base64 });
+      } catch {
+        return { success: false, error: 'Selected backup file is not readable' };
+      }
+
+      let zip: JSZip;
+      try {
+        zip = await JSZip.loadAsync(zipBase64, { base64: true });
+      } catch {
+        return { success: false, error: 'Unsupported backup format: expected a ZIP containing manifest.json' };
+      }
 
       const manifestEntry = zip.file(this.MANIFEST_FILENAME);
       if (!manifestEntry) {
-        return { success: false, error: 'Invalid backup: manifest not found' };
+        return { success: false, error: 'Unsupported backup format: manifest.json was not found' };
       }
       const manifestContent = await manifestEntry.async('string');
 
       let manifest: BackupManifest;
       try {
         manifest = JSON.parse(manifestContent) as BackupManifest;
-        if (!manifest.vaultStructure?.folders || !manifest.vaultStructure?.files) {
+        if (!manifest.version) {
+          return { success: false, error: 'Unsupported backup format: manifest version is missing' };
+        }
+        if (!this.SUPPORTED_BACKUP_VERSIONS.has(manifest.version)) {
+          return { success: false, error: `Unsupported backup version: ${manifest.version}` };
+        }
+        if (!Array.isArray(manifest.vaultStructure?.folders) || !Array.isArray(manifest.vaultStructure?.files)) {
           return { success: false, error: 'Invalid backup: corrupted manifest structure' };
         }
       } catch {
         return { success: false, error: 'Invalid backup: corrupted manifest data' };
       }
 
+      let decryptedKeys: { accessKeys: AccessKeyMetadata[]; encryptionKeys: EncryptionKeyMetadata[] } | null = null;
+      if (manifest.keyMaterial && !skipKeyMaterial) {
+        if (!backupPassphrase?.trim()) {
+          return { success: false, needsPassphrase: true };
+        }
+        onProgress?.('Decrypting access & encryption keys...', 15);
+        try {
+          const derivedKey = await SecureCrypto.hashPassword(backupPassphrase.trim(), manifest.keyMaterial.salt);
+          const payloadBase64 = await SecureCrypto.decrypt(manifest.keyMaterial.ciphertext, derivedKey);
+          const payloadJson = SecureCrypto.base64ToUtf8(payloadBase64);
+          decryptedKeys = JSON.parse(payloadJson) as {
+            accessKeys: AccessKeyMetadata[];
+            encryptionKeys: EncryptionKeyMetadata[];
+          };
+        } catch (e) {
+          console.error('Failed to decrypt backup key material (wrong passphrase?)', e);
+          return { success: false, needsPassphrase: true, error: 'Incorrect passphrase' };
+        }
+      }
+
       onProgress?.('Restoring files...', 30);
       const vaultDir = `${FileSystem.documentDirectory}vault_sandbox/`;
       await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
+      const restorePrefix = `restore_${SecureCrypto.generateUUID()}_`;
 
       const fileEntryNames = Object.keys(zip.files).filter(name => name.startsWith('files/') && !zip.files[name].dir);
+      const entryPathByBasename = new Map<string, string>();
+
+      for (const file of manifest.vaultStructure.files.filter(f => !f.isTrash)) {
+        if (!file.localPath || !getUriBasename(file.localPath) || !fileEntryNames.includes(`files/${getUriBasename(file.localPath)}`)) {
+          return { success: false, error: 'Invalid backup: payload missing for one or more vault files' };
+        }
+      }
+
       for (let i = 0; i < fileEntryNames.length; i++) {
         const entryName = fileEntryNames[i];
-        const base64 = await zip.file(entryName)!.async('base64');
         const destName = entryName.slice('files/'.length);
-        await FileSystem.writeAsStringAsync(`${vaultDir}${destName}`, base64, { encoding: FileSystem.EncodingType.Base64 });
+        if (!destName || destName.includes('/') || destName.includes('\\') || destName === '.' || destName === '..' || entryPathByBasename.has(destName)) {
+          throw new Error('Invalid backup: unsafe or duplicate payload name');
+        }
+        const base64 = await zip.file(entryName)!.async('base64');
+        const destinationPath = `${vaultDir}${restorePrefix}${destName}`;
+        await FileSystem.writeAsStringAsync(destinationPath, base64, { encoding: FileSystem.EncodingType.Base64 });
+        if (!(await FileSystem.getInfoAsync(destinationPath)).exists) {
+          throw new Error('Restored payload was not written to the vault sandbox');
+        }
+        createdPayloadPaths.add(destinationPath);
+        entryPathByBasename.set(destName, destinationPath);
         onProgress?.(`Restoring file ${i + 1}/${fileEntryNames.length}`, 30 + ((i + 1) / Math.max(fileEntryNames.length, 1)) * 35);
       }
 
@@ -459,14 +592,16 @@ export class EnhancedBackupService {
       // the manifest's stored localPath is the originating device/install's
       // absolute path, which will not exist here.
       const remappedFiles = manifest.vaultStructure.files.map(f => {
-        const localPath = f.localPath ? `${vaultDir}${f.localPath.split('/').pop()!}` : f.localPath;
-        // Same remap, same reason, for iconPath (see the manifest-builder
-        // and buildAndWriteZip comments above) — the manifest's iconPath is
-        // also the originating device's absolute path, and the icon's bytes
-        // were restored into vaultDir by the generic files/* loop above
-        // right alongside localPath's.
-        const iconPath = f.iconPath ? `${vaultDir}${f.iconPath.split('/').pop()!}` : f.iconPath;
-        return { ...f, localPath, iconPath };
+        const localBasename = f.localPath ? getUriBasename(f.localPath) : '';
+        const iconBasename = f.iconPath ? getUriBasename(f.iconPath) : '';
+        const localPath = localBasename
+          ? entryPathByBasename.get(localBasename) ?? `${vaultDir}${restorePrefix}${localBasename}`
+          : f.localPath;
+        // Thumbnail payloads were added after the first backup format. If an
+        // older v2 manifest names a thumbnail that is not present, clear the
+        // stale pointer and let the normal file-type fallback render it.
+        const iconPath = iconBasename ? entryPathByBasename.get(iconBasename) : undefined;
+        return { ...f, localPath, iconPath, iconEncrypted: iconPath ? f.iconEncrypted : false };
       });
 
       onProgress?.('Restoring vault structure...', 68);
@@ -474,53 +609,50 @@ export class EnhancedBackupService {
       await AsyncStorage.setItem('@vault_files', JSON.stringify(remappedFiles));
 
       onProgress?.('Restoring settings...', 78);
-      await useSettingsStore.getState().updateSetting('encryptionDefault', manifest.settings.encryptionDefault);
-      await useSettingsStore.getState().updateSetting('autoLockDuration', manifest.settings.autoLockDuration);
-
-      let needsPassphrase = false;
-      if (manifest.keyMaterial) {
-        if (!backupPassphrase?.trim()) {
-          needsPassphrase = true;
-        } else {
-          onProgress?.('Decrypting access & encryption keys...', 88);
-          let decryptedKeys: { accessKeys: AccessKeyMetadata[]; encryptionKeys: EncryptionKeyMetadata[] } | null = null;
-          try {
-            const derivedKey = await SecureCrypto.hashPassword(backupPassphrase.trim(), manifest.keyMaterial.salt);
-            const payloadBase64 = await SecureCrypto.decrypt(manifest.keyMaterial.ciphertext, derivedKey);
-            const payloadJson = SecureCrypto.base64ToUtf8(payloadBase64);
-            decryptedKeys = JSON.parse(payloadJson) as {
-              accessKeys: AccessKeyMetadata[];
-              encryptionKeys: EncryptionKeyMetadata[];
-            };
-          } catch (e) {
-            console.error('Failed to decrypt backup key material (wrong passphrase?)', e);
-            needsPassphrase = true;
-          }
-          // I-11 residual: restoreKeysFromBackup can now throw on an
-          // AsyncStorage persist failure (settingsStore.ts's
-          // commitSettingsState) — deliberately called outside the decrypt
-          // try/catch above, so a persist failure doesn't get misreported as
-          // "wrong passphrase" (which would send the user into a confusing
-          // passphrase-retry loop for an unrelated storage error). Left
-          // uncaught here on purpose: the outer try/catch at the bottom of
-          // this function already gives an accurate, if generic, "Restore
-          // operation failed" result for this case.
-          if (decryptedKeys) {
-            await useSettingsStore.getState().restoreKeysFromBackup(decryptedKeys.accessKeys, decryptedKeys.encryptionKeys);
-          }
+      if (manifest.settings) {
+        if (typeof manifest.settings.encryptionDefault === 'boolean') {
+          await useSettingsStore.getState().updateSetting('encryptionDefault', manifest.settings.encryptionDefault);
+        }
+        if (typeof manifest.settings.autoLockDuration === 'number') {
+          await useSettingsStore.getState().updateSetting('autoLockDuration', manifest.settings.autoLockDuration);
+        }
+        if (manifest.settings.themeMode) {
+          await useSettingsStore.getState().updateSetting('themeMode', manifest.settings.themeMode);
+        }
+        if (manifest.settings.disguiseMode) {
+          await useSettingsStore.getState().updateSetting('disguiseMode', manifest.settings.disguiseMode);
         }
       }
+
+      if (decryptedKeys) {
+        onProgress?.('Restoring security keys...', 90);
+        await useSettingsStore.getState().restoreKeysFromBackup(decryptedKeys.accessKeys, decryptedKeys.encryptionKeys);
+      }
+
+      // Update in-memory Zustand only after payload, vault metadata, settings,
+      // and key material have all completed. The store action also invalidates
+      // any stale cold-start hydration read.
+      useVaultStore.getState().replaceVaultStateFromRestore(manifest.vaultStructure.folders, remappedFiles);
+      await useVaultStore.getState().reconcileMissingPayloads();
+
+      logBackupDiagnostic('restore:complete', {
+        scheme: getUriScheme(backupUri),
+        provider: getUriProvider(backupUri),
+        restoredFiles: remappedFiles.length,
+        restoredFolders: manifest.vaultStructure.folders.length,
+      });
 
       onProgress?.('Restore complete!', 100);
       return {
         success: true,
         restoredFiles: remappedFiles.length,
         restoredFolders: manifest.vaultStructure.folders.length,
-        needsPassphrase,
+        needsPassphrase: false,
       };
-    } catch (e) {
+    } catch (e: any) {
       console.error('Restore failed:', e);
-      return { success: false, error: 'Restore operation failed. Please try again.' };
+      await Promise.all([...createdPayloadPaths].map((path) => FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {})));
+      return { success: false, error: e?.message ? `Restore operation failed: ${e.message}` : 'Restore operation failed. Please try again.' };
     }
   }
 
@@ -528,7 +660,13 @@ export class EnhancedBackupService {
   static async pickBackupFile(): Promise<string | null> {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/zip',
+        type: [
+          'application/zip',
+          'application/x-zip-compressed',
+          'application/x-zip',
+          'application/octet-stream',
+          '*/*',
+        ],
         copyToCacheDirectory: true,
         multiple: false,
       });

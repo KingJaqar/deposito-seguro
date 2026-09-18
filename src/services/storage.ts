@@ -24,7 +24,12 @@ export class StorageService {
       return `/web-vault/${filename}`;
     }
     const dest = `${VAULT_DIR}${filename}`;
+    await StorageService.initializeSystemDirectories();
     await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    if (!(await StorageService.fileExists(dest))) {
+      await StorageService.removeSandboxFile(dest);
+      throw new Error('Imported payload was not written to the vault sandbox');
+    }
     return dest;
   }
 

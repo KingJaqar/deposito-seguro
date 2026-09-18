@@ -138,7 +138,7 @@ export class SecureCrypto {
    */
   static async encrypt(plaintextBase64: string, key: string): Promise<string> {
     const ivBytes = await Crypto.getRandomBytes(16);
-    const iv = CryptoJS.lib.WordArray.create(ivBytes as unknown as number[]);
+    const iv = hexToWordArray(bytesToHex(ivBytes));
     const keyWA = CryptoJS.SHA256(key);
     const plaintext = CryptoJS.enc.Base64.parse(plaintextBase64);
 

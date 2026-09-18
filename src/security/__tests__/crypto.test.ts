@@ -77,4 +77,22 @@ describe('SecureCrypto', () => {
     expect(SecureCrypto.secureCompare('abc', 'abd')).toBe(false);
     expect(SecureCrypto.secureCompare('abc', 'abcd')).toBe(false);
   });
+
+  it('encrypt/decrypt correctly round-trips structured JSON key material', async () => {
+    const keyMaterial = {
+      accessKeys: [{ id: 'ak-1', label: 'My Key', password: 'p@ssw0rd!#$%' }],
+      encryptionKeys: [{ id: 'ek-1', name: 'Vault Enc Key', key: '0123456789abcdef0123456789abcdef' }],
+    };
+    const jsonStr = JSON.stringify(keyMaterial);
+    const plaintextB64 = SecureCrypto.utf8ToBase64(jsonStr);
+    const key = 'backup-passphrase-secret-123';
+
+    const encrypted = await SecureCrypto.encrypt(plaintextB64, key);
+    expect(encrypted.split('.')).toHaveLength(3);
+
+    const decryptedB64 = await SecureCrypto.decrypt(encrypted, key);
+    const restoredJson = SecureCrypto.base64ToUtf8(decryptedB64);
+    expect(JSON.parse(restoredJson)).toEqual(keyMaterial);
+  });
 });
+

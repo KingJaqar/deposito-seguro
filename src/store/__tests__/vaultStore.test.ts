@@ -30,11 +30,20 @@ const mockExistingPaths = new Set<string>();
 jest.mock('../../services/storage', () => ({
   StorageService: {
     initializeSystemDirectories: async () => {},
-    copyToSandbox: async (_uri: string, name: string) => `/vault/${name}`,
+    copyToSandbox: async (_uri: string, name: string) => {
+      const path = `/vault/${name}`;
+      mockExistingPaths.add(path);
+      return path;
+    },
     remuxVideoIfPossible: async (path: string) => path,
     removeSandboxFile: async () => {},
     copySandboxFile: async () => {},
-    encryptSandboxFile: async (path: string) => `${path}.enc`,
+    encryptSandboxFile: async (path: string) => {
+      const encryptedPath = `${path}.enc`;
+      mockExistingPaths.delete(path);
+      mockExistingPaths.add(encryptedPath);
+      return encryptedPath;
+    },
     decryptSandboxFile: async (path: string) => path.replace('.enc', ''),
     fileExists: async (path: string) => mockExistingPaths.has(path),
   },
@@ -46,7 +55,10 @@ jest.mock('../../services/storage', () => ({
 // encryption logic (which only runs when extraction actually produced an
 // iconPath) is exercised the same way it would be for a real .apk import.
 jest.mock('../../services/apkIconExtractor', () => ({
-  extractApkIcon: async (_apkPath: string, outputPngPath: string) => outputPngPath,
+  extractApkIcon: async (_apkPath: string, outputPngPath: string) => {
+    mockExistingPaths.add(outputPngPath);
+    return outputPngPath;
+  },
 }));
 
 // Album plan §1a: same deterministic "success" every call, same reasoning
@@ -56,13 +68,20 @@ jest.mock('../../services/apkIconExtractor', () => ({
 // only runs when extraction actually produced a path) should still be
 // exercised for every image/video import, not skipped.
 jest.mock('../../services/mediaThumbnailExtractor', () => ({
-  extractImageThumbnail: async (_imagePath: string, outputPath: string) => outputPath,
-  extractVideoThumbnail: async (_videoPath: string, outputPath: string) => outputPath,
+  extractImageThumbnail: async (_imagePath: string, outputPath: string) => {
+    mockExistingPaths.add(outputPath);
+    return outputPath;
+  },
+  extractVideoThumbnail: async (_videoPath: string, outputPath: string) => {
+    mockExistingPaths.add(outputPath);
+    return outputPath;
+  },
 }));
 
 describe('vaultStore', () => {
-  beforeEach(() => {
-    useVaultStore.setState({ folders: [], files: [] });
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    useVaultStore.setState({ folders: [], files: [], _isVaultHydrated: true, _vaultHydrationError: null });
     useSettingsStore.setState({ accessKeys: [], encryptionKeys: [] });
     mockExistingPaths.clear();
   });
@@ -87,6 +106,59 @@ describe('vaultStore', () => {
     useVaultStore.getState().clearEverythingState();
     expect(useVaultStore.getState().folders).toEqual([]);
     expect(useVaultStore.getState().files).toEqual([]);
+  });
+
+  it('waits for in-flight hydration before importing so the snapshot cannot clobber the import', async () => {
+    const persistedFile = {
+      id: 'persisted-file',
+      folderId: 'folder-1',
+      name: 'existing.txt',
+      size: 10,
+      mimeType: 'text/plain',
+      localPath: '/vault/existing.txt',
+      isEncrypted: false,
+      isFavorite: false,
+      isTrash: false,
+      importedAt: 1,
+    };
+    await AsyncStorage.setItem('@vault_files', JSON.stringify([persistedFile]));
+
+    let releaseFilesRead!: () => void;
+    const filesRead = new Promise<void>((resolve) => { releaseFilesRead = resolve; });
+    const originalGetItem = (AsyncStorage.getItem as jest.Mock).getMockImplementation();
+    const getItemSpy = jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key) => {
+      if (key === '@vault_files') {
+        await filesRead;
+        return JSON.stringify([persistedFile]);
+      }
+      return null;
+    });
+
+    try {
+      useVaultStore.setState({ folders: [], files: [], _isVaultHydrated: false, _vaultHydrationError: null });
+      const hydration = useVaultStore.getState().hydrateVault();
+      const importPromise = useVaultStore.getState().importFile(
+        '/picker/new.txt',
+        'folder-1',
+        'new.txt',
+        'text/plain',
+        20,
+        false,
+      );
+
+      await Promise.resolve();
+      expect(useVaultStore.getState().files).toHaveLength(0);
+
+      releaseFilesRead();
+      await Promise.all([hydration, importPromise]);
+
+      expect(useVaultStore.getState().files.map((file) => file.name)).toEqual(['existing.txt', 'new.txt']);
+    } finally {
+      // Keep AsyncStorage's mock implementation alive for the later clipboard
+      // persistence tests; restoring a spy over a jest mock can restore its
+      // intentionally empty resetMocks state instead of the storage mock.
+      if (originalGetItem) getItemSpy.mockImplementation(originalGetItem);
+    }
   });
 
   describe('I-2: importFile only marks isEncrypted when encryption actually ran', () => {

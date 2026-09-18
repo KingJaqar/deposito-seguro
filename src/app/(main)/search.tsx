@@ -101,7 +101,7 @@ export default function SearchScreen() {
   const viewMode = useSettingsStore((s) => s.viewMode);
   const { accessKeys } = useSettingsStore();
   const {
-    files, folders, clipboard, undoLastCut, hydrateVault,
+    files, folders, clipboard, undoLastCut,
     toggleFavorite, toggleFolderFavorite, softDeleteFile, deleteFolder, shredFile, shredFolder,
     duplicateFile, duplicateFolder, addFileToAlbum,
     copyToClipboard, cutToClipboard, pasteFromClipboard,
@@ -153,8 +153,6 @@ export default function SearchScreen() {
   const [keyPickerTarget, setKeyPickerTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' | 'bulk' } | null>(null);
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
   const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string; targetType: 'file' | 'folder' | 'bulk' } | null>(null);
-
-  useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
   // Relocated above searchedFolders/searchedFiles/sections (was declared
   // after them) so those can safely reference it without a

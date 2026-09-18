@@ -50,12 +50,11 @@ export default function RootLayout() {
    const settingsError = useSettingsStore((s) => s.hydrationError);
    const vaultError = useVaultStore((s) => s._vaultHydrationError);
 
-   // Drives BootSplash below. Defaults to the real logo/undisguised colors —
-   // matches the pre-hydration state (disguiseMode defaults to 'default' in
-   // settingsStore) — and is only ever flipped to the calculator disguise
-   // once hydration has actually confirmed that's the stored preference, so
-   // a slow load never has a chance to flash the real identity.
-   const [bootSplashProps, setBootSplashProps] = useState<{ disguised: boolean; iconTheme: DisguiseIconTheme }>({
+   // Keeps the JS splash image-free until AsyncStorage confirms the disguise
+   // choice. The native splash also has no image: that removes every path that
+   // could expose the Deposito Seguro logo before calculator spoofing is known.
+   const [bootSplashProps, setBootSplashProps] = useState<{ resolved: boolean; disguised: boolean; iconTheme: DisguiseIconTheme }>({
+     resolved: false,
      disguised: false,
      iconTheme: 'default',
    });
@@ -90,11 +89,10 @@ export default function RootLayout() {
          if (!mounted) return;
          const currentMode = useSettingsStore.getState().disguiseMode;
          const currentIconTheme = useSettingsStore.getState().disguiseIconTheme;
-         // Set before hideSplash() below, while the native splash still
-         // covers the screen, so BootSplash is already showing the right
-         // image (logo vs. the chosen calculator icon) the instant the
-         // native splash is removed — never a frame of the wrong one.
-         setBootSplashProps({ disguised: currentMode === 'calculator', iconTheme: currentIconTheme });
+         // Set before hideSplash() below so the first visible splash image is
+         // the correct one. Before this point both native and JS splash layers
+         // are intentionally image-free.
+         setBootSplashProps({ resolved: true, disguised: currentMode === 'calculator', iconTheme: currentIconTheme });
          if (currentMode === 'calculator') {
            await setBackgroundColorAsync(CALC_SYSTEM_BG);
          }
@@ -149,7 +147,7 @@ export default function RootLayout() {
                  <Slot />
                  <RenameModalWrapper />
                  <MoveVaultModalWrapper />
-                 {showBootSplash && <BootSplash disguised={bootSplashProps.disguised} iconTheme={bootSplashProps.iconTheme} />}
+                 {showBootSplash && <BootSplash resolved={bootSplashProps.resolved} disguised={bootSplashProps.disguised} iconTheme={bootSplashProps.iconTheme} />}
                </MoveProvider>
              </RenameProvider>
            </CustomThemeProvider>

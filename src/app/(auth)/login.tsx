@@ -21,7 +21,6 @@ const CALC_OP_BG = '#FFFFFF';
 const CALC_SCI_BG = '#2D2D2D';
 const CALC_TEXT = '#FFFFFF';
 const CALC_OP_TEXT = '#000000';
-const CALC_SPLASH_BG = CALC_BG;
 
 const CALC_THEME_COLORS: Record<string, { equalBg: string }> = {
   default: { equalBg: '#FFFFFF' },
@@ -72,7 +71,6 @@ export default function LoginScreen() {
   const [calcExpression, setCalcExpression] = useState('');
   const [calcMainDisplay, setCalcMainDisplay] = useState('0');
   const [isSecondMode, setIsSecondMode] = useState(false);
-  const [showTransitionSplash, setShowTransitionSplash] = useState(false);
   const isCalc = disguiseMode === 'calculator';
 
   const calcTheme = useMemo(
@@ -118,15 +116,7 @@ export default function LoginScreen() {
 
     const success = await authenticate(pinValue);
     if (success) {
-      if (isCalc) {
-        setShowTransitionSplash(true);
-        setTimeout(async () => {
-          setShowTransitionSplash(false);
-          router.replace('/(main)/dashboard');
-        }, 800);
-      } else {
-        router.replace('/(main)/dashboard');
-      }
+      router.replace('/(main)/dashboard');
     } else {
       if (!silent) Alert.alert('Access Denied', 'Invalid signature key payload.');
       if (isCalc) {
@@ -419,19 +409,6 @@ export default function LoginScreen() {
 
   const liveResult = calcExpression.trim() ? evaluateExpression(calcExpression) : null;
   const displayMain = liveResult !== null ? formatDisplayNumber(liveResult) : getCurrentOperand();
-
-  if (showTransitionSplash) {
-    return (
-      <View style={{ flex: 1, backgroundColor: CALC_SPLASH_BG }}>
-        <View style={styles.transitionSplash}>
-          <View style={styles.transitionSplashLogoContainer}>
-            <Image source={require('../../../assets/logo/DepoS_logo.png')} style={styles.transitionSplashImage} resizeMode="contain" />
-          </View>
-          <Text style={styles.transitionSplashTitle}>Deposito Seguro</Text>
-        </View>
-      </View>
-    );
-  }
 
   if (isCalc) {
     return (
@@ -864,32 +841,4 @@ const styles = StyleSheet.create({
   keyCircle: { justifyContent: 'center', alignItems: 'center' },
   keyNum: { fontWeight: '700', includeFontPadding: false },
   keyGhostText: { fontWeight: '600', includeFontPadding: false },
-  transitionSplash: {
-    flex: 1,
-    backgroundColor: '#2D2D2D',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  transitionSplashLogoContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 40,
-    backgroundColor: '#3A3A3C',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  transitionSplashImage: {
-    width: 300,
-    height: 300,
-    resizeMode: 'contain',
-  },
-  transitionSplashTitle: {
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    fontSize: 28,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
 });

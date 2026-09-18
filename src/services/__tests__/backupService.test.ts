@@ -79,3 +79,4 @@ describe('EnhancedBackupService.createBackupManifest', () => {
     expect(manifest.vaultStructure.files[0].iconEncrypted).toBe(true);
   });
 });
+

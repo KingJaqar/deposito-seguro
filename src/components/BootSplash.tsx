@@ -1,13 +1,8 @@
 // src/components/BootSplash.tsx
-// JS-rendered continuation of the native boot splash. The native splash
-// configured in app.json (expo-splash-screen) renders before any JS runs,
-// so it cannot know the user's disguise setting — that only becomes
-// available once settingsStore hydrates from AsyncStorage. RootLayout
-// (src/app/_layout.tsx) keeps the native splash up for the whole hydration
-// window, then mounts this overlay on top of the routed screen with the
-// now-known disguise state before hiding the native splash, so the very
-// first branded frame the user sees already matches their disguise choice
-// instead of leaking the real "Deposito Seguro" identity while disguised.
+// JS-rendered splash. The native splash is intentionally image-free because
+// it appears before JavaScript can read the persisted disguise setting. Once
+// the setting hydrates, RootLayout renders only the matching logo or
+// calculator icon, so a spoofed launch never exposes the Deposito Seguro mark.
 import { Image, StyleSheet, View } from 'react-native';
 import type { DisguiseIconTheme } from '../types';
 
@@ -23,26 +18,26 @@ const CALC_ICON_SOURCES: Record<DisguiseIconTheme, ReturnType<typeof require>> =
   red: require('../../assets/icons/calculator-icons/calculator-icon-black-red.png'),
 };
 
-// NORMAL_BG matches app.json's expo-splash-screen plugin backgroundColor and
-// the native splash's logo background;
+// NORMAL_BG matches app.json's image-free native splash background.
 // CALC_BG matches login.tsx's CALC_BG for the calculator disguise itself —
 // kept as separate literals (not imported) since neither is a themed token.
 const NORMAL_BG = '#121212';
 const CALC_BG = '#000000';
 
 export interface BootSplashProps {
+  resolved: boolean;
   disguised: boolean;
   iconTheme: DisguiseIconTheme;
 }
 
-export function BootSplash({ disguised, iconTheme }: BootSplashProps) {
-  const source = disguised ? CALC_ICON_SOURCES[iconTheme] : LOGO_SOURCE;
+export function BootSplash({ resolved, disguised, iconTheme }: BootSplashProps) {
+  const source = resolved ? (disguised ? CALC_ICON_SOURCES[iconTheme] : LOGO_SOURCE) : null;
   return (
     <View
       style={[StyleSheet.absoluteFill, styles.fill, { backgroundColor: disguised ? CALC_BG : NORMAL_BG }]}
       pointerEvents="none"
     >
-      <Image source={source} style={styles.image} resizeMode="contain" />
+      {source && <Image source={source} style={styles.image} resizeMode="contain" />}
     </View>
   );
 }

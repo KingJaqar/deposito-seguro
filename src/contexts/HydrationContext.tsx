@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, ReactNode, useContext } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
 
@@ -21,31 +21,10 @@ export function HydrationProvider({ children }: { children: ReactNode }) {
   const vaultHydrated = useVaultStore((s) => s._isVaultHydrated);
   const settingsError = useSettingsStore((s) => s.hydrationError);
   const vaultError = useVaultStore((s) => s._vaultHydrationError);
-  const hydrateSettings = useSettingsStore((s) => s.hydrateSettings);
-  const hydrateVault = useVaultStore((s) => s.hydrateVault);
-
-  const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([hydrateSettings(), hydrateVault()])
-      .catch((e) => console.error('Background hydration error', e))
-      .finally(() => {
-        if (!cancelled) {
-          setIsReady(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrateSettings, hydrateVault]);
-
   const error = settingsError || vaultError;
 
   const value = {
-    isReady,
+    isReady: settingsHydrated && vaultHydrated,
     settingsReady: settingsHydrated,
     vaultReady: vaultHydrated,
     error,

@@ -49,6 +49,7 @@ export class AlbumMediaOnlyError extends Error {
 
 interface VaultStoreActions extends VaultState {
   hydrateVault: () => Promise<void>;
+  replaceVaultStateFromRestore: (folders: FolderMetadata[], files: FileMetadata[]) => void;
   isVaultHydrated: () => boolean;
   /**
    * Verifies each file's on-disk payload still exists and flags the ones
@@ -485,6 +486,18 @@ const persistFiles = async (files: FileMetadata[]): Promise<void> => {
   }
 };
 
+const logVaultDiagnostic = (event: string, details: Record<string, unknown> = {}) => {
+  // Temporary Phase 0 diagnostics. Keep this development-only and never log
+  // passphrases, keys, file contents, or source/sandbox paths.
+  if (__DEV__ && process.env.NODE_ENV !== 'test') {
+    console.info(`[VaultDiag] ${event}`, details);
+  }
+};
+
+let vaultHydrationPromise: Promise<void> | null = null;
+let waitForVaultHydration: (() => Promise<void>) | null = null;
+let vaultHydrationGeneration = 0;
+
 type VaultPatch = { folders?: FolderMetadata[]; files?: FileMetadata[] };
 type VaultSetFn = (updater: (state: VaultStoreActions) => VaultPatch) => void;
 
@@ -507,6 +520,12 @@ function uniqueClampedName(base: string, existingNames: Set<string>): string {
 }
 
 const commitVaultState = async (set: VaultSetFn, updater: (state: VaultStoreActions) => VaultPatch): Promise<VaultPatch> => {
+  // Every metadata mutation must start from the hydrated snapshot. This also
+  // covers restore/folder actions triggered during the first cold render, not
+  // only the document-picker import path.
+  if (waitForVaultHydration) {
+    await waitForVaultHydration();
+  }
   let patch: VaultPatch = {};
   set((state) => {
     patch = updater(state);
@@ -531,29 +550,56 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
   _vaultHydrationError: null as string | null,
   isVaultHydrated: () => get()._isVaultHydrated,
   getVaultUsageBytes: () => get().files.reduce((sum, f) => sum + committedFileBytes(f), 0),
+  replaceVaultStateFromRestore: (folders, files) => {
+    // Invalidate any cold-start read that is still waiting on AsyncStorage.
+    // A restore is the newer source of truth and must win when that read
+    // eventually completes.
+    vaultHydrationGeneration += 1;
+    set({ folders, files, _isVaultHydrated: true, _vaultHydrationError: null });
+  },
   hydrateVault: async () => {
     const state = get();
     if (state._isVaultHydrated) return;
-    set({ _isVaultHydrated: false, _vaultHydrationError: null });
-    try {
-      await StorageService.initializeSystemDirectories();
-      const foldersRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_folders'));
-      const filesRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_files'));
-      const clipboardRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_clipboard'));
-      set({
-        folders: foldersRaw ? JSON.parse(foldersRaw) : [],
-        files: filesRaw ? JSON.parse(filesRaw) : [],
-        clipboard: clipboardRaw ? JSON.parse(clipboardRaw) : null,
-        _isVaultHydrated: true,
-        _vaultHydrationError: null,
+    if (vaultHydrationPromise) return vaultHydrationPromise;
+
+    const hydrationGeneration = vaultHydrationGeneration;
+    vaultHydrationPromise = (async () => {
+      logVaultDiagnostic('hydration:start', {
+        fileCountInMemory: get().files.length,
+        folderCountInMemory: get().folders.length,
       });
-    } catch (e) {
-      console.error('Vault store context compilation failure', e);
-      set({ _isVaultHydrated: true, _vaultHydrationError: 'Vault hydration failed' });
-    }
-    // Fire-and-forget so startup isn't blocked on stat-ing every payload; the
-    // UI updates once missing files are flagged.
-    get().reconcileMissingPayloads().catch((e) => console.error('Payload reconciliation failed', e));
+      set({ _isVaultHydrated: false, _vaultHydrationError: null });
+      try {
+        await StorageService.initializeSystemDirectories();
+        const foldersRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_folders'));
+        const filesRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_files'));
+        const clipboardRaw = await withAsyncStorageTimeout(AsyncStorage.getItem('@vault_clipboard'));
+        if (hydrationGeneration !== vaultHydrationGeneration) return;
+        set({
+          folders: foldersRaw ? JSON.parse(foldersRaw) : [],
+          files: filesRaw ? JSON.parse(filesRaw) : [],
+          clipboard: clipboardRaw ? JSON.parse(clipboardRaw) : null,
+          _isVaultHydrated: true,
+          _vaultHydrationError: null,
+        });
+        logVaultDiagnostic('hydration:complete', {
+          fileCount: get().files.length,
+          folderCount: get().folders.length,
+        });
+      } catch (e) {
+        if (hydrationGeneration !== vaultHydrationGeneration) return;
+        console.error('Vault store context compilation failure', e);
+        set({ _isVaultHydrated: true, _vaultHydrationError: 'Vault hydration failed' });
+        logVaultDiagnostic('hydration:failed');
+      }
+      // Fire-and-forget so startup isn't blocked on stat-ing every payload; the
+      // UI updates once missing files are flagged.
+      get().reconcileMissingPayloads().catch((e) => console.error('Payload reconciliation failed', e));
+    })().finally(() => {
+      vaultHydrationPromise = null;
+    });
+
+    return vaultHydrationPromise;
   },
   reconcileMissingPayloads: async () => {
     const files = get().files;
@@ -687,6 +733,13 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     });
   },
   importFile: async (sourceUri, targetFolderId, fileName, mimeType, size, encrypt, encryptionKeyId) => {
+    // Imports can be triggered immediately after the native picker returns.
+    // Finish the one shared hydration pass first so its older AsyncStorage
+    // snapshot cannot replace this import's newer in-memory state.
+    await get().hydrateVault();
+    const fileCountBefore = get().files.length;
+    logVaultDiagnostic('import:start', { fileCountBefore });
+
     // Album guard: checked before any file I/O, same reasoning as the
     // storage-limit check just below — no point copying bytes into the
     // sandbox just to reject the import a moment later.
@@ -701,17 +754,27 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
 
     const targetId = SecureCrypto.generateUUID();
     const sandboxFilename = `${targetId}_${fileName}`;
+    const createdPaths = new Set<string>();
+    let metadataCommitted = false;
 
-    const internalPath = await StorageService.copyToSandbox(sourceUri, sandboxFilename);
-    // Best-effort lossless remux (video files only, Android only — see
-    // StorageService.remuxVideoIfPossible / src/utils/videoRemux.ts) so the
-    // stored file always has a valid, seekable duration/index regardless of
-    // what the original container declared. Must happen before encryption —
-    // it's a real read of the plaintext bytes. No-ops (returns internalPath
-    // unchanged) for non-video files, other platforms, or if the native
-    // module isn't available/fails.
-    const remuxedPath = await StorageService.remuxVideoIfPossible(internalPath, mimeType);
-    let finalPath = remuxedPath;
+    try {
+      const internalPath = await StorageService.copyToSandbox(sourceUri, sandboxFilename);
+      createdPaths.add(internalPath);
+      if (!(await StorageService.fileExists(internalPath))) {
+        throw new Error('Imported payload was not written to the vault sandbox');
+      }
+
+      // Best-effort lossless remux (video files only, Android only — see
+      // StorageService.remuxVideoIfPossible / src/utils/videoRemux.ts) so the
+      // stored file always has a valid, seekable duration/index regardless of
+      // what the original container declared. Must happen before encryption —
+      // it's a real read of the plaintext bytes. No-ops (returns internalPath
+      // unchanged) for non-video files, other platforms, or if the native
+      // module isn't available/fails.
+      if (mimeType.startsWith('video/')) createdPaths.add(`${internalPath}.remuxed.mp4`);
+      const remuxedPath = await StorageService.remuxVideoIfPossible(internalPath, mimeType);
+      createdPaths.add(remuxedPath);
+      let finalPath = remuxedPath;
 
     // Best-effort real app-icon extraction for .apk imports (see
     // src/services/apkIconExtractor.ts) — must run on the plaintext sandbox
@@ -719,11 +782,11 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // file bytes. Never blocks the import: a non-APK, a web build, or an
     // extraction failure all just leave iconPath undefined and the grid
     // falls back to the generic app glyph.
-    let iconPath: string | undefined;
-    const isApk = mimeType === 'application/vnd.android.package-archive' || fileName.toLowerCase().endsWith('.apk');
-    if (isApk && Platform.OS !== 'web') {
-      iconPath = (await extractApkIcon(remuxedPath, `${remuxedPath}.icon.png`)) ?? undefined;
-    }
+      let iconPath: string | undefined;
+      const isApk = mimeType === 'application/vnd.android.package-archive' || fileName.toLowerCase().endsWith('.apk');
+      if (isApk && Platform.OS !== 'web') {
+        iconPath = (await extractApkIcon(remuxedPath, `${remuxedPath}.icon.png`)) ?? undefined;
+      }
     // Real thumbnail generation for images/videos (plan §1a) — same slot,
     // same before-encryption timing, and same never-blocks-import contract
     // as the .apk icon extraction just above, just gated on the file being
@@ -734,25 +797,32 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     // encryption block right below needs no changes: it already encrypts
     // whatever iconPath holds at this point with no awareness of why it was
     // set.
-    const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
-    if (isMedia && Platform.OS !== 'web') {
-      const thumbOutputPath = `${remuxedPath}.thumb.jpg`;
-      iconPath = (mimeType.startsWith('video/')
-        ? await extractVideoThumbnail(remuxedPath, thumbOutputPath)
-        : await extractImageThumbnail(remuxedPath, thumbOutputPath)) ?? undefined;
-    }
+      const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
+      if (isMedia && Platform.OS !== 'web') {
+        const thumbOutputPath = `${remuxedPath}.thumb.jpg`;
+        iconPath = (mimeType.startsWith('video/')
+          ? await extractVideoThumbnail(remuxedPath, thumbOutputPath)
+          : await extractImageThumbnail(remuxedPath, thumbOutputPath)) ?? undefined;
+      }
+      if (iconPath) createdPaths.add(iconPath);
+      if (iconPath && !(await StorageService.fileExists(iconPath))) {
+        await StorageService.removeSandboxFile(iconPath);
+        iconPath = undefined;
+      }
     // I-2: only mark a file as encrypted when encryption actually ran, not
     // merely because it was requested — previously `isEncrypted: encrypt`
     // was set unconditionally, so a resolution failure (missing key) left
     // a plaintext file wearing a false "encrypted" badge.
-    let didEncrypt = false;
-    let iconEncrypted = false;
+      let didEncrypt = false;
+      let iconEncrypted = false;
 
-    if (encrypt && encryptionKeyId) {
-      const encryptionKey = useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === encryptionKeyId)?.key;
-      if (encryptionKey) {
-        finalPath = await StorageService.encryptSandboxFile(remuxedPath, encryptionKey);
-        didEncrypt = true;
+      if (encrypt && encryptionKeyId) {
+        const encryptionKey = useSettingsStore.getState().encryptionKeys.find((k: EncryptionKeyMetadata) => k.id === encryptionKeyId)?.key;
+        if (encryptionKey) {
+          createdPaths.add(`${remuxedPath}.enc`);
+          finalPath = await StorageService.encryptSandboxFile(remuxedPath, encryptionKey);
+          createdPaths.add(finalPath);
+          didEncrypt = true;
 
         // S-12: encrypt the extracted icon under the same key, so an
         // encrypted .apk doesn't leak its real launcher icon in plaintext.
@@ -763,20 +833,26 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
         // itself (mirrors extractApkIcon's own never-throws contract) —
         // worst case the icon just falls back to the generic app glyph
         // rather than blocking an otherwise-successful encrypted import.
-        if (iconPath) {
-          try {
-            iconPath = await StorageService.encryptSandboxFile(iconPath, encryptionKey);
-            iconEncrypted = true;
-          } catch (err) {
-            console.error('Failed to encrypt app icon cache, falling back to generic icon:', err);
-            await StorageService.removeSandboxFile(iconPath);
-            iconPath = undefined;
+          if (iconPath) {
+            try {
+              createdPaths.add(`${iconPath}.enc`);
+              iconPath = await StorageService.encryptSandboxFile(iconPath, encryptionKey);
+              createdPaths.add(iconPath);
+              iconEncrypted = true;
+            } catch (err) {
+              console.error('Failed to encrypt app icon cache, falling back to generic icon:', err);
+              await StorageService.removeSandboxFile(iconPath);
+              iconPath = undefined;
+            }
           }
         }
       }
-    }
 
-    const newFile: FileMetadata = {
+      if (!(await StorageService.fileExists(finalPath))) {
+        throw new Error('Imported payload was not written to the vault sandbox');
+      }
+
+      const newFile: FileMetadata = {
       id: targetId,
       folderId: targetFolderId,
       // Display name only — sandboxFilename above keeps the untruncated
@@ -794,7 +870,20 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
       importedAt: Date.now()
     };
 
-    await commitVaultState(set, (state) => ({ files: [...state.files, newFile] }));
+      await commitVaultState(set, (state) => ({ files: [...state.files, newFile] }));
+      metadataCommitted = true;
+      logVaultDiagnostic('import:complete', {
+        fileCountBefore,
+        fileCountAfter: get().files.length,
+      });
+    } catch (error) {
+      if (!metadataCommitted) {
+        set((state) => ({ files: state.files.filter((file) => file.id !== targetId) }));
+        await persistFiles(get().files).catch(() => {});
+      }
+      await Promise.all([...createdPaths].map((path) => StorageService.removeSandboxFile(path)));
+      throw error;
+    }
   },
   toggleFavorite: async (fileId) => {
     await commitVaultState(set, (state) => ({
@@ -2320,3 +2409,10 @@ export const useVaultStore = create<VaultStoreActions>((set, get) => ({
     await commitVaultState(set, (state) => ({ files: [...state.files, copied] }));
   },
 }));
+
+// Installed after the store exists so commitVaultState can serialize every
+// persistent mutation behind the same single-flight hydration pass.
+waitForVaultHydration = () => {
+  const state = useVaultStore.getState();
+  return state._isVaultHydrated ? Promise.resolve() : state.hydrateVault();
+};

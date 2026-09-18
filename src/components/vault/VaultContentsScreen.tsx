@@ -57,7 +57,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
 import { AccessKeyPicker } from '../AccessKeyPicker';
 import { AccessKeyRegistrationModal } from '../AccessKeyRegistrationModal';
 import { AccessKeyUnlockModal } from '../AccessKeyUnlockModal';
@@ -85,9 +84,9 @@ import { MAX_NAME_LENGTH, truncateDisplayName } from '../../constants/naming';
 import { Type } from '../../constants/typography';
 import { useRename } from '../../contexts/RenameContext';
 import { useMove } from '../../contexts/MoveVaultContext';
+import { useHydration } from '../../contexts/HydrationContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFileSystemQuery } from '../../hooks/useFileSystemQuery';
-import { useScreenEnterAnimation } from '../../hooks/useScreenEnterAnimation';
 import { SecureCrypto } from '../../security/crypto';
 import { formatBytes } from '../../constants/storageLimits';
 import { StorageService } from '../../services/storage';
@@ -136,8 +135,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
   const { confirmState: delConfirm, confirm: confirmDestructive, close: closeDelConfirm } = useConfirmDestructive();
   const { snackbarState, showSnackbar } = useSnackbar();
   const { topToastState, showTopToast } = useTopToast();
-
-  const screenAnimatedStyle = useScreenEnterAnimation();
+  const { vaultReady } = useHydration();
 
   const isAlbum = variant === 'album';
 
@@ -255,7 +253,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
   };
 
   const executeAlbumImport = async () => {
-    if (!id) return;
+    if (!id || !vaultReady) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Photo Access Needed', 'Photo access is required to add media to an album — enable it in Settings.');
@@ -309,7 +307,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
   };
 
   const executeImportPayload = async () => {
-    if (!id) return;
+    if (!id || !vaultReady) return;
     if (isAlbum) {
       try {
         await executeAlbumImport();
@@ -321,7 +319,11 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       return;
     }
     try {
-      const pickerResult = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: false, type: '*/*' });
+      // Android document providers may return a transient content:// URI.
+      // Copying it to the app cache before import makes the subsequent
+      // sandbox copy reliable in an EAS APK (and is the documented
+      // expo-document-picker + expo-file-system interop path).
+      const pickerResult = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, type: '*/*' });
       if (pickerResult.canceled || !pickerResult.assets) return;
       const asset = pickerResult.assets[0];
       const safeName = sanitizeFilename(asset.name);
@@ -1125,7 +1127,8 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
           <>
             <TouchableOpacity
               onPress={executeImportPayload}
-              style={[styles.addFileButton, { backgroundColor: colors.primary, borderRadius: radius(10), paddingVertical: space(3), paddingHorizontal: space(5), gap: space(1) }]}
+              disabled={!vaultReady}
+              style={[styles.addFileButton, { backgroundColor: colors.primary, borderRadius: radius(10), paddingVertical: space(3), paddingHorizontal: space(5), gap: space(1), opacity: vaultReady ? 1 : 0.5 }]}
               accessibilityRole="button"
               accessibilityLabel={isAlbum ? 'Add photos and videos' : 'Add file'}
             >
@@ -1226,22 +1229,25 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
         }
       />
 
-      <Animated.View style={[styles.flex1, screenAnimatedStyle]}>
-        <SectionList<GridRow, GridSection>
-          sections={sections}
-          keyExtractor={(item) => item.id}
-          renderItem={renderGridRow}
-          renderSectionHeader={renderGridSectionHeader}
-          renderSectionFooter={renderGridSectionFooter}
-          ItemSeparatorComponent={isGridMode ? () => <View style={{ height: gridGap }} /> : undefined}
-          SectionSeparatorComponent={() => <View style={{ height: space(6) }} />}
-          ListHeaderComponent={gridListHeader}
-          ListEmptyComponent={gridEmptyState}
-          stickySectionHeadersEnabled={false}
-          contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing + space(6) }]}
-          showsVerticalScrollIndicator={false}
-        />
-      </Animated.View>
+      {/*
+       * This list stays visible across native picker activity. Keeping the
+       * persistent content out of a Reanimated opacity wrapper avoids an
+       * Android resume reset making the folder appear blank after import.
+       */}
+      <SectionList<GridRow, GridSection>
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderItem={renderGridRow}
+        renderSectionHeader={renderGridSectionHeader}
+        renderSectionFooter={renderGridSectionFooter}
+        ItemSeparatorComponent={isGridMode ? () => <View style={{ height: gridGap }} /> : undefined}
+        SectionSeparatorComponent={() => <View style={{ height: space(6) }} />}
+        ListHeaderComponent={gridListHeader}
+        ListEmptyComponent={gridEmptyState}
+        stickySectionHeadersEnabled={false}
+        contentContainerStyle={[styles.scrollBody, { paddingHorizontal: screenPadding, paddingTop: space(4), paddingBottom: bottomTabSpacing + space(6) }]}
+        showsVerticalScrollIndicator={false}
+      />
 
       <DestructiveConfirmModal state={delConfirm} onClose={closeDelConfirm} />
 
@@ -1458,7 +1464,6 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  flex1: { flex: 1 },
   scrollBody: {},
   gridRow: { flexDirection: 'row' },
   rowItemFill: { flex: 1 },

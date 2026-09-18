@@ -95,7 +95,7 @@ export default function DashboardScreen() {
   const viewMode = useSettingsStore((s) => s.viewMode);
   const {
     folders, files, clipboard,
-    createFolder, hydrateVault, renameFolder, moveFolder,
+    createFolder, renameFolder, moveFolder,
     deleteFolder, shredFolder,
     shredMultipleFolders, exportFolderFiles, toggleFolderFavorite,
     assignFolderAccessKey, removeFolderAccessKey,
@@ -148,8 +148,6 @@ export default function DashboardScreen() {
   const [keyCreateTarget, setKeyCreateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const scrollViewRef = useRef<ScrollView>(null);
-
-  useEffect(() => { hydrateVault(); }, [hydrateVault]);
 
   const activeFiles = useMemo(() => files.filter(f => !f.isTrash), [files]);
 

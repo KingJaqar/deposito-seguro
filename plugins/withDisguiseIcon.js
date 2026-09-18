@@ -16,7 +16,7 @@
  *   - the calculator-icon mipmap PNGs (identical source image copied into
  *     every density bucket, matching how they exist in the repo today)
  */
-const { withDangerousMod, withMainApplication, withAndroidManifest } = require('expo/config-plugins');
+const { withDangerousMod, withMainApplication, withAndroidManifest, withAndroidStyles, AndroidConfig } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -133,8 +133,52 @@ class DisguiseIconPackage : ReactPackage {
 }
 `;
 
+// Android 12+ always draws a system splash before React Native can read the
+// persisted disguise choice. Point that system layer at a transparent vector
+// instead of the fixed Deposito Seguro logo. The JS BootSplash then draws the
+// real logo or selected calculator icon only after settings hydration.
+const NEUTRAL_SPLASH_DRAWABLE_XML = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="1dp"
+  android:height="1dp"
+  android:viewportWidth="1"
+  android:viewportHeight="1">
+  <path android:fillColor="#00000000" android:pathData="M0,0h1v1h-1z" />
+</vector>
+`;
+
 const ICON_THEMES = ['black-white', 'black-orange', 'black-red'];
 const DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+const MAIN_ACTIVITY_NAME = '.MainActivity';
+const MAIN_ACTION = 'android.intent.action.MAIN';
+const LAUNCHER_CATEGORY = 'android.intent.category.LAUNCHER';
+
+function intentFilterHasNamedEntry(intentFilter, section, name) {
+  return intentFilter[section]?.some((entry) => entry.$?.['android:name'] === name);
+}
+
+function isLauncherIntentFilter(intentFilter) {
+  return (
+    intentFilterHasNamedEntry(intentFilter, 'action', MAIN_ACTION) &&
+    intentFilterHasNamedEntry(intentFilter, 'category', LAUNCHER_CATEGORY)
+  );
+}
+
+// Android creates one launcher icon for every enabled component with a
+// MAIN/LAUNCHER intent filter. MainActivity is the target for the aliases,
+// not a launcher itself: leaving its Expo-generated launcher filter in place
+// alongside MainActivityAliasDefault creates two visible app icons.
+function removeMainActivityLauncherIntentFilter(app) {
+  const mainActivity = app.activity?.find(
+    (activity) => activity.$?.['android:name'] === MAIN_ACTIVITY_NAME
+  );
+
+  if (!mainActivity?.['intent-filter']) return;
+
+  mainActivity['intent-filter'] = mainActivity['intent-filter'].filter(
+    (intentFilter) => !isLauncherIntentFilter(intentFilter)
+  );
+}
 
 // Android file-based resource names (mipmap PNG filenames, and the
 // @mipmap/<name> references to them) may only contain lowercase a-z, 0-9,
@@ -145,6 +189,32 @@ const DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
 // manifest icon reference through this so they can't drift out of sync.
 function mipmapResourceName(theme) {
   return `calculator_icon_${theme.replace(/-/g, '_')}`;
+}
+
+function configureNeutralAndroidSplash(projectRoot) {
+  const resDir = path.join(projectRoot, 'android/app/src/main/res');
+  const drawableDir = path.join(resDir, 'drawable');
+  const neutralDrawablePath = path.join(drawableDir, 'splashscreen_neutral.xml');
+  const stylesPath = path.join(resDir, 'values/styles.xml');
+
+  fs.mkdirSync(drawableDir, { recursive: true });
+  fs.writeFileSync(neutralDrawablePath, NEUTRAL_SPLASH_DRAWABLE_XML);
+
+  if (!fs.existsSync(stylesPath)) {
+    console.warn('[withDisguiseIcon] Android splash styles were not generated.');
+    return;
+  }
+
+  const styles = fs.readFileSync(stylesPath, 'utf8');
+  const updatedStyles = styles.replace(
+    /(<item name="windowSplashScreenAnimatedIcon">)[^<]*(<\/item>)/,
+    '$1@drawable/splashscreen_neutral$2'
+  );
+  if (updatedStyles === styles) {
+    console.warn('[withDisguiseIcon] could not replace the Android splash icon resource.');
+    return;
+  }
+  fs.writeFileSync(stylesPath, updatedStyles);
 }
 
 function withDisguiseIconNativeFiles(config) {
@@ -185,6 +255,8 @@ function withDisguiseIconNativeFiles(config) {
         }
       }
 
+      configureNeutralAndroidSplash(config.modRequest.projectRoot);
+
       return config;
     },
   ]);
@@ -219,6 +291,11 @@ function withDisguiseIconManifest(config) {
     // `adb backup`/OEM cloud backup.
     app.$['android:allowBackup'] = 'false';
 
+    // The aliases below are the only launcher components. Keep MainActivity's
+    // deep-link filter, but remove Expo's generated MAIN/LAUNCHER filter so
+    // Android shows only the enabled alias as the app icon.
+    removeMainActivityLauncherIntentFilter(app);
+
     if (!app['activity-alias']) app['activity-alias'] = [];
 
     const desiredAliases = [
@@ -252,10 +329,28 @@ function withDisguiseIconManifest(config) {
   });
 }
 
+function withDisguiseIconStyles(config) {
+  return withAndroidStyles(config, (config) => {
+    config.modResults = AndroidConfig.Styles.assignStylesValue(config.modResults, {
+      add: true,
+      name: 'windowSplashScreenAnimatedIcon',
+      value: '@drawable/splashscreen_neutral',
+      parent: { name: 'Theme.App.SplashScreen' },
+    });
+    return config;
+  });
+}
+
 /** @type {import('expo/config-plugins').ConfigPlugin} */
 module.exports = function withDisguiseIcon(config) {
   config = withDisguiseIconNativeFiles(config);
   config = withDisguiseIconPackageRegistration(config);
   config = withDisguiseIconManifest(config);
+  config = withDisguiseIconStyles(config);
   return config;
+};
+
+module.exports._internal = {
+  isLauncherIntentFilter,
+  removeMainActivityLauncherIntentFilter,
 };

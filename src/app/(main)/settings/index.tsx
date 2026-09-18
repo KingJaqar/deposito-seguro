@@ -143,11 +143,11 @@ export default function SettingsCenterScreen() {
     setBackupEstimate(null);
   };
 
-  const runRestore = async (backupUri: string, passphrase: string | undefined) => {
+  const runRestore = async (backupUri: string, passphrase: string | undefined, skipKeyMaterial?: boolean) => {
     setBackupProgress({ message: 'Starting restore...', progress: 0 });
     const result = await BackupService.restoreBackup(backupUri, passphrase, (message, progress) => {
       setBackupProgress({ message, progress });
-    });
+    }, skipKeyMaterial);
     setBackupProgress(null);
 
     if (result.needsPassphrase) {
@@ -160,7 +160,15 @@ export default function SettingsCenterScreen() {
     }
 
     if (result.success) {
-      Alert.alert('Restore Complete', `Restored ${result.restoredFiles} files and ${result.restoredFolders} folders.`, [{ text: 'OK' }]);
+      if (skipKeyMaterial) {
+        Alert.alert(
+          'Restore Complete (Keys Skipped)',
+          `Restored ${result.restoredFiles} files and ${result.restoredFolders} folders. Access/encryption keys were skipped — protected content will only open if matching keys already exist on this device.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Restore Complete', `Restored ${result.restoredFiles} files and ${result.restoredFolders} folders.`, [{ text: 'OK' }]);
+      }
     } else {
       Alert.alert('Restore Error', result.error || 'Failed to restore backup.');
     }
@@ -187,10 +195,7 @@ export default function SettingsCenterScreen() {
     setRestorePassphraseInput('');
     setPendingRestoreUri(null);
     if (uri) {
-      Alert.alert(
-        'Restore Complete (Keys Skipped)',
-        'Vault structure and files were restored. Access/encryption keys were not, since no passphrase was provided — protected content will only open if the matching keys already exist on this device.'
-      );
+      await runRestore(uri, undefined, true);
     }
   };
 
