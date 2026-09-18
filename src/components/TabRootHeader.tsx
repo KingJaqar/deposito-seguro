@@ -6,7 +6,8 @@
 // button. Owns its own top safe-area inset the same way VaultHeader does, so
 // the two headers agree on safe-area handling.
 import React from 'react';
-import { StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Text } from './primitives/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

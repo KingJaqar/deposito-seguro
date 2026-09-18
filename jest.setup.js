@@ -52,3 +52,16 @@ jest.mock('react-native-safe-area-context', () => {
   const mock = require('react-native-safe-area-context/jest/mock');
   return mock.default ?? mock;
 });
+
+// Fonts are static assets in production. Keep boot tests deterministic without
+// attempting native font registration in the Jest runtime.
+jest.mock('expo-font', () => ({
+  loadAsync: async () => undefined,
+}));
+
+// Keyboard Controller is native-only. Its package provides this lightweight
+// React Native component mock for Jest, while real Android builds use the
+// autolinked native implementation.
+jest.mock('react-native-keyboard-controller', () =>
+  require('react-native-keyboard-controller/jest')
+);

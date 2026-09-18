@@ -7,7 +7,8 @@
 // becomes `colors.secondary`, and the two hand-rolled passphrase inputs
 // collapse onto TextField's secureToggle.
 import { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from './primitives/Text';
 import { AlertTriangle, CheckCircle, HardDrive, KeyRound } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

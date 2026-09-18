@@ -6,10 +6,11 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
-      "node": "20.15.0"
+      "node": "22.13.0"
     }
   }
 }

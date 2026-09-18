@@ -5,7 +5,8 @@
 // colors.dashboardX alias is gone, replaced by real v2 schema names.
 import { useState } from 'react';
 import { Pencil } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';
 import { Dialog } from './primitives/Dialog';

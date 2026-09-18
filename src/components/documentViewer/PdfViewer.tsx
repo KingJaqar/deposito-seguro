@@ -6,7 +6,8 @@
 // (base64) rather than the caller doing it, so document.tsx just hands
 // this component a local URI and stays a thin router between file types.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
 import { AlertCircle } from 'lucide-react-native';

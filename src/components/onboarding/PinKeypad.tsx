@@ -6,7 +6,8 @@
 // row). Purely a dumb input widget — the parent owns the PIN string and
 // decides when a full PIN triggers auto-advance.
 import { Delete } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { useTheme } from '../../contexts/ThemeContext';
 
 const ROWS: (string | null)[][] = [

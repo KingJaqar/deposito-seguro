@@ -7,7 +7,8 @@
 // — laid out as its own row with real margin (not stacked on top of the
 // badge) so it never overlaps the wordmark.
 import { ChevronLeft } from 'lucide-react-native';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 

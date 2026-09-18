@@ -39,7 +39,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -70,6 +69,7 @@ import { Snackbar, useSnackbar } from '../../components/primitives/Snackbar';
 import { TopToast, useTopToast } from '../../components/primitives/TopToast';
 import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
 import { TextField } from '../../components/primitives/TextField';
+import { Text } from '../../components/primitives/Text';
 import { MAX_NAME_LENGTH } from '../../constants/naming';
 import { CategoryTint } from '../../constants/Colors';
 import { Type } from '../../constants/typography';

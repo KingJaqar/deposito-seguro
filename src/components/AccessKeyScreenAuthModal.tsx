@@ -7,7 +7,8 @@
 // JSX/StyleSheet is new; the hand-rolled eye-icon input becomes TextField's
 // secureToggle and the hardcoded '#FFFFFF' verify button becomes a Button.
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { Key, Lock } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

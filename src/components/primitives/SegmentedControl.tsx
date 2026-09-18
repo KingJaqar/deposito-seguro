@@ -3,7 +3,8 @@
 // semantics (§6): accessibilityRole="radiogroup" on the container,
 // "radio" + checked state per option — not bare touchables.
 import React, { useRef } from 'react';
-import { AccessibilityInfo, Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, LayoutChangeEvent, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './Text';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 import { Durations } from '../../constants/animations';

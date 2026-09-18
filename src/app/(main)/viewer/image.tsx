@@ -19,7 +19,8 @@
 //    canvas, which only applies once there's an actual image to show)
 import { useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, StyleSheet, View, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { Text } from '../../../components/primitives/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AlertCircle, ChevronLeft, Share2, Trash2, Info, X } from 'lucide-react-native';
 import * as Sharing from 'expo-sharing';

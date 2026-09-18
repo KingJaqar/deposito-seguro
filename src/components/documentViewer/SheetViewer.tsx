@@ -7,7 +7,8 @@
 // (no WebView) — SheetJS's parser has no DOM dependency, and a native grid
 // scrolls far more smoothly than an HTML <table> would inside a WebView.
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { AlertCircle } from 'lucide-react-native';
 import { parseXlsx, columnLabel, ParsedWorkbook } from '../../services/documentViewers/xlsxParser';
 import { Chip } from '../primitives/Chip';

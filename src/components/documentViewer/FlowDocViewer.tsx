@@ -7,7 +7,8 @@
 // then handed to the same page-card shell. `kind` picks which path runs;
 // everything else about the two is identical from here down.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
 import { AlertCircle } from 'lucide-react-native';

@@ -1,10 +1,11 @@
 // File: src/app/_layout.tsx
 import { Slot } from 'expo-router';
+import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { setBackgroundColorAsync } from 'expo-system-ui';
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,7 +15,8 @@ import { RenameModalWrapper } from '../components/RenameModalWrapper';
 import { MoveProvider } from '../contexts/MoveVaultContext';
 import { RenameProvider } from '../contexts/RenameContext';
 import { CustomThemeProvider, useThemeColors } from '../contexts/ThemeContext';
-import { Type } from '../constants/typography';
+import { FontFamily, Type } from '../constants/typography';
+import { Text } from '../components/primitives/Text';
 import { HydrationProvider } from '../contexts/HydrationContext';
 import { DisguiseIconTheme } from '../types';
 import { useLockoutStore } from '../store/lockoutStore';
@@ -22,6 +24,15 @@ import { useSettingsStore } from '../store/settingsStore';
 import { useVaultStore } from '../store/vaultStore';
 import { StorageService } from '../services/storage';
 import { initializeDisguiseIcon, setFlagSecure } from '../utils/disguiseIcon';
+import {
+  Archivo_400Regular,
+  Archivo_500Medium,
+  Archivo_600SemiBold,
+  Archivo_700Bold,
+  Archivo_800ExtraBold,
+  Archivo_900Black,
+} from '@expo-google-fonts/archivo';
+import { ArchivoBlack_400Regular } from '@expo-google-fonts/archivo-black';
 
 // How long the JS boot splash (BootSplash) stays visible after the native
 // splash hides, so the correct branded image (§ bootSplashProps below) is
@@ -38,6 +49,16 @@ const BOOT_SPLASH_LINGER_MS = 400;
 const CALC_SYSTEM_BG = '#000000';
 
 SplashScreen.preventAutoHideAsync();
+
+const archivoFonts = {
+  [FontFamily.regular]: Archivo_400Regular,
+  [FontFamily.medium]: Archivo_500Medium,
+  [FontFamily.semiBold]: Archivo_600SemiBold,
+  [FontFamily.bold]: Archivo_700Bold,
+  [FontFamily.extraBold]: Archivo_800ExtraBold,
+  [FontFamily.black]: Archivo_900Black,
+  [FontFamily.display]: ArchivoBlack_400Regular,
+};
 
 export default function RootLayout() {
   // Rendered before CustomThemeProvider mounts (the error branch below can
@@ -76,6 +97,11 @@ export default function RootLayout() {
     }, 500);
 
     Promise.all([
+      // The boot splash covers the app until the faces are registered. A
+      // failed asset must never prevent access to the encrypted vault.
+      Font.loadAsync(archivoFonts).catch((error) => {
+        console.error('Archivo font load error', error);
+      }),
       useSettingsStore.getState().hydrateSettings(),
       useVaultStore.getState().hydrateVault(),
       useLockoutStore.getState().hydrateLockouts(),

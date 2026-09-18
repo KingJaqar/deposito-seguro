@@ -9,7 +9,8 @@
 // (`colors.borderLight` for the track, per §3/§5), so the bars and labels are
 // legible in every palette, not just dark ones.
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from '../../../components/primitives/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AlertTriangle, Database, HardDrive, Package, SlidersHorizontal } from 'lucide-react-native';
 import AnimatedTabBar from '../../../components/AnimatedTabBar';

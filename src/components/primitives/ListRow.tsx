@@ -3,7 +3,8 @@
 // favorites.tsx, search.tsx: leading icon/thumbnail, title (wrapAtLength-
 // wrapped), metadata line, trailing badges, trailing overflow/checkbox slot.
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Image, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './Text';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { CheckSquare, Square, MoreVertical } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

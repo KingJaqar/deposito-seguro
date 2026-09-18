@@ -3,7 +3,8 @@
 // (clipboard, undoInfo, clearClipboard), the showUndo condition, and the
 // label pluralization logic are unchanged; the prop interface is preserved
 // so every calling screen passes exactly what it passes today.
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { ClipboardCheck, ClipboardX, Undo2 } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

@@ -31,7 +31,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -55,8 +54,9 @@ import { RootFolderIcon } from '../../components/primitives/RootFolderIcon';
 import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
 import { SegmentedControl } from '../../components/primitives/SegmentedControl';
 import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
+import { Text } from '../../components/primitives/Text';
 import { CategoryTint } from '../../constants/Colors';
-import { Type } from '../../constants/typography';
+import { FontFamily, Type } from '../../constants/typography';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAlbumCoverUri } from '../../hooks/useAlbumCoverUri';
 import { MIN_TOUCH_TARGET } from '../../utils/responsive';
@@ -929,7 +929,7 @@ export default function TrashScreen() {
           <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
             <Search size={iconSize(18)} color={colors.textMuted} />
             <TextInput
-              style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+              style={[styles.searchInput, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size) }]}
               placeholder={searchPlaceholder}
               placeholderTextColor={colors.textMuted}
               value={search}

@@ -1,7 +1,8 @@
 // src/components/FileInfoCard.tsx
 // Rebuilt per §5/§7 Phase 4. Local wrapAtLength copy replaced with the shared
 // utility; rendered on the Card primitive. Prop interface unchanged.
-import { StyleSheet, View, Text, ViewStyle } from 'react-native';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Text } from './primitives/Text';
 import { File, Folder } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

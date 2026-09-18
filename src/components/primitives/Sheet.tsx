@@ -13,7 +13,6 @@ import {
   PanResponder,
   Pressable,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -24,6 +23,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { Durations, EasingCurves } from '../../constants/animations';
 import { Type } from '../../constants/typography';
 import { BaseModal } from './Modal';
+import { Text } from './Text';
 
 // Module-level so it's created once, not every render — Easing.bezier
 // returns a new function each call, and re-creating it per render would

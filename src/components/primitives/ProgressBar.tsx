@@ -6,7 +6,8 @@
 // colors.borderLight instead (§3/§4). Numeric label always shown alongside
 // the bar, never bar-only (§6).
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from './Text';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 

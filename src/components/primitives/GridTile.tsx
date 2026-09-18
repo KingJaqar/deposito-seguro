@@ -6,7 +6,8 @@
 // Shared by dashboard.tsx's vault grid and folder/[id].tsx's subfolder/file
 // grid so every "small/medium/large icons" view mode renders the same way.
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Image as RNImage, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './Text';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { CheckCircle2, Circle, Play, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

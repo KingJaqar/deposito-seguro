@@ -35,7 +35,6 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -66,8 +65,9 @@ import { SubfolderIcon } from '../../components/primitives/SubfolderIcon';
 import { Snackbar, useSnackbar } from '../../components/primitives/Snackbar';
 import { TopToast, useTopToast, bulkOutcomeToast } from '../../components/primitives/TopToast';
 import { TextField } from '../../components/primitives/TextField';
+import { Text } from '../../components/primitives/Text';
 import { CategoryTint } from '../../constants/Colors';
-import { Type } from '../../constants/typography';
+import { FontFamily, Type } from '../../constants/typography';
 import { useRename } from '../../contexts/RenameContext';
 import { useMove } from '../../contexts/MoveVaultContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -909,7 +909,7 @@ export default function FavoritesScreen() {
         <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
           <Search size={iconSize(18)} color={colors.textMuted} />
           <TextInput
-            style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+            style={[styles.searchInput, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size) }]}
             placeholder="Search files & folders…"
             placeholderTextColor={colors.textMuted}
             value={query}

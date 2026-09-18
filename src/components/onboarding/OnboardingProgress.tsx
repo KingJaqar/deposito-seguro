@@ -4,7 +4,8 @@
 // segment is highlighted (not a cumulative fill) — passing activeStep={0}
 // (the sealed/done screen) renders all four segments inactive, matching
 // "onboarding 5 done setup.png" exactly.
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Type } from '../../constants/typography';
 

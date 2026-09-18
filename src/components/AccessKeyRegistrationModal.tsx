@@ -9,7 +9,8 @@
 // the full bulk/file/folder assignment fan-out with its exact Alert.alert
 // copy. isFormValid and the strength derivation are unchanged.
 import { useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { Files, FileText, Folder } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

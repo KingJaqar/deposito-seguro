@@ -7,7 +7,8 @@
 // selectCurrentFolder. Only the JSX/StyleSheet is new — and every
 // `colors.accent` deprecated alias is replaced with `colors.secondary`.
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
+import { Text } from './primitives/Text';
 import { Folder, ChevronRight, Check, Home, FolderOpen } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useTheme } from '../contexts/ThemeContext';

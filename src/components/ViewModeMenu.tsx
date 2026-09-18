@@ -4,7 +4,8 @@
 // (useSettingsStore().viewMode read/write) is unchanged.
 import { useState } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { List, LayoutGrid, PanelTop, Monitor, Check } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';

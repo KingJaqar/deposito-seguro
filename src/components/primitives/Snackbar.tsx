@@ -6,7 +6,8 @@
 // for Sheet, translating from the bottom edge over a shorter distance, and
 // auto-dismissing itself after ~3s.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, Animated, StyleSheet } from 'react-native';
+import { Text } from './Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CircleCheck, CircleX } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';

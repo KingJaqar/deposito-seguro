@@ -10,7 +10,8 @@
 // hand-rolled eye-icon input blocks collapse onto TextField's secureToggle,
 // and the hardcoded '#000000'/'#FFFFFF' submit button becomes a themed Button.
 import { useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { Lock } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

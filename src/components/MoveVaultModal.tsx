@@ -24,9 +24,10 @@
 // out upstream. No extra circular-reference check is needed.
 import { ChevronLeft, ChevronRight, Check, Folder, Lock, Search, Star, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { useTheme } from '../contexts/ThemeContext';
-import { Type } from '../constants/typography';
+import { FontFamily, Type } from '../constants/typography';
 import { formatFolderStatsLabel } from '../utils/folderStats';
 import { Badge } from './primitives/Badge';
 import { Dialog } from './primitives/Dialog';
@@ -273,7 +274,7 @@ export function MoveVaultModal({ visible, onClose, item, folders, onMove }: Move
           <View style={[styles.searchContainer, { backgroundColor: colors.surfaceHover, borderColor: colors.borderLight, borderRadius: radius(4), paddingHorizontal: space(3), marginBottom: space(3), gap: space(2), minHeight: touchTarget() }]}>
             <Search size={iconSize(16)} color={colors.textMuted} strokeWidth={2} />
             <TextInput
-              style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+              style={[styles.searchInput, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size) }]}
               placeholder="Search folders…"
               placeholderTextColor={colors.textMuted}
               value={searchQuery}

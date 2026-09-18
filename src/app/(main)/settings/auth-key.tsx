@@ -14,7 +14,8 @@
 //  - the screen-enter fade goes through the shared useScreenEnterAnimation()
 //    hook (§4) instead of a hand-rolled copy — see folder/[id].tsx
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
+import { Text } from '../../../components/primitives/Text';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Key, Lock, ShieldCheck } from 'lucide-react-native';

@@ -6,7 +6,8 @@
 // summaries on every section header, and swatch/pill pickers in place of the
 // old uppercase-eyebrow section labels + plain segmented control everywhere.
 import { useRef, useState } from 'react';
-import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../../components/primitives/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Check,

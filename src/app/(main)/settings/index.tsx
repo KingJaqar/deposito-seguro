@@ -34,7 +34,8 @@ import {
 } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text } from '../../../components/primitives/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import { AccessKeyScreenAuthModal } from '../../../components/AccessKeyScreenAuthModal';
@@ -48,7 +49,7 @@ import { ProgressBar } from '../../../components/primitives/ProgressBar';
 import { SwitchRow } from '../../../components/primitives/SwitchRow';
 import { TextField } from '../../../components/primitives/TextField';
 import { TopToast, useTopToast } from '../../../components/primitives/TopToast';
-import { Type } from '../../../constants/typography';
+import { FontFamily, Type } from '../../../constants/typography';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useScreenEnterAnimation } from '../../../hooks/useScreenEnterAnimation';
 import { MIN_TOUCH_TARGET } from '../../../utils/responsive';
@@ -344,7 +345,7 @@ export default function SettingsCenterScreen() {
           <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
             <Search size={iconSize(18)} color={colors.textMuted} />
             <TextInput
-              style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+              style={[styles.searchInput, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size) }]}
               placeholder="Search settings…"
               placeholderTextColor={colors.textMuted}
               value={query}

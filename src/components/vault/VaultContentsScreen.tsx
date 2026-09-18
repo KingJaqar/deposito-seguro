@@ -50,7 +50,6 @@ import {
   Platform,
   SectionList,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -80,8 +79,9 @@ import { Snackbar, useSnackbar } from '../primitives/Snackbar';
 import { TopToast, useTopToast, bulkOutcomeToast } from '../primitives/TopToast';
 import { SubfolderIcon } from '../primitives/SubfolderIcon';
 import { TextField } from '../primitives/TextField';
+import { Text } from '../primitives/Text';
 import { MAX_NAME_LENGTH, truncateDisplayName } from '../../constants/naming';
-import { Type } from '../../constants/typography';
+import { FontFamily, Type } from '../../constants/typography';
 import { useRename } from '../../contexts/RenameContext';
 import { useMove } from '../../contexts/MoveVaultContext';
 import { useHydration } from '../../contexts/HydrationContext';
@@ -1086,7 +1086,7 @@ export function VaultContentsScreen({ variant, containerId: id }: VaultContentsS
       <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderLight, borderRadius: radius(5), paddingHorizontal: space(4), marginBottom: space(4), gap: space(2), minHeight: MIN_TOUCH_TARGET }]}>
         <Search size={iconSize(18)} color={colors.textMuted} />
         <TextInput
-          style={[styles.searchInput, { color: colors.text, fontSize: font(Type.body.size) }]}
+          style={[styles.searchInput, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size) }]}
           placeholder={isAlbum ? 'Search photos & videos…' : 'Search files & folders…'}
           placeholderTextColor={colors.textMuted}
           value={search}

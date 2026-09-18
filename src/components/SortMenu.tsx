@@ -10,7 +10,8 @@
 //   - Enhancement C: a small active-indicator dot on the trigger icon when
 //     the current sort isn't the screen's own default.
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { Check } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';

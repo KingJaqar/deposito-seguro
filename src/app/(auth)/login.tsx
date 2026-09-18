@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { Delete, Lock } from 'lucide-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Text } from '../../components/primitives/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { Button } from '../../components/primitives/Button';

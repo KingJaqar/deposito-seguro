@@ -6,7 +6,8 @@
 // document/media content rather than app surface — see those files' own
 // comments on why a light-theme `colors.glass` tint wouldn't read here.
 import { useEffect, useRef } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Text } from '../primitives/Text';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Durations } from '../../constants/animations';
 

@@ -3,7 +3,8 @@
 // Dialog). The accessKeys store read and the onSelectPassword(ak.id) contract
 // are unchanged; prop interface preserved for every caller.
 import { KeyRound, ChevronRight } from 'lucide-react-native';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from './primitives/Text';
 import { useTheme } from '../contexts/ThemeContext';
 import { Type } from '../constants/typography';
 import { EmptyState } from './primitives/EmptyState';

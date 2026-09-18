@@ -67,7 +67,7 @@ export function TextField({
           onBlur={(e) => { setFocused(false); onBlur?.(e); }}
           accessibilityLabel={label ?? inputProps.accessibilityLabel}
           accessibilityHint={helper}
-          style={[styles.input, { color: colors.text, fontSize: font(Type.body.size), paddingVertical: dense ? 8 : 12 }]}
+          style={[styles.input, { color: colors.text, fontFamily: FontFamily.medium, fontSize: font(Type.body.size), paddingVertical: dense ? 8 : 12 }]}
         />
         {secureToggle && (
           <Pressable
@@ -114,7 +114,6 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     paddingVertical: 12,
-    fontFamily: FontFamily.medium,
   },
   toggle: {
     padding: 4,

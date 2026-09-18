@@ -4,7 +4,8 @@
 // every document type this screen handles. Text is read by the caller
 // (document.tsx already does this as part of its decrypt pipeline) — this
 // component just lays it out.
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../primitives/Text';
 
 // Same fixed light backdrop as the other document viewers — see
 // PdfViewer.tsx's CANVAS_BG comment.

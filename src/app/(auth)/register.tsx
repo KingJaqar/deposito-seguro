@@ -13,7 +13,8 @@
 import { router } from 'expo-router';
 import { ArrowRight, Check, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from '../../components/primitives/Text';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -23,7 +24,7 @@ import { PinDots } from '../../components/onboarding/PinDots';
 import { PinKeypad } from '../../components/onboarding/PinKeypad';
 import { Button } from '../../components/primitives/Button';
 import { useTheme } from '../../contexts/ThemeContext';
-import { Type } from '../../constants/typography';
+import { FontFamily, Type } from '../../constants/typography';
 import { useScreenEnterAnimation } from '../../hooks/useScreenEnterAnimation';
 import { SecureCrypto } from '../../security/crypto';
 import { useAuthStore } from '../../store/authStore';
@@ -177,6 +178,7 @@ export default function RegisterScreen() {
                       color: colors.text,
                       backgroundColor: colors.surfaceElevated,
                       borderColor: colors.border,
+                      fontFamily: FontFamily.medium,
                       fontSize: font(Type.body.size),
                       paddingHorizontal: space(4),
                     },
