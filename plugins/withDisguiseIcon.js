@@ -16,7 +16,7 @@
  *   - the calculator-icon mipmap PNGs (identical source image copied into
  *     every density bucket, matching how they exist in the repo today)
  */
-const { withDangerousMod, withMainApplication, withAndroidManifest, withAndroidStyles, AndroidConfig } = require('expo/config-plugins');
+const { withDangerousMod, withFinalizedMod, withMainApplication, withAndroidManifest } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -194,27 +194,14 @@ function mipmapResourceName(theme) {
 function configureNeutralAndroidSplash(projectRoot) {
   const resDir = path.join(projectRoot, 'android/app/src/main/res');
   const drawableDir = path.join(resDir, 'drawable');
-  const neutralDrawablePath = path.join(drawableDir, 'splashscreen_neutral.xml');
-  const stylesPath = path.join(resDir, 'values/styles.xml');
+  // expo-splash-screen always generates its Android 12+ style with this
+  // resource name. Since app.json intentionally has no splash image, Expo
+  // does not generate the drawable itself; provide our transparent version
+  // using the exact name that the generated style references.
+  const neutralDrawablePath = path.join(drawableDir, 'splashscreen_logo.xml');
 
   fs.mkdirSync(drawableDir, { recursive: true });
   fs.writeFileSync(neutralDrawablePath, NEUTRAL_SPLASH_DRAWABLE_XML);
-
-  if (!fs.existsSync(stylesPath)) {
-    console.warn('[withDisguiseIcon] Android splash styles were not generated.');
-    return;
-  }
-
-  const styles = fs.readFileSync(stylesPath, 'utf8');
-  const updatedStyles = styles.replace(
-    /(<item name="windowSplashScreenAnimatedIcon">)[^<]*(<\/item>)/,
-    '$1@drawable/splashscreen_neutral$2'
-  );
-  if (updatedStyles === styles) {
-    console.warn('[withDisguiseIcon] could not replace the Android splash icon resource.');
-    return;
-  }
-  fs.writeFileSync(stylesPath, updatedStyles);
 }
 
 function withDisguiseIconNativeFiles(config) {
@@ -255,8 +242,19 @@ function withDisguiseIconNativeFiles(config) {
         }
       }
 
-      configureNeutralAndroidSplash(config.modRequest.projectRoot);
+      return config;
+    },
+  ]);
+}
 
+// expo-splash-screen creates or removes its own resources during the regular
+// Android mod phase. This must therefore run as a finalized mod: a dangerous
+// mod runs first and its splashscreen_logo.xml would be deleted afterwards.
+function withNeutralAndroidSplash(config) {
+  return withFinalizedMod(config, [
+    'android',
+    async (config) => {
+      configureNeutralAndroidSplash(config.modRequest.projectRoot);
       return config;
     },
   ]);
@@ -329,24 +327,12 @@ function withDisguiseIconManifest(config) {
   });
 }
 
-function withDisguiseIconStyles(config) {
-  return withAndroidStyles(config, (config) => {
-    config.modResults = AndroidConfig.Styles.assignStylesValue(config.modResults, {
-      add: true,
-      name: 'windowSplashScreenAnimatedIcon',
-      value: '@drawable/splashscreen_neutral',
-      parent: { name: 'Theme.App.SplashScreen' },
-    });
-    return config;
-  });
-}
-
 /** @type {import('expo/config-plugins').ConfigPlugin} */
 module.exports = function withDisguiseIcon(config) {
   config = withDisguiseIconNativeFiles(config);
   config = withDisguiseIconPackageRegistration(config);
   config = withDisguiseIconManifest(config);
-  config = withDisguiseIconStyles(config);
+  config = withNeutralAndroidSplash(config);
   return config;
 };
 
